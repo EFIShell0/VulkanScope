@@ -501,18 +501,6 @@ Contributions, testing, bug reports and feedback are welcome.
 
 ---
 
-# Developer
-
-**Semih Boran**
-
-**Nickname:** EFI Shell
-
-GitHub:
-
-**https://github.com/EFIShell0**
-
----
-
 # Requirements
 
 VulkanScope requires an Android device with a Vulkan-capable implementation.
