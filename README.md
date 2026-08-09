@@ -11,19 +11,23 @@ The interface follows a dark Material 3 Expressive visual direction with a compa
 The native collector queries the installed Android Vulkan loader and physical device directly. It enumerates instance extensions, device extensions, core Vulkan 1.0 features, Vulkan 1.1 through 1.4 core feature structures when exposed, queue families, memory heaps and types, selected format properties, physical-device limits, and a real Android VkSurfaceKHR surface.
 
 # Screenshots
+
 <p align="center">
   <img src="screenshots/1.jpg" width="200">
   <img src="screenshots/2.jpg" width="200">
   <img src="screenshots/3.jpg" width="200">
 </p>
+
 <p align="center">
   <img src="screenshots/4.jpg" width="200">
   <img src="screenshots/5.jpg" width="200">
   <img src="screenshots/6.jpg" width="200">
 </p>
+
 <p align="center">
-  <img src="screenshot/7.png" width="500">
+  <img src="screenshots/7.png" width="500">
 </p>
+
 
 The Surface page reports exact format and color-space pairs, present modes, surface capabilities and queue-family presentation support. The Display & HDR page separately reports Android display HDR types, luminance, wide-color capability, preferred wide-gamut color space and display modes.
 
