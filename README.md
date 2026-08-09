@@ -12,14 +12,15 @@ The native collector queries the installed Android Vulkan loader and physical de
 
 # Screenshots
 <p align="center">
-  <img src="screenshots/1.jpeg" width="200">
-  <img src="screenshots/2.jpeg" width="200">
-  <img src="screenshots/3.jpeg" width="200">
+  <img src="screenshots/1.jpg" width="200">
+  <img src="screenshots/2.jpg" width="200">
+  <img src="screenshots/3.jpg" width="200">
 </p>
 <p align="center">
-  <img src="screenshots/4.jpeg" width="200">
-  <img src="screenshots/5.jpeg" width="200">
-  <img src="screenshots/6.jpeg" width="200">
+  <img src="screenshots/4.jpg" width="200">
+  <img src="screenshots/5.jpg" width="200">
+  <img src="screenshots/6.jpg" width="200">
+  <img src="screenshots/7.png" width="200">
 </p>
 
 The Surface page reports exact format and color-space pairs, present modes, surface capabilities and queue-family presentation support. The Display & HDR page separately reports Android display HDR types, luminance, wide-color capability, preferred wide-gamut color space and display modes.
