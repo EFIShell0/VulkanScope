@@ -21,8 +21,8 @@ The native collector queries the installed Android Vulkan loader and physical de
   <img src="screenshots/5.jpg" width="200">
   <img src="screenshots/6.jpg" width="200">
 </p>
-<p
-  img src="screenshot/7.png" width="800">
+<p align="center">
+  <img src="screenshot/7.png" width="800">
 </p>
 
 The Surface page reports exact format and color-space pairs, present modes, surface capabilities and queue-family presentation support. The Display & HDR page separately reports Android display HDR types, luminance, wide-color capability, preferred wide-gamut color space and display modes.
