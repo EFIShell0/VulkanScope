@@ -2,6 +2,7 @@ package com.efishell.vulkanscope
 
 import android.graphics.Color
 import android.os.Bundle
+import android.content.res.Configuration
 import android.os.Build
 import android.view.Surface
 import android.view.SurfaceHolder
@@ -24,6 +25,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -168,8 +170,6 @@ class MainActivity : ComponentActivity() {
         prefs = getSharedPreferences("settings", MODE_PRIVATE)
         driverMode = DriverMode.values().find { it.name == prefs.getString("driver_mode", DriverMode.SYSTEM.name) } ?: DriverMode.SYSTEM
         System.loadLibrary("vulkanscope")
-        // Turnip is available only when this APK is running as arm64-v8a AND the
-        // system Vulkan device identifies itself as Qualcomm (vendor ID 0x5143).
         turnipSupported = Build.SUPPORTED_ABIS.any { it == "arm64-v8a" } && runCatching { isAdrenoDevice() }.getOrDefault(false)
         if (!turnipSupported && driverMode == DriverMode.TURNIP) {
             driverMode = DriverMode.SYSTEM
@@ -212,7 +212,7 @@ class MainActivity : ComponentActivity() {
 
     private fun openDriverBundlePicker() {
         if (!turnipSupported) {
-            android.widget.Toast.makeText(this, "Turnip is available only on arm64-v8a devices.", android.widget.Toast.LENGTH_LONG).show()
+            android.widget.Toast.makeText(this, "Unavailable on this ABI. Turnip support requires arm64-v8a and a Qualcomm Adreno GPU.", android.widget.Toast.LENGTH_LONG).show()
             return
         }
         driverPickerLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
@@ -612,50 +612,62 @@ private fun VulkanScopeApp(
             )
         }
 
+        val isLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
         Scaffold(
             containerColor = ComposeColor.Black,
             topBar = { AppHeader(page, onBack = { page = Page.Overview }, onSettings = { page = Page.Settings }, onInfo = { page = Page.Info }) },
             bottomBar = {
-                NavigationBar(containerColor = ComposeColor(0xFF0A0A0A), tonalElevation = 0.dp) {
-                    navigationItems().forEach { item ->
-                        NavigationBarItem(
-                            selected = selectedNavigationPage(page) == item.page,
-                            onClick = { page = item.page },
-                            icon = { Icon(painterResource(item.icon), contentDescription = item.label, modifier = Modifier.size(24.dp)) },
-                            label = { Text(item.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = red,
-                                selectedTextColor = red,
-                                indicatorColor = ComposeColor.Transparent,
-                                unselectedIconColor = ComposeColor(0xFF8F8F8F),
-                                unselectedTextColor = ComposeColor(0xFF8F8F8F)
+                if (!isLandscape) {
+                    NavigationBar(containerColor = ComposeColor(0xFF0A0A0A), tonalElevation = 0.dp) {
+                        navigationItems().forEach { item ->
+                            NavigationBarItem(
+                                selected = selectedNavigationPage(page) == item.page,
+                                onClick = { page = item.page },
+                                icon = { Icon(painterResource(item.icon), contentDescription = item.label, modifier = Modifier.size(24.dp)) },
+                                label = { Text(item.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = red,
+                                    selectedTextColor = red,
+                                    indicatorColor = ComposeColor.Transparent,
+                                    unselectedIconColor = ComposeColor(0xFF8F8F8F),
+                                    unselectedTextColor = ComposeColor(0xFF8F8F8F)
+                                )
                             )
-                        )
+                        }
                     }
                 }
             }
         ) { padding ->
-            Box(Modifier.fillMaxSize().padding(padding)) {
-                SurfaceProbe(
-                    modifier = Modifier.matchParentSize(),
-                    onCreated = { surface ->
-                        surfaceReady(surface)
-                        surfaceGeneration += 1
-                    },
-                    onDestroyed = surfaceDestroyed
-                )
-                if (loading) LoadingView()
-                else {
-                    val current = report
-                    if (current == null) EmptyState("No Vulkan report")
-                    else PageContent(page, current, displayReport, driverMode, turnipSupported, onDriverModeChanged, onInstallDriverBundle, onRefresh = {
-                        loading = true
-                        try {
-                            report = collect()
-                        } finally {
-                            loading = false
-                        }
-                    }, onNavigate = { page = it })
+            Row(Modifier.fillMaxSize().padding(padding)) {
+                if (isLandscape) {
+                    CompactNavigationRail(
+                        selectedPage = selectedNavigationPage(page),
+                        onPageSelected = { page = it },
+                        red = red
+                    )
+                }
+                Box(Modifier.weight(1f)) {
+                    SurfaceProbe(
+                        modifier = Modifier.matchParentSize(),
+                        onCreated = { surface ->
+                            surfaceReady(surface)
+                            surfaceGeneration += 1
+                        },
+                        onDestroyed = surfaceDestroyed
+                    )
+                    if (loading) LoadingView()
+                    else {
+                        val current = report
+                        if (current == null) EmptyState("No Vulkan report")
+                        else PageContent(page, current, displayReport, driverMode, turnipSupported, onDriverModeChanged, onInstallDriverBundle, onRefresh = {
+                            loading = true
+                            try {
+                                report = collect()
+                            } finally {
+                                loading = false
+                            }
+                        }, onNavigate = { page = it })
+                    }
                 }
             }
         }
@@ -945,17 +957,18 @@ private fun OverviewPage(report: VulkanReport, device: DeviceReport?, display: D
             }
         }
         item { SectionCard("Quick access") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     QuickAccessCard("Vulkan", Page.Vulkan, navigate, Modifier.weight(1f))
                     QuickAccessCard("Surface", Page.Surface, navigate, Modifier.weight(1f))
                     QuickAccessCard("Display", Page.Display, navigate, Modifier.weight(1f))
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     QuickAccessCard("HDR & Color", Page.Display, navigate, Modifier.weight(1f))
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     QuickAccessCard("Extensions", Page.Extensions, navigate, Modifier.weight(1f))
                     QuickAccessCard("Profiles", Page.Profiles, navigate, Modifier.weight(1f))
                     QuickAccessCard("More", Page.Features, navigate, Modifier.weight(1f))
+                    Spacer(Modifier.weight(1f))
                 }
             }
         } }
@@ -1003,7 +1016,7 @@ private fun HeroCard(device: DeviceReport?, report: VulkanReport, driverMode: Dr
     Card(colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF171717)), shape = RoundedCornerShape(28.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                VendorLogo(device?.vendorIdRaw, Modifier.size(82.dp))
+                VendorLogo(device?.vendorIdRaw, device?.name, Modifier.size(82.dp))
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
                     Text(device?.name ?: "Vulkan device unavailable", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -1021,11 +1034,82 @@ private fun HeroCard(device: DeviceReport?, report: VulkanReport, driverMode: Dr
 
 @Composable
 private fun QuickAccessCard(title: String, destination: Page, navigate: (Page) -> Unit, modifier: Modifier) {
-    Card(onClick = { navigate(destination) }, colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF171717)), shape = RoundedCornerShape(17.dp), modifier = modifier.height(78.dp)) {
-        Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-            Icon(painterResource(pageIcon(destination)), contentDescription = null, modifier = Modifier.size(22.dp), tint = ComposeColor(0xFFF21D2F))
-            Spacer(Modifier.width(8.dp))
-            Text(title, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    Card(
+        onClick = { navigate(destination) },
+        colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF171717)),
+        shape = RoundedCornerShape(18.dp),
+        modifier = modifier.height(72.dp)
+    ) {
+        Column(
+            Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 7.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically)
+        ) {
+            Icon(
+                painterResource(pageIcon(destination)),
+                contentDescription = null,
+                modifier = Modifier.size(19.dp),
+                tint = ComposeColor(0xFFF21D2F)
+            )
+            Text(
+                title,
+                fontSize = 11.sp,
+                lineHeight = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun CompactNavigationRail(selectedPage: Page, onPageSelected: (Page) -> Unit, red: ComposeColor) {
+    Surface(
+        modifier = Modifier.width(80.dp),
+        color = ComposeColor(0xFF101010)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 6.dp, vertical = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            navigationItems().forEach { item ->
+                val selected = selectedPage == item.page
+                Card(
+                    onClick = { onPageSelected(item.page) },
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (selected) ComposeColor(0x332F1014) else ComposeColor.Transparent
+                    ),
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.fillMaxWidth().height(54.dp)
+                ) {
+                    Column(
+                        Modifier.fillMaxSize().padding(horizontal = 2.dp, vertical = 4.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(1.dp, Alignment.CenterVertically)
+                    ) {
+                        Icon(
+                            painterResource(item.icon),
+                            contentDescription = item.label,
+                            modifier = Modifier.size(21.dp),
+                            tint = if (selected) red else ComposeColor(0xFF969696)
+                        )
+                        Text(
+                            item.label,
+                            color = if (selected) red else ComposeColor(0xFF969696),
+                            fontSize = 9.sp,
+                            lineHeight = 10.sp,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -1266,7 +1350,7 @@ private fun SettingsPage(report: VulkanReport, display: DisplayReport, mode: Dri
         item { SectionCard("Vulkan driver") {
             Text("Choose which Vulkan driver source VulkanScope should request. A restart is performed after changing the driver so the Vulkan loader is opened again with the new selection.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
             DriverOption(DriverMode.SYSTEM, mode == DriverMode.SYSTEM, "Uses Android's system Vulkan loader/driver.", enabled = true) { onModeChanged(DriverMode.SYSTEM) }
-            DriverOption(DriverMode.TURNIP, mode == DriverMode.TURNIP, if (turnipSupported) "Uses an installed AdrenoTools-compatible Turnip driver." else "Unavailable on this ABI. Turnip support requires arm64-v8a.", enabled = turnipSupported) { onModeChanged(DriverMode.TURNIP) }
+            DriverOption(DriverMode.TURNIP, mode == DriverMode.TURNIP, if (turnipSupported) "Uses an installed AdrenoTools-compatible Turnip driver." else "Unavailable on this ABI. Turnip support requires arm64-v8a and a Qualcomm Adreno GPU.", enabled = turnipSupported) { onModeChanged(DriverMode.TURNIP) }
             if (turnipSupported) {
                 Text("Turnip requires an AdrenoTools-compatible driver package (meta.json + Vulkan .so).", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
             }
@@ -1514,7 +1598,7 @@ private fun vendorInfo(vendorId: Long): VendorInfo = when (vendorId) {
     0x144DL -> VendorInfo("Samsung", R.drawable.gpu_vendor_samsung)
     0x14C3L -> VendorInfo("MediaTek", R.drawable.gpu_vendor_mediatek)
     0x14E4L -> VendorInfo("Broadcom", R.drawable.gpu_vendor_broadcom)
-    0x10001L -> VendorInfo("Vivante", R.drawable.gpu_vendor_vivante)
+    0x10001L -> VendorInfo("Vivante / VeriSilicon", R.drawable.gpu_vendor_vsi)
     0x10000L -> VendorInfo("Khronos", R.drawable.gpu_vendor_khronos)
     0x10002L -> VendorInfo("VeriSilicon", R.drawable.gpu_vendor_vsi)
     0x10003L -> VendorInfo("Kazan", R.drawable.gpu_vendor_kazan)
@@ -1527,8 +1611,9 @@ private fun vendorInfo(vendorId: Long): VendorInfo = when (vendorId) {
 }
 
 @Composable
-private fun VendorLogo(vendorId: Long?, modifier: Modifier) {
-    val info = vendorInfo(vendorId ?: -1L)
+private fun VendorLogo(vendorId: Long?, deviceName: String?, modifier: Modifier) {
+    val normalizedName = deviceName.orEmpty().lowercase()
+    val info = if (normalizedName.contains("maleoon")) VendorInfo("Huawei", R.drawable.gpu_vendor_huawei) else vendorInfo(vendorId ?: -1L)
     Card(colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF111111)), shape = RoundedCornerShape(18.dp), modifier = modifier) {
         Image(
             painter = painterResource(info.logo),

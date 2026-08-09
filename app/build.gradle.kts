@@ -11,8 +11,8 @@ android {
         applicationId = "com.efishell.vulkanscope"
         minSdk = 24
         targetSdk = 36
-        versionCode = 12
-        versionName = "0.2.20"
+        versionCode = 16
+        versionName = "0.2.24"
         // Build all supported Android ABIs. Turnip/libadrenotools is compiled only
         // for arm64-v8a; the other ABIs use the system Vulkan loader only.
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }

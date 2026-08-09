@@ -1,3 +1,35 @@
+# VulkanScope 0.2.25
+
+## Changes
+- Replaced the application resource set with the newly supplied `res` resources, including updated navigation icons, Vulkan/GPU vendor artwork and launcher assets.
+- Consolidated version history into the single `changelog.md`; removed the separate per-version `changelog_*.md` files from the project ZIP.
+
+# VulkanScope 0.2.24
+
+## Changes
+- Made the landscape navigation rail vertically scrollable when the available height cannot contain every navigation destination.
+- Kept the existing compact Material 3 Expressive rail sizing, icons, labels, colors and portrait bottom navigation unchanged.
+
+# VulkanScope 0.2.22
+
+- Tightened the landscape navigation rail layout so all navigation destinations remain compact, aligned and visible without excessive empty space.
+- Kept the navigation rail background consistent with the dark VulkanScope interface and retained the existing red accent and Vulkan icon.
+- Kept the portrait bottom navigation bar unchanged; the navigation rail is used only in landscape mode.
+- Reworked Overview Quick access cards into a smaller icon-over-label layout so all shortcuts fit cleanly in portrait mode without truncated labels.
+- Kept the GPU/device hero card at the top of Overview in both orientations.
+- Clarified the Turnip unavailable message to require both arm64-v8a and a Qualcomm Adreno GPU.
+
+# VulkanScope 0.2.21
+
+- Updated the UI to a more expressive Material 3 visual system with larger expressive shapes, tighter hierarchy and responsive navigation.
+- Added a Material 3 Navigation Rail for landscape mode; portrait mode keeps the existing bottom navigation bar.
+- Kept the existing Vulkan navigation mark and red accent treatment.
+- Reworked Overview Quick access into a compact 4-column layout so all shortcuts fit cleanly in portrait mode.
+- Kept the Overview GPU/device hero information at the top of the page in both orientations.
+- Huawei Maleoon GPUs now use the Huawei vendor logo in the GPU hero card.
+- Vivante GPUs now use the VeriSilicon vendor logo.
+- Clarified the Turnip unavailable message to require both arm64-v8a and a Qualcomm Adreno GPU.
+
 # VulkanScope 0.2.20
 
 - Changed the Android application ID and namespace to `com.efishell.vulkanscope`.
