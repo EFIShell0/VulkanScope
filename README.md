@@ -9,7 +9,7 @@ The goal of VulkanScope is to make information that is normally only accessible 
 ---
 
 # Screenshots
-![VulkanScope](screenshts/1.jpeg
+![VulkanScope](screenshots/1.jpeg
 
 
 ## Overview
