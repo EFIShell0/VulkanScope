@@ -9,7 +9,16 @@ The goal of VulkanScope is to make information that is normally only accessible 
 ---
 
 # Screenshots
-![VulkanScope](screenshots/1.jpeg)
+<p align="center">
+  <img src="screenshots/1.jpeg" width="200">
+  <img src="screenshots/2.jpeg" width="200">
+  <img src="screenshots/3.jpeg" width="200">
+</p>
+<p align="center">
+  <img src="screenshots/4.jpeg" width="200">
+  <img src="screenshots/5.jpeg" width="200">
+  <img src="screenshots/6.jpeg" width="200">
+</p>
 
 
 ## Overview
