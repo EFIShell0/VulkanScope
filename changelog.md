@@ -1,7 +1,35 @@
+# VulkanScope 0.4
+
+## Changes
+- Removed the Instance navigation tab completely.
+- Moved the existing Instance page content into the Vulkan tab.
+- Removed the Explore section from the Vulkan tab because the same Explore content is already available in Overview.
+- Removed the `Device Detected` and `Offline Inspection` labels from the Overview GPU/device hero area.
+- Kept the existing Material 3 Expressive navigation and page-transition work unchanged.
+- Kept the Google TV launcher support and supplied GPU vendor artwork changes from the preceding releases.
+- Updated the application version to `0.4`.
+
+# VulkanScope 0.3.1
+
+## Changes
+- Replaced the Huawei GPU vendor artwork with the supplied Huawei logo.
+- Replaced the Vivante/VeriSilicon GPU vendor artwork with the supplied VeriSilicon logo.
+- Removed vendor recognition and vendor logos for PoCL, Mesa, MediaTek, Khronos, Mobileye, Kazan, Codeplay, Apple and APE; these vendors are now presented as `Unknown`.
+- Updated the application version to `0.3.1`.
+
+# VulkanScope 0.3.0
+
+## Changes
+- Added Google TV / Android TV launcher support so VulkanScope can appear as a TV application.
+- Removed the redundant Refresh button from the bottom of Overview.
+- Updated the portrait navigation presentation to use the existing navigation icons with the Material 3 Expressive visual treatment.
+- Added a smooth Material 3-style animated transition between navigation pages instead of an abrupt content swap.
+- Updated the application version to `0.3.0`.
+
 # VulkanScope 0.2.25
 
 ## Changes
-- Replaced the application resource set with the newly supplied `res` resources, including updated navigation icons, Vulkan/GPU vendor artwork and launcher assets.
+- Replaced the application resource set with the newly supplied resources, including updated navigation icons, Vulkan/GPU vendor artwork and launcher assets.
 - Consolidated version history into the single `changelog.md`; removed the separate per-version `changelog_*.md` files from the project ZIP.
 
 # VulkanScope 0.2.24
@@ -48,6 +76,7 @@
 - Preserves the multi-ABI configuration and Adreno/arm64 Turnip eligibility check.
 
 ## 0.2.14
+
 - Build arm64-v8a, armeabi-v7a and x86_64 APKs plus universal APK.
 - Turnip is offered only on arm64-v8a devices whose system Vulkan GPU vendor is Qualcomm/Adreno (0x5143).
 - Added instance layer/runtime inspection.
@@ -77,6 +106,7 @@
 - Kept `VK_EXT_swapchain_colorspace` instance-extension enablement and real `vkGetPhysicalDeviceSurfaceFormatsKHR` format/color-space querying intact.
 
 ## 0.2.4
+
 - Replaced the Features navigation glyph with an information-circle icon.
 - Added a settings action to the top app bar.
 - Added Vulkan driver selection settings: System Vulkan driver and Turnip / third-party driver bundle.
@@ -84,7 +114,8 @@
 - Native Vulkan loading now supports Mesa-style VK_DRIVER_FILES / VK_ICD_FILENAMES and attempts a bundled libvulkan.so when a third-party bundle provides one.
 - Recolored the Vulkan navigation mark to match the application's red accent while retaining the Vulkan mark geometry.
 
-## 0.2.9 – Turnip driver handling fix
+## 0.2.9 — Turnip driver handling fix
+
 - Fixed startup crash caused by reading Activity SharedPreferences before Activity attachment.
 - Turnip selection no longer changes active mode before a successful ZIP import/restart.
 - ZIP import now uses a temporary directory and replaces the installed bundle only after validation succeeds.
@@ -95,6 +126,7 @@
 - Turnip mode no longer silently falls back to the system Vulkan driver if the selected ICD cannot be loaded.
 
 ## 0.2.11 — rootless Turnip / AdrenoTools
+
 - Replaced direct `dlopen(libvulkan_freedreno.so)` with `libadrenotools` custom-driver loading.
 - Uses the Android app's `nativeLibraryDir` as the AdrenoTools hook directory.
 - Keeps the imported Turnip package in app-private storage.
@@ -104,6 +136,7 @@
 - Turnip loading now reports an AdrenoTools-specific error instead of misleading `libhardware.so` namespace failures.
 
 ## 0.2.15
+
 - Fixed Instance bottom-navigation selection so Instance no longer highlights Overview.
 - Added a dedicated Instance icon instead of reusing the Vulkan icon.
 - Added detailed Vulkan Core 1.1/1.2/1.3 physical-device properties via vkGetPhysicalDeviceProperties2.
