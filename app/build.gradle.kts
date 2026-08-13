@@ -11,15 +11,16 @@ android {
         applicationId = "com.efishell.vulkanscope"
         minSdk = 24
         targetSdk = 36
-        versionCode = 17
-        versionName = "0.4"
-        // Build all supported Android ABIs. Turnip/libadrenotools is compiled only
-        // for arm64-v8a; the other ABIs use the system Vulkan loader only.
+        versionCode = 53
+        versionName = "0.15.5"
+        
+        
+        ndkVersion = "28.2.13676358"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
 
-    // Build the same inspection engine for all requested Android ABIs. Turnip itself
-    // remains arm64 + Adreno only; other ABIs use the system Vulkan loader.
+    
+    
     splits {
         abi {
             isEnable = true
@@ -33,8 +34,8 @@ android {
         cmake { path = file("src/main/cpp/CMakeLists.txt") }
     }
 
-    // Required by libadrenotools: its hook libraries must be extracted to
-    // nativeLibraryDir so Android linker namespaces can load them.
+    
+    
     packaging {
         jniLibs {
             useLegacyPackaging = true
@@ -43,8 +44,8 @@ android {
 
     buildTypes {
         release {
-            // Release builds are optimized, non-debuggable and ready to be signed.
-            // Signing is intentionally left to the developer-owned keystore.
+            
+            
             isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true

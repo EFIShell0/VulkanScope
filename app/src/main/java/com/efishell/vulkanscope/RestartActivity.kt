@@ -6,34 +6,54 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 
-/**
- * Minimal second-process hand-off used for a real process restart.
- * The visible restart confirmation is rendered by MainActivity with Material 3;
- * this helper is deliberately invisible and exists only to relaunch MainActivity
- * after the original process has been terminated.
- */
 class RestartActivity : Activity() {
+    companion object {
+        const val EXTRA_PARENT_PID = "parent_pid"
+    }
+
     private val handler = Handler(Looper.getMainLooper())
+    private var parentPid: Int = -1
+    private var attempts = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setDimAmount(0f)
         window.decorView.alpha = 0f
-        // Keep this process alive while MainActivity's original process is being
-        // terminated. A separate process is intentional: it survives killProcess()
-        // in MainActivity and can relaunch the application cleanly.
+        parentPid = intent.getIntExtra(EXTRA_PARENT_PID, -1)
+        waitForPreviousProcess()
+    }
+
+    private fun waitForPreviousProcess() {
         handler.postDelayed({
-            val launch = packageManager.getLaunchIntentForPackage(packageName)
-                ?: Intent(this, MainActivity::class.java)
-            launch.addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_CLEAR_TASK or
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                    Intent.FLAG_ACTIVITY_NO_ANIMATION
-            )
-            startActivity(launch)
-            finishAndRemoveTask()
-        }, 1200L)
+            attempts += 1
+            if (parentPid <= 0 || !isProcessAlive(parentPid)) {
+                launchMain()
+                return@postDelayed
+            }
+            if (attempts >= 50) {
+                runCatching { android.os.Process.killProcess(parentPid) }
+                handler.postDelayed({ launchMain() }, 300L)
+                return@postDelayed
+            }
+            waitForPreviousProcess()
+        }, 100L)
+    }
+
+    private fun isProcessAlive(pid: Int): Boolean = runCatching {
+        java.io.File("/proc/$pid").exists()
+    }.getOrDefault(false)
+
+    private fun launchMain() {
+        val launch = packageManager.getLaunchIntentForPackage(packageName)
+            ?: Intent(this, MainActivity::class.java)
+        launch.addFlags(
+            Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_CLEAR_TASK or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_NO_ANIMATION
+        )
+        startActivity(launch)
+        finishAndRemoveTask()
     }
 
     override fun onDestroy() {

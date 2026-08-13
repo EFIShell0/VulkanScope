@@ -2,7 +2,7 @@
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <application android:theme="@style/AppTheme" android:label="VulkanScope" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:allowBackup="false" android:supportsRtl="true" android:banner="@drawable/tv_banner">
-        <activity android:name=".RestartActivity" android:exported="false" android:process=":restart" android:taskAffinity="com.efishell.vulkanscope.restart" android:excludeFromRecents="true" android:noHistory="true" android:theme="@style/RestartTheme" />
+        <service android:name=".VulkanProbeService" android:exported="false" android:process=":vulkan_probe" android:stopWithTask="true" />
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>

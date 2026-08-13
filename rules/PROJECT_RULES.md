@@ -86,3 +86,5 @@
 - No unused native helper may remain. Every generated Vulkan metadata field must be consumed by the UI or intentionally exposed through the native report.
 - Compose experimental APIs must be explicitly opted into only at the smallest required scope.
 - Extension aggregation must preserve exact Vulkan extension names, scope, and specVersion without lossy transformations.
+- Registry-driven query coverage is build-time only and must consume the generated registry catalog; runtime must never download or parse remote registry data.
+- Generated registry metadata is informational unless the corresponding native struct/query path has been explicitly validated; unknown registry structures must remain unavailable rather than being guessed.
