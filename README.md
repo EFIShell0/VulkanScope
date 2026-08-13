@@ -1,16 +1,30 @@
-# VulkanScope
+VulkanScope 0.15.5 is a feature-focused Vulkan inspection release for Android, with extensive device capability reporting, Surface/Display/HDR inspection, Vulkan Video and Profile evaluation, offline registry-driven coverage, and Turnip / third-party driver support.
 
-VulkanScope is an offline Android Vulkan, Surface, Display and HDR inspection tool.
+## Highlights
 
-## UI
+- Vulkan **1.0 through 1.4** core capability inspection
+- Detailed Vulkan device properties, limits and features
+- Runtime instance and device extension enumeration
+- Extension search and filtering
+- Instance layer and device layer information
+- Device-layer extension information
+- Queue family and presentation capability inspection
+- Detailed memory heap and memory type reporting
+- Extensive Vulkan format capability inspection
+- Vulkan Surface capabilities, formats, color spaces and present modes
+- Android Display and HDR capability inspection
+- HDR luminance and wide-color information
+- Vulkan Profile evaluation
+- Vulkan Video decode and encode capability inspection
+- Vulkan Video queue and format capability reporting
+- Offline Khronos Vulkan registry-driven query coverage
+- Turnip / third-party Vulkan driver support
+- TXT and HTML report export
+- Multi-ABI Android native builds
 
-The interface follows a dark Material 3 Expressive visual direction with a compact dashboard, large capability cards, quick access areas and dedicated inspection pages.
+---
 
-## Runtime data
-
-The native collector queries the installed Android Vulkan loader and physical device directly. It enumerates instance extensions, device extensions, core Vulkan 1.0 features, Vulkan 1.1 through 1.4 core feature structures when exposed, queue families, memory heaps and types, selected format properties, physical-device limits, and a real Android VkSurfaceKHR surface.
-
-# Screenshots
+## Screenshots
 
 <p align="center">
   <img src="screenshots/1.jpeg" width="200">
@@ -28,106 +42,53 @@ The native collector queries the installed Android Vulkan loader and physical de
   <img src="screenshots/7.png" width="500">
 </p>
 
+## Vulkan Core 1.0–1.4
 
-The Surface page reports exact format and color-space pairs, present modes, surface capabilities and queue-family presentation support. The Display & HDR page separately reports Android display HDR types, luminance, wide-color capability, preferred wide-gamut color space and display modes.
+VulkanScope reports the core Vulkan API capabilities exposed by the installed implementation, including:
 
-The Extensions page lists runtime-enumerated instance and device extensions with exact Vulkan names, scope and specVersion and provides case-insensitive search.
-
-## Branding
-
-The launcher artwork uses only the approved VulkanScope logo supplied for this project. The source artwork is kept unchanged at `app/src/main/res/drawable-nodpi/vulkanscope_logo_master.png`.
-
-## ABIs
-
-- armeabi-v7a
-- arm64-v8a
-- x86_64
-
-x86 is intentionally excluded.
-
-## Security and privacy
-
-The application declares no Internet permission and performs no runtime network access. Hardware and display information stays on the device.
-
-## Build
-
-Open the `VulkanScope` directory in Android Studio with an Android SDK and NDK installation available. The native module uses CMake and C++20.
-
-Build compatibility
-- Android Gradle Plugin: 9.3.1
-- Gradle: 9.6.x supported
-- Kotlin: AGP 9 built-in Kotlin; Compose compiler plugin 2.3.21
-- JDK: 17+
-- Compile SDK: 36
-- NDK: 28.2.13676358 or compatible installed NDK
-
-## Driver selection
-
-Settings provides two driver modes:
-- **System Vulkan driver**: uses the Android system Vulkan loader/driver.
-- **Turnip / third-party driver**: accepts an imported driver ZIP containing a compatible Vulkan ICD and, when supplied, a compatible `libvulkan.so` loader. Mesa-style `VK_DRIVER_FILES` / `VK_ICD_FILENAMES` are configured before the Vulkan loader is opened.
-
-Changing the driver mode restarts the activity so the Vulkan inspection starts from a fresh driver-selection state. Android vendor Vulkan loaders may ignore ICD environment variables; a compatible bundled loader is therefore required for devices whose system loader does not expose external ICD selection.
-
-- Vulkan instance version
-- Instance extensions
-- Instance layers
-- Vulkan implementation capabilities exposed at the instance level
-- Available instance-level functionality
-
-Instance extensions can be searched and filtered, making it easier to locate a specific Vulkan extension on devices with large extension lists.
-
----
-
-## Device
-
-The **Device** section focuses on the physical Vulkan device selected by the application.
-
-It exposes detailed physical-device properties including information such as:
-
-- Device name
-- Device type
-- Vendor ID
-- Device ID
-- Driver version
-- API version
-- Driver properties
-- Device properties
+- Vulkan API version
+- Instance information
+- Physical-device information
+- Core Vulkan 1.0 features
+- Vulkan 1.1 core feature structures
+- Vulkan 1.2 core feature structures
+- Vulkan 1.3 core feature structures
+- Vulkan 1.4 core feature structures
+- Core Vulkan properties
 - GPU limits
 - Device capabilities
-- Device-level extensions
+- Pipeline-cache UUID
+- Sparse residency information
+- Subgroup-related properties
+- Core 1.4 detailed properties
 
-This section is particularly useful when comparing different Vulkan drivers, GPUs or Android devices.
+The application uses the runtime Vulkan implementation as the source of device capability information rather than assuming support from the API version alone.
 
 ---
 
 ## Extensions
 
-The **Extensions** section provides a detailed list of Vulkan extensions exposed by the device.
+VulkanScope provides runtime enumeration of Vulkan extensions with:
 
-Extensions can be:
+- Exact extension names
+- Instance/device scope
+- Extension `specVersion`
+- Search
+- Filtering
+- Supported / unsupported / all views where applicable
+- Dependency-aware instance-extension handling
+- Vendor-specific extension coverage
 
-- Searched by name
-- Filtered
-- Viewed as supported
-- Viewed as unsupported where applicable
-- Viewed together using the **All** filter
+The extension system covers Vulkan functionality from a broad range of Khronos and vendor ecosystems, including areas such as:
 
-The search and filtering functions work together, allowing a specific extension to be located without having to manually scroll through a large list.
-
-Extension information can be useful for determining whether a particular Vulkan feature or capability is exposed by the installed driver.
-
-Examples of the types of extensions that may appear include extensions related to:
-
-- Vulkan core functionality
 - Memory
 - Synchronization
 - Descriptor management
 - Dynamic rendering
 - Ray tracing
 - Mesh shading
-- Variable rate shading
-- Android-specific functionality
+- Variable-rate shading
+- Android extensions
 - External memory
 - External synchronization
 - Surface and presentation
@@ -135,47 +96,80 @@ Examples of the types of extensions that may appear include extensions related t
 - Debugging
 - Vendor-specific functionality
 
-The exact extensions displayed depend on the Vulkan implementation and driver installed on the device.
+---
+
+## Layers
+
+Layer information is available at both instance and device scope where exposed by the Vulkan implementation.
+
+VulkanScope can report:
+
+- Instance layers
+- Device layers
+- Layer names
+- Layer-provided extension information
+- Layer extension `specVersion`
+
+Layer information reflects what the installed Vulkan loader/driver actually exposes on the device.
+
+---
+
+## Device Information
+
+The Device section provides detailed physical-device information including:
+
+- Device name
+- Device type
+- Vendor ID
+- Device ID
+- Driver version
+- Vulkan API version
+- Driver properties
+- Device properties
+- Physical-device limits
+- Device capabilities
+- Device-level extensions
+- Pipeline cache UUID
+- Sparse memory/residency capabilities
+- Subgroup properties
+- Core-version-specific properties
 
 ---
 
 ## Features
 
-The **Features** section displays Vulkan device feature support reported by the physical device.
+VulkanScope exposes device feature support reported by Vulkan.
 
-This allows the user to see which Vulkan functionality is exposed by the driver rather than relying only on the Vulkan API version.
-
-Feature information can include capabilities related to areas such as:
+Feature coverage includes areas such as:
 
 - Robust buffer access
 - Geometry and tessellation
 - Wide lines
 - Large points
 - Multi-viewport rendering
-- Sampler features
+- Sampler capabilities
 - Texture compression
 - Occlusion queries
 - Pipeline statistics
 - Shader functionality
 - Sparse resources
 - Multi-draw functionality
-- Descriptor-related capabilities
+- Descriptor functionality
 - Dynamic rendering
 - Synchronization
 - Advanced shader functionality
-- Vendor or extension-specific feature structures
+- Extension-specific feature structures
+- Vendor-specific feature structures
 
-Features exposed through Vulkan extensions can also be relevant even when the corresponding functionality is not part of the original Vulkan core feature set.
+Core 1.1, 1.2, 1.3 and 1.4 feature structures are included when exposed by the implementation.
 
 ---
 
-# Surface
+## Surface
 
-The **Surface** section provides information about Vulkan presentation and window-surface capabilities.
+VulkanScope creates and queries a real Android `VkSurfaceKHR` and reports presentation-related capabilities.
 
-This section is especially useful for determining what combinations of presentation properties are supported by the Android device and Vulkan driver.
-
-Surface information can include:
+Surface information includes:
 
 - Surface capabilities
 - Minimum image count
@@ -183,58 +177,31 @@ Surface information can include:
 - Current extent
 - Minimum image extent
 - Maximum image extent
-- Maximum image array layers
+- Maximum image-array layers
 - Supported transforms
 - Current transform
-- Supported composite alpha modes
+- Supported composite-alpha modes
 - Supported image usage flags
 - Presentation modes
 - Surface formats
 - Surface color spaces
+- Queue-family presentation support
 
-Because a device can expose a large number of surface formats and color spaces, VulkanScope provides a search field for the Surface information.
-
-This makes it possible to quickly search for specific entries such as:
-
-- `BT709`
-- `BT2020`
-- `sRGB`
-- `Display P3`
-- `HDR`
-- `HDR10`
-- `PQ`
-- `HLG`
-- `SRGB_NONLINEAR`
-- `EXTENDED_SRGB_LINEAR`
-
-The Surface section is therefore useful when investigating display, HDR, color-space and presentation compatibility.
+Surface entries can be searched directly.
 
 ---
 
-## Surface Formats
+## Surface Formats & Color Spaces
 
-Vulkan surface formats describe combinations of an image format and a color space that can be used for presentation.
+VulkanScope displays the exact Vulkan format + color-space combinations reported by the implementation.
 
-VulkanScope displays the available combinations reported by the Vulkan implementation.
-
-These may include different formats such as:
+Examples include formats such as:
 
 - `VK_FORMAT_B8G8R8A8_UNORM`
 - `VK_FORMAT_R8G8B8A8_UNORM`
 - `VK_FORMAT_A2B10G10R10_UNORM_PACK32`
-- Other formats exposed by the driver
 
-The associated color spaces can include standard SDR spaces as well as extended or HDR-related color spaces when supported.
-
-This makes the Surface section useful for examining whether a device exposes particular color-space and presentation combinations.
-
----
-
-## Surface Color Spaces
-
-VulkanScope exposes the color-space information returned by Vulkan rather than treating the display as simply "SDR" or "HDR".
-
-Depending on the device and driver, Vulkan may expose color spaces associated with standards and transfer functions such as:
+Color-space information can include:
 
 - sRGB
 - BT.709
@@ -243,88 +210,99 @@ Depending on the device and driver, Vulkan may expose color spaces associated wi
 - HDR10 / ST2084
 - HLG
 - Extended sRGB
-- Other Vulkan-defined or extension-defined color spaces
+- Other Vulkan-defined and extension-defined color spaces
 
-The exact entries depend on the Android display system, Vulkan driver and device configuration.
+This makes the Surface section useful for investigating SDR/HDR presentation, wide gamut and color-space compatibility.
 
 ---
 
-# Memory
+## Display & HDR
 
-The **Memory** section provides information about the physical device's Vulkan memory configuration.
+The Display & HDR section separately reports Android display capabilities rather than treating Vulkan surface color spaces as a substitute for display information.
 
-It displays Vulkan memory heaps and memory types reported by the physical device.
+Depending on the device, this includes:
 
-Information includes:
+- HDR types
+- HDR capability
+- Minimum luminance
+- Maximum luminance
+- Average luminance
+- Wide-color capability
+- Preferred wide-gamut color space
+- Display modes
+- Display resolution
+- Refresh-rate information
+- Display-related presentation information
+
+Vulkan Surface color-space information and Android physical-display gamut information are kept as separate data sources.
+
+---
+
+## Memory
+
+VulkanScope reports the physical device memory configuration, including:
 
 - Memory heap count
 - Memory type count
 - Heap sizes
 - Heap flags
 - Memory type flags
-- Memory type to heap relationships
+- Memory type → heap relationships
 - Device-local memory
 - Host-visible memory
 - Host-coherent memory
 - Host-cached memory
 - Lazily allocated memory where supported
 
-This can be useful for understanding how the Vulkan driver exposes GPU and CPU-accessible memory to applications.
-
 ---
 
-# Queues
+## Queue Families
 
-The **Queues** section displays the queue families exposed by the Vulkan physical device.
-
-For each queue family, VulkanScope can show information such as:
+Queue family inspection includes:
 
 - Queue family index
 - Queue count
-- Queue capabilities
 - Graphics support
 - Compute support
 - Transfer support
 - Sparse binding support
 - Protected queue support where exposed
+- Presentation support
+- Vulkan Video queue capabilities
 
-Queue families are important because Vulkan applications use them to determine how graphics, compute and transfer workloads can be submitted to the GPU.
+With Vulkan Video support, queue information can additionally identify codec operations such as:
 
-A GPU may expose multiple queue families with different capabilities, and VulkanScope makes these differences visible.
+- H.264 decode/encode
+- H.265 decode/encode
+- AV1 decode/encode
+- VP9 decode
 
 ---
 
-# Formats
+## Formats
 
-The **Formats** section provides information about Vulkan image and buffer format capabilities.
+VulkanScope provides detailed format capability inspection for Vulkan image and buffer formats.
 
-It is useful for determining which Vulkan formats are supported by the physical device and what operations can be performed with them.
+Reported capabilities can include:
 
-Format capabilities can involve:
-
-- Format properties
 - Linear tiling support
 - Optimal tiling support
 - Buffer support
-- Sampled image support
-- Storage image support
-- Color attachment support
-- Depth/stencil attachment support
+- Sampled-image support
+- Storage-image support
+- Color-attachment support
+- Depth/stencil-attachment support
 - Blending support
 - Transfer source support
 - Transfer destination support
 
-This is particularly useful when investigating compatibility for different texture, framebuffer, HDR, depth/stencil and rendering formats.
+This can be used to inspect texture, framebuffer, HDR, depth/stencil and rendering compatibility.
 
 ---
 
-# Display
+## Display
 
-The **Display** section provides Vulkan display-related information exposed by the device.
-
-Depending on the Android Vulkan implementation, this can include display and presentation-related properties exposed through Vulkan.
-
-Display capabilities can be useful when investigating:
+Display-related Vulkan information can include:
 
 - Display modes
 - Display resolution
@@ -332,205 +310,255 @@ Display capabilities can be useful when investigating:
 - Presentation support
 - Display-related Vulkan capabilities
 
-The exact information available depends on what the Android Vulkan implementation exposes.
+The exact information depends on what the Android Vulkan implementation exposes.
 
 ---
 
-# Driver Information
+## Vulkan Video
 
-VulkanScope is designed to expose information reported by the Vulkan driver rather than relying solely on the Android device model.
+VulkanScope 0.14 introduced Vulkan Video capability inspection.
 
-This is particularly useful on Android because the same GPU family can have significantly different Vulkan capabilities depending on:
+### Decode
 
-- Android version
-- GPU driver
-- Vendor driver
-- Driver version
-- Vulkan API version
-- Device firmware
-- Vendor-specific extensions
+Codec-specific decode support can be queried for:
 
-Therefore, two devices with similar GPU hardware may expose different Vulkan capabilities.
+- H.264
+- H.265
+- VP9
+- AV1
 
----
+### Encode
 
-# GPU Vendor Detection
+Encode capability inspection includes support for:
 
-VulkanScope recognizes major GPU vendors and architectures exposed through Vulkan.
+- H.264
+- H.265
+- AV1
 
-Examples include:
+Depending on the implementation, encoder information can include:
 
-### Qualcomm
+- Bitrate information
+- Quality levels
+- Rate-control modes
+- Feedback capabilities
 
-Qualcomm Adreno GPUs are detected separately so that Adreno-specific information and Vulkan driver capabilities can be identified.
+### Video Formats
 
-This is also relevant for devices using Qualcomm Vulkan drivers and Turnip-compatible environments.
+Vulkan Video format compatibility can also be queried through the Vulkan Video format-property APIs.
 
-### ARM
+Reported information can include:
 
-ARM Mali GPUs are recognized separately from other GPU vendors.
+- Sampled-image usage compatibility
+- Vulkan format
+- Codec profile information
+- Coded extent
+- DPB/reference limits
+- Bitstream alignment
+- Vulkan Video standard-header version
 
-### Imagination
-
-Imagination GPUs, including PowerVR implementations, are recognized as their own GPU vendor category.
-
-### Broadcom
-
-Broadcom Vulkan implementations are also detected separately rather than being grouped together with unrelated GPU vendors.
-
----
-
-# Turnip / Adreno
-
-VulkanScope contains support for detecting relevant Adreno environments and integrates Adreno-specific functionality where available.
-
-This is intended to make the application useful for investigating Vulkan implementations on Qualcomm hardware, including environments where alternative Vulkan drivers such as Turnip may be used.
-
-Turnip-related functionality is only exposed where the underlying device and architecture make it applicable.
-
-The application does not assume that every ARM64 Android device is an Adreno device.
+Each codec profile is evaluated independently.
 
 ---
 
-# ABI Information
+## Vulkan Profiles
 
-VulkanScope can display the ABI of the installed application.
+VulkanScope supports runtime profile evaluation for:
 
-Examples include:
+- Android Baseline 2022
+- Vulkan Roadmap 2022
+- Vulkan Roadmap 2024
+- Vulkan Roadmap 2026
+
+Profile results distinguish:
+
+- **PASS**
+- **FAIL**
+- **UNKNOWN**
+
+Unavailable capability information is kept separate from unsupported capability information.
+
+Profile evaluation includes official Vulkan profile requirements and relevant feature/limit checks.
+
+---
+
+## Registry-Driven Vulkan Coverage
+
+VulkanScope includes an offline Vulkan registry-driven query catalog based on the Khronos Vulkan registry.
+
+The registry system provides:
+
+- Offline Vulkan structure metadata
+- Physical-device feature/property coverage metadata
+- Extension requirements
+- Promoted core-feature metadata
+- Dependency information
+- Machine-readable query manifests
+- Coverage reporting
+- Validated native query mappings
+
+The registry is bundled with the application and is never downloaded at runtime.
+
+Unknown or unreviewed Vulkan structures remain unavailable instead of being queried using guessed structure IDs or fields.
+
+---
+
+## Turnip & Third-Party Drivers
+
+VulkanScope supports Android environments using alternative Vulkan drivers such as Turnip.
+
+Driver selection supports:
+
+- System Vulkan driver
+- Imported Turnip / third-party driver
+- Vulkan ICD selection
+- Compatible bundled `libvulkan.so` loader where required
+- Mesa-style `VK_DRIVER_FILES`
+- Mesa-style `VK_ICD_FILENAMES`
+
+This makes VulkanScope suitable for comparing system drivers and alternative Vulkan driver implementations.
+
+---
+
+## GPU Vendor Detection
+
+VulkanScope recognizes major GPU vendor families exposed through Vulkan, including:
+
+- Qualcomm
+- ARM
+- Imagination
+- Broadcom
+- NVIDIA
+- Intel
+- AMD
+- Samsung
+- Huawei
+- Vivante
+- VideoCore / VSI
+- Unknown / other implementations
+
+Qualcomm Adreno environments are separately identified for Turnip-related workflows.
+
+---
+
+## Search & Filtering
+
+Large capability collections can be searched and filtered.
+
+Search is available for areas such as:
+
+- Extension names
+- Surface formats
+- Surface color spaces
+- Capability lists
+- Other large Vulkan information collections
+
+Supported filters include:
+
+- Supported
+- Unsupported
+- All
+
+Search and filtering can be used together.
+
+---
+
+## Reports & Export
+
+VulkanScope can export collected information into:
+
+- TXT reports
+- HTML reports
+
+Reports can contain detailed Vulkan information collected by the application, including:
+
+- Device information
+- Features
+- Properties
+- Extensions
+- Queues
+- Memory
+- Formats
+- Surface information
+- Display/HDR information
+- Vulkan Profiles
+- Vulkan Video capabilities
+- Registry/query metadata
+
+This makes the output useful for:
+
+- Device comparison
+- Driver comparison
+- Compatibility investigation
+- Vulkan bug reporting
+- Driver issue documentation
+- Archiving capability information
+
+---
+
+## Android & Native Architecture Support
+
+VulkanScope supports native Android builds for:
 
 - `arm64-v8a`
 - `armeabi-v7a`
 - `x86_64`
 
-This allows users to determine which native architecture is actually being used by their installed copy of VulkanScope.
-
-The application can therefore be distributed as architecture-specific builds without requiring users to guess which APK they installed.
+32-bit x86 is intentionally excluded.
 
 ---
 
-# Search and Filtering
+## Offline & Privacy-Focused Design
 
-Large Vulkan capability lists can contain hundreds of entries.
+VulkanScope is designed as an offline inspection utility:
 
-VulkanScope therefore provides search functionality in areas where the amount of information can become difficult to navigate manually.
+- No Internet permission
+- No runtime network access
+- Vulkan data collected locally
+- Display data collected locally
+- Registry/query metadata bundled locally
 
-Search can be used to quickly locate:
-
-- Extension names
-- Surface formats
-- Color spaces
-- Vulkan capabilities
-- Other long lists of Vulkan information
-
-Where supported, lists can also be filtered by support state:
-
-- **Supported**
-- **Unsupported**
-- **All**
-
-The filtering system works together with the search field rather than replacing it.
-
-For example, users can search for a particular Vulkan extension and then display only supported entries.
+Hardware and display information remains on the device unless the user explicitly exports or shares a report.
 
 ---
 
-# Export
+## Material 3 Expressive UI
 
-VulkanScope can export the collected Vulkan information for external use.
+The application uses a dark Material 3 Expressive visual direction with:
 
-Exported information is intended to make it easier to:
-
-- Share device information
-- Compare Vulkan implementations
-- Report driver issues
-- Document GPU capabilities
-- Keep a record of Vulkan capabilities
-- Troubleshoot application compatibility
-
-The exported information can contain the detailed Vulkan information collected by the application rather than only the simplified Overview information.
+- Compact Vulkan capability dashboard
+- Capability cards
+- Quick-access inspection areas
+- Dedicated inspection pages
+- Searchable information lists
+- Device / Surface / Display / HDR / Extension inspection views
+- Android-native navigation and presentation
 
 ---
 
-# Multi-Architecture Support
+## Evolution Since 0.4
 
-VulkanScope supports building native components for multiple Android ABIs.
+From the early VulkanScope releases onward, the project has evolved from a basic Vulkan capability viewer into a much broader Android Vulkan inspection tool with:
 
-Supported architectures include:
+- Vulkan 1.0–1.4 inspection
+- Detailed features and properties
+- Extension inspection
+- Layer inspection
+- Device limits
+- Queue and memory inspection
+- Format capability inspection
+- Real Android Surface inspection
+- Surface format and color-space analysis
+- Display and HDR analysis
+- Wide-color information
+- Turnip / third-party driver support
+- Offline Khronos registry-driven query coverage
+- Vulkan Profile evaluation
+- Vulkan Video decode/encode inspection
+- Advanced queue and video capability inspection
+- TXT/HTML reporting
+- Multi-ABI native support
+- Android-focused Material 3 Expressive UI
 
-| ABI | Description |
-|---|---|
-| `arm64-v8a` | 64-bit ARM devices |
-| `armeabi-v7a` | 32-bit ARM devices |
-| `x86_64` | 64-bit x86 Android devices |
+## 0.15.5
 
-Native Vulkan functionality is compiled separately for the appropriate target architecture.
-
-This allows the same project to be used to produce architecture-specific Android builds.
-
----
-
-# Why VulkanScope?
-
-Android exposes a large amount of Vulkan information, but much of it is difficult for ordinary users to inspect.
-
-VulkanScope brings this information together in a single application and organizes it into dedicated sections.
-
-Instead of simply reporting:
-
-> "Vulkan supported"
-
-VulkanScope is intended to answer questions such as:
-
-- Which GPU is actually being used?
-- Which Vulkan API version is available?
-- Which Vulkan extensions are exposed?
-- Which features are supported?
-- Which surface formats are available?
-- Which color spaces are available?
-- Does the driver expose HDR-related color spaces?
-- Which presentation modes are available?
-- How much device-local memory is exposed?
-- Which queue families are available?
-- Which image formats support particular operations?
-- Which ABI is being used?
-- Which Vulkan driver capabilities are available on the device?
-
----
-
-# Open Source
-
-VulkanScope is open-source software.
-
-The source code is available on GitHub:
-
-**https://github.com/EFIShell0**
-
-Contributions, testing, bug reports and feedback are welcome.
-
----
-
-# Requirements
-
-VulkanScope requires an Android device with a Vulkan-capable implementation.
-
-The exact information available depends on the Vulkan driver and Android implementation running on the device.
-
-Some capabilities may be unavailable on older devices or drivers.
-
----
-
-# Third-Party Components
-
-VulkanScope uses third-party open-source components where required by the project.
-
-Third-party components remain subject to their respective licenses and copyright notices.
-
----
-
-## VulkanScope
-
-**A detailed Vulkan capability viewer for Android.**
-
-Inspect your GPU.  
-Inspect your driver.  
-Inspect your Vulkan implementation.
+VulkanScope 0.15.5 brings the current feature set together with full Vulkan 1.4-era inspection, expanded physical-device metadata, Vulkan Video capabilities, Vulkan Profiles, Android Display/HDR inspection, offline registry-driven query coverage, and Turnip/third-party driver support.
