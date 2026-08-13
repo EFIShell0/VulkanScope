@@ -22,6 +22,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -140,7 +147,7 @@ private data class DeviceReport(
 private data class VulkanReport(val loaderVersion: String, val instanceExtensions: List<ExtensionEntry>, val instanceLayers: List<LayerEntry>, val devices: List<DeviceReport>, val error: String?)
 
 private enum class Page(val title: String) {
-    Overview("Overview"), Vulkan("Vulkan"), Instance("Instance"), Display("Display & HDR"), Surface("Surface"), Features("Features"), Memory("Memory"), Queues("Queues"), Formats("Formats"), Properties("Properties & Limits"), Extensions("Extensions"), Profiles("Profiles"), Settings("Settings"), Info("Info")
+    Overview("Overview"), Vulkan("Vulkan"), Display("Display & HDR"), Surface("Surface"), Features("Features"), Memory("Memory"), Queues("Queues"), Formats("Formats"), Properties("Properties & Limits"), Extensions("Extensions"), Profiles("Profiles"), Settings("Settings"), Info("Info")
 }
 
 private enum class DriverMode(val label: String) {
@@ -626,11 +633,11 @@ private fun VulkanScopeApp(
                                 icon = { Icon(painterResource(item.icon), contentDescription = item.label, modifier = Modifier.size(24.dp)) },
                                 label = { Text(item.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                 colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = red,
-                                    selectedTextColor = red,
-                                    indicatorColor = ComposeColor.Transparent,
-                                    unselectedIconColor = ComposeColor(0xFF8F8F8F),
-                                    unselectedTextColor = ComposeColor(0xFF8F8F8F)
+                                    selectedIconColor = ComposeColor.White,
+                                    selectedTextColor = ComposeColor.White,
+                                    indicatorColor = red,
+                                    unselectedIconColor = ComposeColor(0xFFB8B8B8),
+                                    unselectedTextColor = ComposeColor(0xFFB8B8B8)
                                 )
                             )
                         }
@@ -659,14 +666,24 @@ private fun VulkanScopeApp(
                     else {
                         val current = report
                         if (current == null) EmptyState("No Vulkan report")
-                        else PageContent(page, current, displayReport, driverMode, turnipSupported, onDriverModeChanged, onInstallDriverBundle, onRefresh = {
-                            loading = true
-                            try {
-                                report = collect()
-                            } finally {
-                                loading = false
+                        else {
+                            AnimatedContent(
+                                targetState = page,
+                                transitionSpec = {
+                                    val forward = targetState.ordinal > initialState.ordinal
+                                    if (forward) {
+                                        slideInHorizontally(animationSpec = spring()) { it / 5 } + fadeIn(animationSpec = spring()) togetherWith
+                                            slideOutHorizontally(animationSpec = spring()) { -it / 5 } + fadeOut(animationSpec = spring())
+                                    } else {
+                                        slideInHorizontally(animationSpec = spring()) { -it / 5 } + fadeIn(animationSpec = spring()) togetherWith
+                                            slideOutHorizontally(animationSpec = spring()) { it / 5 } + fadeOut(animationSpec = spring())
+                                    }
+                                },
+                                label = "pageTransition"
+                            ) { targetPage ->
+                                PageContent(targetPage, current, displayReport, driverMode, turnipSupported, onDriverModeChanged, onInstallDriverBundle, onNavigate = { page = it })
                             }
-                        }, onNavigate = { page = it })
+                        }
                     }
                 }
             }
@@ -903,12 +920,11 @@ private fun SurfaceProbe(
 }
 
 @Composable
-private fun PageContent(page: Page, report: VulkanReport, display: DisplayReport, driverMode: DriverMode, turnipSupported: Boolean, onDriverModeChanged: (DriverMode) -> Unit, onInstallDriverBundle: () -> Unit, onRefresh: suspend () -> Unit, onNavigate: (Page) -> Unit) {
+private fun PageContent(page: Page, report: VulkanReport, display: DisplayReport, driverMode: DriverMode, turnipSupported: Boolean, onDriverModeChanged: (DriverMode) -> Unit, onInstallDriverBundle: () -> Unit, onNavigate: (Page) -> Unit) {
     val device = report.devices.firstOrNull()
     when (page) {
-        Page.Overview -> OverviewPage(report, device, display, driverMode, onRefresh, onNavigate)
-        Page.Vulkan -> VulkanPage(report, device, onNavigate)
-        Page.Instance -> InstancePage(report, turnipSupported)
+        Page.Overview -> OverviewPage(report, device, display, driverMode, onNavigate)
+        Page.Vulkan -> VulkanPage(report, device, turnipSupported)
         Page.Display -> DisplayPage(display, device)
         Page.Surface -> SurfacePage(device)
         Page.Features -> FeaturesPage(device)
@@ -924,7 +940,7 @@ private fun PageContent(page: Page, report: VulkanReport, display: DisplayReport
 }
 
 @Composable
-private fun OverviewPage(report: VulkanReport, device: DeviceReport?, display: DisplayReport, driverMode: DriverMode, onRefresh: suspend () -> Unit, navigate: (Page) -> Unit) {
+private fun OverviewPage(report: VulkanReport, device: DeviceReport?, display: DisplayReport, driverMode: DriverMode, navigate: (Page) -> Unit) {
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             HeroCard(device, report, driverMode)
@@ -934,7 +950,7 @@ private fun OverviewPage(report: VulkanReport, device: DeviceReport?, display: D
                 SectionCard("Vulkan inspection error") {
                     Text(report.error, color = ComposeColor(0xFFFF6B6B))
                     Text(
-                        "The driver mode is shown separately from the inspection result. Try Refresh hardware data after the surface is ready.",
+                        "The driver mode is shown separately from the inspection result.",
                         color = ComposeColor(0xFF9E9E9E),
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -982,25 +998,59 @@ private fun OverviewPage(report: VulkanReport, device: DeviceReport?, display: D
             KeyValue("Instance extensions", report.instanceExtensions.size.toString())
             KeyValue("Device extensions", device?.extensions?.size?.toString() ?: "0")
         } }
-        item {
-        val scope = androidx.compose.runtime.rememberCoroutineScope()
-        Button(onClick = { scope.launch { onRefresh() } }, modifier = Modifier.fillMaxWidth()) { Text("Refresh hardware data") }
-    }
     }
 }
 
 @Composable
-private fun VulkanPage(report: VulkanReport, device: DeviceReport?, onNavigate: (Page) -> Unit) {
+private fun VulkanPage(report: VulkanReport, device: DeviceReport?, turnipSupported: Boolean) {
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { SectionCard("Vulkan API") {
-            KeyValue("Loader API", report.loaderVersion)
+            KeyValue("Loader / instance API", report.loaderVersion)
             KeyValue("Device API", device?.apiVersion ?: "Unknown")
             KeyValue("Driver", device?.driverVersion ?: "Unknown")
             KeyValue("Device type", device?.deviceType ?: "Unknown")
             KeyValue("Vendor ID", device?.vendorId ?: "Unknown")
             KeyValue("Device ID", device?.deviceId ?: "Unknown")
         } }
-        item { ExploreCard(onNavigate) }
+        item { SectionCard("Instance layers") {
+            if (report.instanceLayers.isEmpty()) Text("No instance layers exposed")
+            report.instanceLayers.forEach { layer ->
+                Column(Modifier.padding(vertical = 5.dp)) {
+                    Text(layer.name, fontWeight = FontWeight.SemiBold)
+                    Text("spec ${layer.specVersion} · implementation ${layer.implementationVersion}", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelSmall)
+                    if (layer.description.isNotBlank()) Text(layer.description, color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        } }
+        item { SectionCard("Instance extensions") {
+            report.instanceExtensions.sortedBy { it.name }.forEach { ext -> Text("${ext.name} · spec ${ext.specVersion}") }
+        } }
+        item { SectionCard("Operating system") {
+            KeyValue("Architecture", Build.SUPPORTED_ABIS.firstOrNull() ?: "Unknown")
+            KeyValue("Version", Build.VERSION.RELEASE)
+            KeyValue("Codename", Build.VERSION.CODENAME)
+            KeyValue("SDK", Build.VERSION.SDK_INT.toString())
+            KeyValue("Build ID", Build.ID)
+            KeyValue("Build incremental", Build.VERSION.INCREMENTAL)
+            KeyValue("Security patch", Build.VERSION.SECURITY_PATCH)
+            KeyValue("Brand", Build.BRAND)
+            KeyValue("Manufacturer", Build.MANUFACTURER)
+            KeyValue("Product", Build.PRODUCT)
+            KeyValue("Device", Build.DEVICE)
+            KeyValue("Board", Build.BOARD)
+            KeyValue("Hardware", Build.HARDWARE)
+            KeyValue("Fingerprint", Build.FINGERPRINT)
+        } }
+        item { SectionCard("Android runtime") {
+            KeyValue("Architecture", Build.SUPPORTED_ABIS.joinToString(", "))
+            KeyValue("Manufacturer", Build.MANUFACTURER)
+            KeyValue("Model", Build.MODEL)
+            KeyValue("Android", Build.VERSION.RELEASE)
+            KeyValue("SDK", Build.VERSION.SDK_INT.toString())
+            KeyValue("Build ID", Build.ID)
+            KeyValue("Build incremental", Build.VERSION.INCREMENTAL)
+            KeyValue("Turnip eligibility", if (turnipSupported) "arm64-v8a + Qualcomm Adreno detected" else "Not eligible")
+        } }
         item { SectionCard("Feature coverage") {
             val supported = device?.features?.count { it.supported } ?: 0
             val total = device?.features?.size ?: 0
@@ -1023,10 +1073,6 @@ private fun HeroCard(device: DeviceReport?, report: VulkanReport, driverMode: Dr
                     Text(if (device != null) vendorInfo(device.vendorIdRaw).name else "Unknown vendor", color = ComposeColor(0xFFBDBDBD))
                     Text(driverMode.label, color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
                 }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusChip(if (device != null) "Device detected" else "Unavailable")
-                StatusChip("Offline inspection")
             }
         }
     }
@@ -1082,7 +1128,7 @@ private fun CompactNavigationRail(selectedPage: Page, onPageSelected: (Page) -> 
                 Card(
                     onClick = { onPageSelected(item.page) },
                     colors = CardDefaults.cardColors(
-                        containerColor = if (selected) ComposeColor(0x332F1014) else ComposeColor.Transparent
+                        containerColor = if (selected) red else ComposeColor.Transparent
                     ),
                     shape = RoundedCornerShape(18.dp),
                     modifier = Modifier.fillMaxWidth().height(54.dp)
@@ -1096,11 +1142,11 @@ private fun CompactNavigationRail(selectedPage: Page, onPageSelected: (Page) -> 
                             painterResource(item.icon),
                             contentDescription = item.label,
                             modifier = Modifier.size(21.dp),
-                            tint = if (selected) red else ComposeColor(0xFF969696)
+                            tint = if (selected) ComposeColor.White else ComposeColor(0xFFB8B8B8)
                         )
                         Text(
                             item.label,
-                            color = if (selected) red else ComposeColor(0xFF969696),
+                            color = if (selected) ComposeColor.White else ComposeColor(0xFFB8B8B8),
                             fontSize = 9.sp,
                             lineHeight = 10.sp,
                             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
@@ -1160,56 +1206,6 @@ private fun PropertiesPage(device: DeviceReport?) {
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun InstancePage(report: VulkanReport, turnipSupported: Boolean) {
-    LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { SectionCard("Vulkan instance") {
-            KeyValue("Loader / instance API", report.loaderVersion)
-            KeyValue("Instance extensions", report.instanceExtensions.size.toString())
-            KeyValue("Instance layers", report.instanceLayers.size.toString())
-        } }
-        item { SectionCard("Instance layers") {
-            if (report.instanceLayers.isEmpty()) Text("No instance layers exposed")
-            report.instanceLayers.forEach { layer ->
-                Column(Modifier.padding(vertical = 5.dp)) {
-                    Text(layer.name, fontWeight = FontWeight.SemiBold)
-                    Text("spec ${layer.specVersion} · implementation ${layer.implementationVersion}", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelSmall)
-                    if (layer.description.isNotBlank()) Text(layer.description, color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        } }
-        item { SectionCard("Instance extensions") {
-            report.instanceExtensions.sortedBy { it.name }.forEach { ext -> Text("${ext.name} · spec ${ext.specVersion}") }
-        } }
-        item { SectionCard("Operating system") {
-            KeyValue("Architecture", Build.SUPPORTED_ABIS.firstOrNull() ?: "Unknown")
-            KeyValue("Version", Build.VERSION.RELEASE)
-            KeyValue("Codename", Build.VERSION.CODENAME)
-            KeyValue("SDK", Build.VERSION.SDK_INT.toString())
-            KeyValue("Build ID", Build.ID)
-            KeyValue("Build incremental", Build.VERSION.INCREMENTAL)
-            KeyValue("Security patch", Build.VERSION.SECURITY_PATCH)
-            KeyValue("Brand", Build.BRAND)
-            KeyValue("Manufacturer", Build.MANUFACTURER)
-            KeyValue("Product", Build.PRODUCT)
-            KeyValue("Device", Build.DEVICE)
-            KeyValue("Board", Build.BOARD)
-            KeyValue("Hardware", Build.HARDWARE)
-            KeyValue("Fingerprint", Build.FINGERPRINT)
-        } }
-        item { SectionCard("Android runtime") {
-            KeyValue("Architecture", Build.SUPPORTED_ABIS.joinToString(", "))
-            KeyValue("Manufacturer", Build.MANUFACTURER)
-            KeyValue("Model", Build.MODEL)
-            KeyValue("Android", Build.VERSION.RELEASE)
-            KeyValue("SDK", Build.VERSION.SDK_INT.toString())
-            KeyValue("Build ID", Build.ID)
-            KeyValue("Build incremental", Build.VERSION.INCREMENTAL)
-            KeyValue("Turnip eligibility", if (turnipSupported) "arm64-v8a + Qualcomm Adreno detected" else "Not eligible")
-        } }
     }
 }
 
@@ -1561,7 +1557,6 @@ private fun selectedNavigationPage(page: Page): Page = when (page) {
 private fun navigationItems(): List<NavigationItem> = listOf(
     NavigationItem(Page.Overview, "Overview", R.drawable.ic_home),
     NavigationItem(Page.Vulkan, "Vulkan", R.drawable.ic_vulkan),
-    NavigationItem(Page.Instance, "Instance", R.drawable.ic_instance),
     NavigationItem(Page.Surface, "Surface", R.drawable.ic_surface),
     NavigationItem(Page.Display, "Display", R.drawable.ic_display),
     NavigationItem(Page.Extensions, "Extensions", R.drawable.ic_extensions)
@@ -1578,7 +1573,6 @@ private fun pageIcon(page: Page): Int = when (page) {
     Page.Formats -> R.drawable.ic_formats
     Page.Properties -> R.drawable.ic_properties
     Page.Extensions -> R.drawable.ic_extensions
-    Page.Instance -> R.drawable.ic_instance
     Page.Profiles -> R.drawable.ic_extensions
     Page.Settings -> R.drawable.ic_settings
     Page.Info -> R.drawable.ic_info
@@ -1594,19 +1588,10 @@ private fun vendorInfo(vendorId: Long): VendorInfo = when (vendorId) {
     0x10DEL -> VendorInfo("NVIDIA", R.drawable.gpu_vendor_nvidia)
     0x1002L -> VendorInfo("AMD", R.drawable.gpu_vendor_amd)
     0x8086L -> VendorInfo("Intel", R.drawable.gpu_vendor_intel)
-    0x106BL -> VendorInfo("Apple", R.drawable.gpu_vendor_apple)
     0x144DL -> VendorInfo("Samsung", R.drawable.gpu_vendor_samsung)
-    0x14C3L -> VendorInfo("MediaTek", R.drawable.gpu_vendor_mediatek)
     0x14E4L -> VendorInfo("Broadcom", R.drawable.gpu_vendor_broadcom)
     0x10001L -> VendorInfo("Vivante / VeriSilicon", R.drawable.gpu_vendor_vsi)
-    0x10000L -> VendorInfo("Khronos", R.drawable.gpu_vendor_khronos)
     0x10002L -> VendorInfo("VeriSilicon", R.drawable.gpu_vendor_vsi)
-    0x10003L -> VendorInfo("Kazan", R.drawable.gpu_vendor_kazan)
-    0x10004L -> VendorInfo("Codeplay", R.drawable.gpu_vendor_codeplay)
-    0x10005L -> VendorInfo("Mesa", R.drawable.gpu_vendor_mesa)
-    0x10006L -> VendorInfo("PoCL", R.drawable.gpu_vendor_pocl)
-    0x10007L -> VendorInfo("Mobileye", R.drawable.gpu_vendor_mobileye)
-    0x10008L -> VendorInfo("APE", R.drawable.gpu_vendor_ape)
     else -> VendorInfo("Unknown vendor", R.drawable.gpu_vendor_unknown)
 }
 
