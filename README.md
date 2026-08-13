@@ -38,9 +38,7 @@ VulkanScope 0.15.5 is a feature-focused Vulkan inspection release for Android, w
   <img src="screenshots/6.jpeg" width="200">
 </p>
 
-<p align="center">
-  <img src="screenshots/7.png" width="500">
-</p>
+
 
 ## Vulkan Core 1.0–1.4
 
