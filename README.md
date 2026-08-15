@@ -44,6 +44,24 @@ The initial inspection first collects the core physical-device information and p
 
 Because of this, **some sections may appear empty, incomplete or still loading for a short time after the GPU name and Vulkan version have already appeared**.
 
+
+# Screenshots
+
+<p align="center">
+  <img src="screenshots/1.jpeg" width="200">
+  <img src="screenshots/2.jpeg" width="200">
+  <img src="screenshots/3.jpeg" width="200">
+</p>
+
+<p align="center">
+  <img src="screenshots/4.jpeg" width="200">
+  <img src="screenshots/5.jpeg" width="200">
+</p>
+<p align="center">
+  <img src="screenshots/6.png" width="500">
+</p>
+
+
 In particular, the following can require additional time depending on the device and driver:
 
 - Vulkan 1.1–1.4 extended feature/property data
