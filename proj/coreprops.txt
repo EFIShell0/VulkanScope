@@ -1,0 +1,752 @@
+    values.resize(count);
+    return values;
+}
+
+bool hasExtension(const std::vector<VkExtensionProperties>& values, const char* name) {
+    return std::any_of(values.begin(), values.end(), [name](const VkExtensionProperties& value) { return std::strcmp(value.extensionName, name) == 0; });
+}
+
+std::vector<const char*> dependencyInstanceExtensions(const std::vector<VkExtensionProperties>& instanceExts) {
+    std::vector<const char*> result;
+    result.reserve(vulkanscope_registry::kInstanceDependencyCandidates.size());
+    for (const char* candidate : vulkanscope_registry::kInstanceDependencyCandidates) {
+        if (hasExtension(instanceExts, candidate)) result.push_back(candidate);
+    }
+    return result;
+}
+
+std::vector<const char*> buildQueryInstanceExtensions(VulkanApi& api) {
+    const auto instanceExts = instanceExtensions(api);
+    return dependencyInstanceExtensions(instanceExts);
+}
+
+
+std::vector<std::string> versionedFeatureNames(uint32_t version) {
+    if (version == 11) return {
+        "storageBuffer16BitAccess", "uniformAndStorageBuffer16BitAccess", "storagePushConstant16", "storageInputOutput16", "multiview",
+        "multiviewGeometryShader", "multiviewTessellationShader", "variablePointersStorageBuffer", "variablePointers", "protectedMemory",
+        "samplerYcbcrConversion", "shaderDrawParameters"
+    };
+    if (version == 12) return {
+        "samplerMirrorClampToEdge", "drawIndirectCount", "storageBuffer8BitAccess", "uniformAndStorageBuffer8BitAccess", "storagePushConstant8",
+        "shaderBufferInt64Atomics", "shaderSharedInt64Atomics", "shaderFloat16", "shaderInt8", "descriptorIndexing",
+        "shaderInputAttachmentArrayDynamicIndexing", "shaderUniformTexelBufferArrayDynamicIndexing", "shaderStorageTexelBufferArrayDynamicIndexing",
+        "shaderUniformBufferArrayNonUniformIndexing", "shaderSampledImageArrayNonUniformIndexing", "shaderStorageBufferArrayNonUniformIndexing",
+        "shaderStorageImageArrayNonUniformIndexing", "shaderInputAttachmentArrayNonUniformIndexing", "shaderUniformTexelBufferArrayNonUniformIndexing",
+        "shaderStorageTexelBufferArrayNonUniformIndexing", "descriptorBindingUniformBufferUpdateAfterBind", "descriptorBindingSampledImageUpdateAfterBind",
+        "descriptorBindingStorageImageUpdateAfterBind", "descriptorBindingStorageBufferUpdateAfterBind", "descriptorBindingUniformTexelBufferUpdateAfterBind",
+        "descriptorBindingStorageTexelBufferUpdateAfterBind", "descriptorBindingUpdateUnusedWhilePending", "descriptorBindingPartiallyBound",
+        "descriptorBindingVariableDescriptorCount", "runtimeDescriptorArray", "samplerFilterMinmax", "scalarBlockLayout", "imagelessFramebuffer",
+        "uniformBufferStandardLayout", "shaderSubgroupExtendedTypes", "separateDepthStencilLayouts", "hostQueryReset", "timelineSemaphore",
+        "bufferDeviceAddress", "bufferDeviceAddressCaptureReplay", "bufferDeviceAddressMultiDevice", "vulkanMemoryModel",
+        "vulkanMemoryModelDeviceScope", "vulkanMemoryModelAvailabilityVisibilityChains", "shaderOutputViewportIndex", "shaderOutputLayer",
+        "subgroupBroadcastDynamicId"
+    };
+    if (version == 13) return {
+        "robustImageAccess", "inlineUniformBlock", "descriptorBindingInlineUniformBlockUpdateAfterBind", "pipelineCreationCacheControl",
+        "privateData", "shaderDemoteToHelperInvocation", "shaderTerminateInvocation", "subgroupSizeControl", "computeFullSubgroups",
+        "synchronization2", "textureCompressionASTC_HDR", "shaderZeroInitializeWorkgroupMemory", "dynamicRendering", "shaderIntegerDotProduct",
+        "maintenance4"
+    };
+    return {
+        "globalPriorityQuery", "shaderSubgroupRotate", "shaderSubgroupRotateClustered", "shaderFloatControls2", "shaderExpectAssume",
+        "rectangularLines", "bresenhamLines", "smoothLines", "stippledRectangularLines", "stippledBresenhamLines", "stippledSmoothLines",
+        "vertexAttributeInstanceRateDivisor", "vertexAttributeInstanceRateZeroDivisor", "indexTypeUint8", "dynamicRenderingLocalRead",
+        "maintenance5", "maintenance6", "pipelineProtectedAccess", "pipelineRobustness", "hostImageCopy", "pushDescriptor"
+    };
+}
+
+void appendVersionedFeatures(std::ostringstream& out, uint32_t apiVersion, VulkanApi& api, VkPhysicalDevice device, uint32_t targetMinor) {
+    const uint32_t minor = VK_API_VERSION_MINOR(apiVersion);
+    if (!api.getPhysicalDeviceFeatures2 || targetMinor < 1 || targetMinor > 4 || minor < targetMinor) {
+        out << "[]";
+        return;
+    }
+    out << '[';
+    if (targetMinor == 4) {
+        VkPhysicalDeviceVulkan14Features features{};
+        features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES;
+        VkPhysicalDeviceFeatures2 base{};
+        base.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+        base.pNext = &features;
+        api.getPhysicalDeviceFeatures2(device, &base);
+        const struct FeatureField { const char* name; VkBool32 value; } fields[] = {
+            {"globalPriorityQuery", features.globalPriorityQuery}, {"shaderSubgroupRotate", features.shaderSubgroupRotate}, {"shaderSubgroupRotateClustered", features.shaderSubgroupRotateClustered},
+            {"shaderFloatControls2", features.shaderFloatControls2}, {"shaderExpectAssume", features.shaderExpectAssume}, {"rectangularLines", features.rectangularLines},
+            {"bresenhamLines", features.bresenhamLines}, {"smoothLines", features.smoothLines}, {"stippledRectangularLines", features.stippledRectangularLines},
+            {"stippledBresenhamLines", features.stippledBresenhamLines}, {"stippledSmoothLines", features.stippledSmoothLines}, {"vertexAttributeInstanceRateDivisor", features.vertexAttributeInstanceRateDivisor},
+            {"vertexAttributeInstanceRateZeroDivisor", features.vertexAttributeInstanceRateZeroDivisor}, {"indexTypeUint8", features.indexTypeUint8}, {"dynamicRenderingLocalRead", features.dynamicRenderingLocalRead},
+            {"maintenance5", features.maintenance5}, {"maintenance6", features.maintenance6}, {"pipelineProtectedAccess", features.pipelineProtectedAccess},
+            {"pipelineRobustness", features.pipelineRobustness}, {"hostImageCopy", features.hostImageCopy}, {"pushDescriptor", features.pushDescriptor}
+        };
+        for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); ++i) {
+            const auto& field = fields[i];
+            if (i) out << ',';
+            out << "{\"name\":" << jsonString("Vulkan 1.4 · " + std::string(field.name)) << ",\"supported\":" << jsonBool(field.value == VK_TRUE) << '}';
+        }
+    } else {
+        VkFeatureChain chain{};
+        chain.sType = targetMinor == 1 ? VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES : targetMinor == 2 ? VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES : VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+        VkPhysicalDeviceFeatures2 base{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &chain, {}};
+        api.getPhysicalDeviceFeatures2(device, &base);
+        const auto names = versionedFeatureNames(targetMinor + 10);
+        for (size_t i = 0; i < names.size(); ++i) {
+            if (i) out << ',';
+            out << "{\"name\":" << jsonString("Vulkan " + std::to_string(targetMinor) + " · " + names[i]) << ",\"supported\":" << jsonBool(chain.values[i] == VK_TRUE) << '}';
+        }
+    }
+    out << ']';
+}
+
+std::string hexBytes(const uint8_t* data, size_t count) {
+    static const char* digits = "0123456789ABCDEF";
+    std::string out;
+    out.reserve(count * 2);
+    for (size_t i = 0; i < count; ++i) { out.push_back(digits[data[i] >> 4]); out.push_back(digits[data[i] & 0x0F]); }
+    return out;
+}
+
+void appendProperty(std::ostringstream& out, bool& first, const char* section, const char* name, const std::string& value) {
+    if (!first) out << ',';
+    first = false;
+    out << "{\"section\":" << jsonString(section) << ",\"name\":" << jsonString(name) << ",\"value\":" << jsonString(value) << '}';
+}
+void appendProperty(std::ostringstream& out, bool& first, const char* section, const char* name, uint64_t value) { appendProperty(out, first, section, name, std::to_string(value)); }
+void appendProperty(std::ostringstream& out, bool& first, const char* section, const char* name, uint32_t value) { appendProperty(out, first, section, name, std::to_string(value)); }
+void appendBoolProperty(std::ostringstream& out, bool& first, const char* section, const char* name, VkBool32 value) { appendProperty(out, first, section, name, value == VK_TRUE ? "true" : "false"); }
+void appendProperty(std::ostringstream& out, bool& first, const char* section, const char* name, const char* value) { appendProperty(out, first, section, name, std::string(value ? value : "")); }
+
+void appendCoreProperties(std::ostringstream& out, uint32_t apiVersion, VulkanApi& api, VkPhysicalDevice device, const std::vector<VkExtensionProperties>& devExts, uint32_t targetMinor, bool includeExtensions) {
+    out << '[';
+    bool first = true;
+    if (!api.getPhysicalDeviceProperties2 || VK_API_VERSION_MINOR(apiVersion) < 1) { out << ']'; return; }
+
+    VkPhysicalDeviceProperties2 base{};
+    base.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    VkPhysicalDeviceVulkan11Properties p11{}; p11.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES;
+    VkPhysicalDeviceVulkan12Properties p12{}; p12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES;
+    VkPhysicalDeviceVulkan13Properties p13{}; p13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_PROPERTIES;
+    VkPhysicalDeviceVulkan14Properties p14{}; p14.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_PROPERTIES;
+    VkPhysicalDeviceFragmentDensityMapPropertiesEXT fdm{}; fdm.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_PROPERTIES_EXT;
+    VkPhysicalDeviceFragmentDensityMap2PropertiesEXT fdm2{}; fdm2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_2_PROPERTIES_EXT;
+    const bool hasFdm = hasExtension(devExts, "VK_EXT_fragment_density_map");
+    const bool hasFdm2 = hasExtension(devExts, "VK_EXT_fragment_density_map2");
+    const uint32_t apiMinor = VK_API_VERSION_MINOR(apiVersion);
+    const uint32_t minor = std::min(apiMinor, targetMinor);
+    if (targetMinor == 1 && apiMinor >= 1) base.pNext = &p11;
+    if (targetMinor == 2 && apiMinor >= 2) base.pNext = &p12;
+    if (targetMinor == 3 && apiMinor >= 3) base.pNext = &p13;
+    if (targetMinor == 4 && apiMinor >= 4) base.pNext = &p14;
+    void* coreTail = targetMinor == 1 ? static_cast<void*>(&p11) : targetMinor == 2 ? static_cast<void*>(&p12) : targetMinor == 3 ? static_cast<void*>(&p13) : static_cast<void*>(&p14);
+    void* extensionCoreTail = coreTail;
+    void* extensionTail = nullptr;
+    if (includeExtensions && hasFdm2) extensionTail = &fdm2;
+    if (includeExtensions && hasFdm) { fdm.pNext = extensionTail; extensionTail = &fdm; }
+    if (includeExtensions && extensionTail) *reinterpret_cast<void**>(reinterpret_cast<uint8_t*>(extensionCoreTail) + sizeof(uint32_t)) = extensionTail;
+    constexpr uint32_t kMaxVulkan14LayoutEntries = 65536;
+    std::vector<int32_t> copySrc;
+    std::vector<int32_t> copyDst;
+    api.getPhysicalDeviceProperties2(device, &base);
+    if (targetMinor == 4 && minor >= 4) {
+        const bool copySrcWithinLimit = p14.copySrcLayoutCount <= kMaxVulkan14LayoutEntries;
+        const bool copyDstWithinLimit = p14.copyDstLayoutCount <= kMaxVulkan14LayoutEntries;
+        if (copySrcWithinLimit) copySrc.resize(p14.copySrcLayoutCount);
+        if (copyDstWithinLimit) copyDst.resize(p14.copyDstLayoutCount);
+        p14.pCopySrcLayouts = copySrcWithinLimit && !copySrc.empty() ? copySrc.data() : nullptr;
+        p14.pCopyDstLayouts = copyDstWithinLimit && !copyDst.empty() ? copyDst.data() : nullptr;
+        if (copySrcWithinLimit && copyDstWithinLimit) api.getPhysicalDeviceProperties2(device, &base);
+    }
+    if (targetMinor == 1 && minor >= 1) {
+        appendProperty(out, first, "Core 1.1", "deviceUUID", hexBytes(p11.deviceUUID, 16));
+        appendProperty(out, first, "Core 1.1", "driverUUID", hexBytes(p11.driverUUID, 16));
+        appendProperty(out, first, "Core 1.1", "deviceLUID", hexBytes(p11.deviceLUID, 8));
+        appendProperty(out, first, "Core 1.1", "deviceNodeMask", p11.deviceNodeMask);
+        appendBoolProperty(out, first, "Core 1.1", "deviceLUIDValid", p11.deviceLUIDValid);
+        appendProperty(out, first, "Core 1.1", "subgroupSize", p11.subgroupSize);
+        appendProperty(out, first, "Core 1.1", "subgroupSupportedStages", p11.subgroupSupportedStages);
+        appendProperty(out, first, "Core 1.1", "subgroupSupportedOperations", p11.subgroupSupportedOperations);
+        appendBoolProperty(out, first, "Core 1.1", "subgroupQuadOperationsInAllStages", p11.subgroupQuadOperationsInAllStages);
+        appendProperty(out, first, "Core 1.1", "pointClippingBehavior", p11.pointClippingBehavior);
+        appendProperty(out, first, "Core 1.1", "maxMultiviewViewCount", p11.maxMultiviewViewCount);
+        appendProperty(out, first, "Core 1.1", "maxMultiviewInstanceIndex", p11.maxMultiviewInstanceIndex);
+        appendBoolProperty(out, first, "Core 1.1", "protectedNoFault", p11.protectedNoFault);
+        appendProperty(out, first, "Core 1.1", "maxPerSetDescriptors", p11.maxPerSetDescriptors);
+        appendProperty(out, first, "Core 1.1", "maxMemoryAllocationSize", p11.maxMemoryAllocationSize);
+    }
+    if (targetMinor == 2 && minor >= 2) {
+        appendProperty(out, first, "Core 1.2", "driverID", p12.driverID);
+        appendProperty(out, first, "Vulkan Registry", "baseline", vulkanscope_registry::kBaseline);
+    appendProperty(out, first, "Vulkan Registry", "queryEngine", vulkanscope_registry::kMode);
+    appendProperty(out, first, "Vulkan Registry", "implementedPhysicalDeviceStructCount", static_cast<uint64_t>(vulkanscope_registry::kImplementedPhysicalDeviceStructCount));
+    appendProperty(out, first, "Vulkan Registry", "runtimeExtensionTokenCount", static_cast<uint64_t>(vulkanscope_registry::kRuntimeExtensionTokenCount));
+    appendProperty(out, first, "Vulkan Registry", "validatedRuntimeQueryGroupCount", static_cast<uint64_t>(vulkanscope_registry::kValidatedRuntimeQueryGroupCount));
+    appendProperty(out, first, "Core 1.2", "driverName", p12.driverName);
+        appendProperty(out, first, "Core 1.2", "driverInfo", p12.driverInfo);
+        appendProperty(out, first, "Core 1.2", "conformanceVersion", std::to_string(p12.conformanceVersion[0]) + "." + std::to_string(p12.conformanceVersion[1]) + "." + std::to_string(p12.conformanceVersion[2]) + "." + std::to_string(p12.conformanceVersion[3]));
+        appendProperty(out, first, "Core 1.2", "denormBehaviorIndependence", p12.denormBehaviorIndependence);
+        appendProperty(out, first, "Core 1.2", "roundingModeIndependence", p12.roundingModeIndependence);
+        const struct BoolField { const char* name; VkBool32 value; } bools[] = {
+            {"shaderSignedZeroInfNanPreserveFloat16",p12.shaderSignedZeroInfNanPreserveFloat16},{"shaderSignedZeroInfNanPreserveFloat32",p12.shaderSignedZeroInfNanPreserveFloat32},{"shaderSignedZeroInfNanPreserveFloat64",p12.shaderSignedZeroInfNanPreserveFloat64},{"shaderDenormPreserveFloat16",p12.shaderDenormPreserveFloat16},{"shaderDenormPreserveFloat32",p12.shaderDenormPreserveFloat32},{"shaderDenormPreserveFloat64",p12.shaderDenormPreserveFloat64},{"shaderDenormFlushToZeroFloat16",p12.shaderDenormFlushToZeroFloat16},{"shaderDenormFlushToZeroFloat32",p12.shaderDenormFlushToZeroFloat32},{"shaderDenormFlushToZeroFloat64",p12.shaderDenormFlushToZeroFloat64},{"shaderRoundingModeRTEFloat16",p12.shaderRoundingModeRTEFloat16},{"shaderRoundingModeRTEFloat32",p12.shaderRoundingModeRTEFloat32},{"shaderRoundingModeRTEFloat64",p12.shaderRoundingModeRTEFloat64},{"shaderRoundingModeRTZFloat16",p12.shaderRoundingModeRTZFloat16},{"shaderRoundingModeRTZFloat32",p12.shaderRoundingModeRTZFloat32},{"shaderRoundingModeRTZFloat64",p12.shaderRoundingModeRTZFloat64},{"shaderUniformBufferArrayNonUniformIndexingNative",p12.shaderUniformBufferArrayNonUniformIndexingNative},{"shaderSampledImageArrayNonUniformIndexingNative",p12.shaderSampledImageArrayNonUniformIndexingNative},{"shaderStorageBufferArrayNonUniformIndexingNative",p12.shaderStorageBufferArrayNonUniformIndexingNative},{"shaderStorageImageArrayNonUniformIndexingNative",p12.shaderStorageImageArrayNonUniformIndexingNative},{"shaderInputAttachmentArrayNonUniformIndexingNative",p12.shaderInputAttachmentArrayNonUniformIndexingNative},{"robustBufferAccessUpdateAfterBind",p12.robustBufferAccessUpdateAfterBind},{"quadDivergentImplicitLod",p12.quadDivergentImplicitLod}
+        };
+        for (const auto& f : bools) appendBoolProperty(out, first, "Core 1.2", f.name, f.value);
+        const struct U32Field { const char* name; uint32_t value; } u32s[] = {
+            {"maxUpdateAfterBindDescriptorsInAllPools",p12.maxUpdateAfterBindDescriptorsInAllPools},{"maxPerStageDescriptorUpdateAfterBindSamplers",p12.maxPerStageDescriptorUpdateAfterBindSamplers},{"maxPerStageDescriptorUpdateAfterBindUniformBuffers",p12.maxPerStageDescriptorUpdateAfterBindUniformBuffers},{"maxPerStageDescriptorUpdateAfterBindStorageBuffers",p12.maxPerStageDescriptorUpdateAfterBindStorageBuffers},{"maxPerStageDescriptorUpdateAfterBindSampledImages",p12.maxPerStageDescriptorUpdateAfterBindSampledImages},{"maxPerStageDescriptorUpdateAfterBindStorageImages",p12.maxPerStageDescriptorUpdateAfterBindStorageImages},{"maxPerStageDescriptorUpdateAfterBindInputAttachments",p12.maxPerStageDescriptorUpdateAfterBindInputAttachments},{"maxPerStageUpdateAfterBindResources",p12.maxPerStageUpdateAfterBindResources},{"maxDescriptorSetUpdateAfterBindSamplers",p12.maxDescriptorSetUpdateAfterBindSamplers},{"maxDescriptorSetUpdateAfterBindUniformBuffers",p12.maxDescriptorSetUpdateAfterBindUniformBuffers},{"maxDescriptorSetUpdateAfterBindUniformBuffersDynamic",p12.maxDescriptorSetUpdateAfterBindUniformBuffersDynamic},{"maxDescriptorSetUpdateAfterBindStorageBuffers",p12.maxDescriptorSetUpdateAfterBindStorageBuffers},{"maxDescriptorSetUpdateAfterBindStorageBuffersDynamic",p12.maxDescriptorSetUpdateAfterBindStorageBuffersDynamic},{"maxDescriptorSetUpdateAfterBindSampledImages",p12.maxDescriptorSetUpdateAfterBindSampledImages},{"maxDescriptorSetUpdateAfterBindStorageImages",p12.maxDescriptorSetUpdateAfterBindStorageImages},{"maxDescriptorSetUpdateAfterBindInputAttachments",p12.maxDescriptorSetUpdateAfterBindInputAttachments},{"supportedDepthResolveModes",p12.supportedDepthResolveModes},{"supportedStencilResolveModes",p12.supportedStencilResolveModes},{"framebufferIntegerColorSampleCounts",p12.framebufferIntegerColorSampleCounts}
+        };
+        for (const auto& f : u32s) appendProperty(out, first, "Core 1.2", f.name, f.value);
+        appendBoolProperty(out, first, "Core 1.2", "independentResolveNone", p12.independentResolveNone);
+        appendBoolProperty(out, first, "Core 1.2", "independentResolve", p12.independentResolve);
+        appendBoolProperty(out, first, "Core 1.2", "filterMinmaxSingleComponentFormats", p12.filterMinmaxSingleComponentFormats);
+        appendBoolProperty(out, first, "Core 1.2", "filterMinmaxImageComponentMapping", p12.filterMinmaxImageComponentMapping);
+        appendProperty(out, first, "Core 1.2", "maxTimelineSemaphoreValueDifference", p12.maxTimelineSemaphoreValueDifference);
+    }
+    if (targetMinor == 3 && minor >= 3) {
+        const struct U32Field { const char* name; uint32_t value; } u32s[] = {
+            {"minSubgroupSize",p13.minSubgroupSize},{"maxSubgroupSize",p13.maxSubgroupSize},{"maxComputeWorkgroupSubgroups",p13.maxComputeWorkgroupSubgroups},{"requiredSubgroupSizeStages",p13.requiredSubgroupSizeStages},{"maxInlineUniformBlockSize",p13.maxInlineUniformBlockSize},{"maxPerStageDescriptorInlineUniformBlocks",p13.maxPerStageDescriptorInlineUniformBlocks},{"maxPerStageDescriptorUpdateAfterBindInlineUniformBlocks",p13.maxPerStageDescriptorUpdateAfterBindInlineUniformBlocks},{"maxDescriptorSetInlineUniformBlocks",p13.maxDescriptorSetInlineUniformBlocks},{"maxDescriptorSetUpdateAfterBindInlineUniformBlocks",p13.maxDescriptorSetUpdateAfterBindInlineUniformBlocks},{"maxInlineUniformTotalSize",p13.maxInlineUniformTotalSize}
+        };
+        for (const auto& f : u32s) appendProperty(out, first, "Core 1.3", f.name, f.value);
+        const struct BoolField { const char* name; VkBool32 value; } bools[] = {
+            {"integerDotProduct8BitUnsignedAccelerated",p13.integerDotProduct8BitUnsignedAccelerated},{"integerDotProduct8BitSignedAccelerated",p13.integerDotProduct8BitSignedAccelerated},{"integerDotProduct8BitMixedSignednessAccelerated",p13.integerDotProduct8BitMixedSignednessAccelerated},{"integerDotProduct4x8BitPackedUnsignedAccelerated",p13.integerDotProduct4x8BitPackedUnsignedAccelerated},{"integerDotProduct4x8BitPackedSignedAccelerated",p13.integerDotProduct4x8BitPackedSignedAccelerated},{"integerDotProduct4x8BitPackedMixedSignednessAccelerated",p13.integerDotProduct4x8BitPackedMixedSignednessAccelerated},{"integerDotProduct16BitUnsignedAccelerated",p13.integerDotProduct16BitUnsignedAccelerated},{"integerDotProduct16BitSignedAccelerated",p13.integerDotProduct16BitSignedAccelerated},{"integerDotProduct16BitMixedSignednessAccelerated",p13.integerDotProduct16BitMixedSignednessAccelerated},{"integerDotProduct32BitUnsignedAccelerated",p13.integerDotProduct32BitUnsignedAccelerated},{"integerDotProduct32BitSignedAccelerated",p13.integerDotProduct32BitSignedAccelerated},{"integerDotProduct32BitMixedSignednessAccelerated",p13.integerDotProduct32BitMixedSignednessAccelerated},{"integerDotProduct64BitUnsignedAccelerated",p13.integerDotProduct64BitUnsignedAccelerated},{"integerDotProduct64BitSignedAccelerated",p13.integerDotProduct64BitSignedAccelerated},{"integerDotProduct64BitMixedSignednessAccelerated",p13.integerDotProduct64BitMixedSignednessAccelerated},{"integerDotProductAccumulatingSaturating8BitUnsignedAccelerated",p13.integerDotProductAccumulatingSaturating8BitUnsignedAccelerated},{"integerDotProductAccumulatingSaturating8BitSignedAccelerated",p13.integerDotProductAccumulatingSaturating8BitSignedAccelerated},{"integerDotProductAccumulatingSaturating8BitMixedSignednessAccelerated",p13.integerDotProductAccumulatingSaturating8BitMixedSignednessAccelerated},{"integerDotProductAccumulatingSaturating4x8BitPackedUnsignedAccelerated",p13.integerDotProductAccumulatingSaturating4x8BitPackedUnsignedAccelerated},{"integerDotProductAccumulatingSaturating4x8BitPackedSignedAccelerated",p13.integerDotProductAccumulatingSaturating4x8BitPackedSignedAccelerated},{"integerDotProductAccumulatingSaturating4x8BitPackedMixedSignednessAccelerated",p13.integerDotProductAccumulatingSaturating4x8BitPackedMixedSignednessAccelerated},{"integerDotProductAccumulatingSaturating16BitUnsignedAccelerated",p13.integerDotProductAccumulatingSaturating16BitUnsignedAccelerated},{"integerDotProductAccumulatingSaturating16BitSignedAccelerated",p13.integerDotProductAccumulatingSaturating16BitSignedAccelerated},{"integerDotProductAccumulatingSaturating16BitMixedSignednessAccelerated",p13.integerDotProductAccumulatingSaturating16BitMixedSignednessAccelerated},{"integerDotProductAccumulatingSaturating32BitUnsignedAccelerated",p13.integerDotProductAccumulatingSaturating32BitUnsignedAccelerated},{"integerDotProductAccumulatingSaturating32BitSignedAccelerated",p13.integerDotProductAccumulatingSaturating32BitSignedAccelerated},{"integerDotProductAccumulatingSaturating32BitMixedSignednessAccelerated",p13.integerDotProductAccumulatingSaturating32BitMixedSignednessAccelerated},{"integerDotProductAccumulatingSaturating64BitUnsignedAccelerated",p13.integerDotProductAccumulatingSaturating64BitUnsignedAccelerated},{"integerDotProductAccumulatingSaturating64BitSignedAccelerated",p13.integerDotProductAccumulatingSaturating64BitSignedAccelerated},{"integerDotProductAccumulatingSaturating64BitMixedSignednessAccelerated",p13.integerDotProductAccumulatingSaturating64BitMixedSignednessAccelerated},
+        };
+        for (const auto& f : bools) appendBoolProperty(out, first, "Core 1.3", f.name, f.value);
+        appendProperty(out, first, "Core 1.3", "storageTexelBufferOffsetAlignmentBytes", p13.storageTexelBufferOffsetAlignmentBytes);
+        appendProperty(out, first, "Core 1.3", "storageTexelBufferOffsetSingleTexelAlignment", p13.storageTexelBufferOffsetSingleTexelAlignment);
+        appendProperty(out, first, "Core 1.3", "uniformTexelBufferOffsetAlignmentBytes", p13.uniformTexelBufferOffsetAlignmentBytes);
+        appendProperty(out, first, "Core 1.3", "uniformTexelBufferOffsetSingleTexelAlignment", p13.uniformTexelBufferOffsetSingleTexelAlignment);
+        appendProperty(out, first, "Core 1.3", "maxBufferSize", p13.maxBufferSize);
+    }
+    if (targetMinor == 4 && minor >= 4) {
+        appendProperty(out, first, "Core 1.4", "lineSubPixelPrecisionBits", p14.lineSubPixelPrecisionBits);
+        appendProperty(out, first, "Core 1.4", "maxVertexAttribDivisor", p14.maxVertexAttribDivisor);
+        appendBoolProperty(out, first, "Core 1.4", "supportsNonZeroFirstInstance", p14.supportsNonZeroFirstInstance);
+        appendProperty(out, first, "Core 1.4", "maxPushDescriptors", p14.maxPushDescriptors);
+        appendBoolProperty(out, first, "Core 1.4", "dynamicRenderingLocalReadDepthStencilAttachments", p14.dynamicRenderingLocalReadDepthStencilAttachments);
+        appendBoolProperty(out, first, "Core 1.4", "dynamicRenderingLocalReadMultisampledAttachments", p14.dynamicRenderingLocalReadMultisampledAttachments);
+        appendBoolProperty(out, first, "Core 1.4", "earlyFragmentMultisampleCoverageAfterSampleCounting", p14.earlyFragmentMultisampleCoverageAfterSampleCounting);
+        appendBoolProperty(out, first, "Core 1.4", "earlyFragmentSampleMaskTestBeforeSampleCounting", p14.earlyFragmentSampleMaskTestBeforeSampleCounting);
+        appendBoolProperty(out, first, "Core 1.4", "depthStencilSwizzleOneSupport", p14.depthStencilSwizzleOneSupport);
+        appendBoolProperty(out, first, "Core 1.4", "polygonModePointSize", p14.polygonModePointSize);
+        appendBoolProperty(out, first, "Core 1.4", "nonStrictSinglePixelWideLinesUseParallelogram", p14.nonStrictSinglePixelWideLinesUseParallelogram);
+        appendBoolProperty(out, first, "Core 1.4", "nonStrictWideLinesUseParallelogram", p14.nonStrictWideLinesUseParallelogram);
+        appendBoolProperty(out, first, "Core 1.4", "blockTexelViewCompatibleMultipleLayers", p14.blockTexelViewCompatibleMultipleLayers);
+        appendProperty(out, first, "Core 1.4", "maxCombinedImageSamplerDescriptorCount", p14.maxCombinedImageSamplerDescriptorCount);
+        appendBoolProperty(out, first, "Core 1.4", "fragmentShadingRateClampCombinerInputs", p14.fragmentShadingRateClampCombinerInputs);
+        appendProperty(out, first, "Core 1.4", "defaultRobustnessStorageBuffers", p14.defaultRobustnessStorageBuffers);
+        appendProperty(out, first, "Core 1.4", "defaultRobustnessUniformBuffers", p14.defaultRobustnessUniformBuffers);
+        appendProperty(out, first, "Core 1.4", "defaultRobustnessVertexInputs", p14.defaultRobustnessVertexInputs);
+        appendProperty(out, first, "Core 1.4", "defaultRobustnessImages", p14.defaultRobustnessImages);
+        appendProperty(out, first, "Core 1.4", "copySrcLayoutCount", p14.copySrcLayoutCount);
+        appendProperty(out, first, "Core 1.4", "copyDstLayoutCount", p14.copyDstLayoutCount);
+        if (p14.copySrcLayoutCount <= kMaxVulkan14LayoutEntries) {
+            std::string srcLayouts;
+            for (uint32_t i = 0; i < p14.copySrcLayoutCount && i < copySrc.size(); ++i) { if (i) srcLayouts += ", "; srcLayouts += std::to_string(copySrc[i]); }
+            appendProperty(out, first, "Core 1.4", "copySrcLayouts", srcLayouts);
+        } else {
+            appendProperty(out, first, "Core 1.4", "copySrcLayouts", "Unavailable: safety cap exceeded");
+        }
+        if (p14.copyDstLayoutCount <= kMaxVulkan14LayoutEntries) {
+            std::string dstLayouts;
+            for (uint32_t i = 0; i < p14.copyDstLayoutCount && i < copyDst.size(); ++i) { if (i) dstLayouts += ", "; dstLayouts += std::to_string(copyDst[i]); }
+            appendProperty(out, first, "Core 1.4", "copyDstLayouts", dstLayouts);
+        } else {
+            appendProperty(out, first, "Core 1.4", "copyDstLayouts", "Unavailable: safety cap exceeded");
+        }
+        appendProperty(out, first, "Core 1.4", "optimalTilingLayoutUUID", hexBytes(p14.optimalTilingLayoutUUID, 16));
+        appendBoolProperty(out, first, "Core 1.4", "identicalMemoryTypeRequirements", p14.identicalMemoryTypeRequirements);
+    }
+    if (includeExtensions && hasFdm) {
+        appendProperty(out, first, "VK_EXT_fragment_density_map", "minFragmentDensityTexelSize", std::to_string(fdm.minFragmentDensityTexelSize.width) + " × " + std::to_string(fdm.minFragmentDensityTexelSize.height));
+        appendProperty(out, first, "VK_EXT_fragment_density_map", "maxFragmentDensityTexelSize", std::to_string(fdm.maxFragmentDensityTexelSize.width) + " × " + std::to_string(fdm.maxFragmentDensityTexelSize.height));
+        appendBoolProperty(out, first, "VK_EXT_fragment_density_map", "fragmentDensityInvocations", fdm.fragmentDensityInvocations);
+    }
+    if (includeExtensions && hasFdm2) {
+        appendBoolProperty(out, first, "VK_EXT_fragment_density_map2", "subsampledLoads", fdm2.subsampledLoads);
+        appendBoolProperty(out, first, "VK_EXT_fragment_density_map2", "subsampledCoarseReconstructionEarlyAccess", fdm2.subsampledCoarseReconstructionEarlyAccess);
+        appendProperty(out, first, "VK_EXT_fragment_density_map2", "maxSubsampledArrayLayers", fdm2.maxSubsampledArrayLayers);
+        appendProperty(out, first, "VK_EXT_fragment_density_map2", "maxDescriptorSetSubsampledSamplers", fdm2.maxDescriptorSetSubsampledSamplers);
+    }
+    out << ']';
+}
+
+
+std::string registryCoverageJson() {
+    std::ostringstream out;
+    out << "{\"baseline\":" << jsonString(vulkanscope_registry::kBaseline)
+        << ",\"mode\":" << jsonString(vulkanscope_registry::kMode)
+        << ",\"implementedPhysicalDeviceStructCount\":" << vulkanscope_registry::kImplementedPhysicalDeviceStructCount
+        << ",\"validatedRuntimeQueryGroupCount\":" << vulkanscope_registry::kValidatedRuntimeQueryGroupCount
+        << ",\"runtimeExtensionTokenCount\":" << vulkanscope_registry::kRuntimeExtensionTokenCount
+        << ",\"catalogSchemaVersion\":" << vulkanscope_registry::kCatalogSchemaVersion
+        << ",\"headerBaseline\":" << jsonString(vulkanscope_registry::kHeaderBaseline)
+        << ",\"reportSchema\":" << jsonString(vulkanscope_registry::kReportSchema)
+        << ",\"instanceDependencyCandidateCount\":" << vulkanscope_registry::kInstanceDependencyCandidates.size()
+        << ",\"implementedPhysicalDeviceStructs\":[";
+    for (std::size_t i = 0; i < vulkanscope_registry::kImplementedPhysicalDeviceStructs.size(); ++i) {
+        if (i) out << ',';
+        out << jsonString(vulkanscope_registry::kImplementedPhysicalDeviceStructs[i]);
+    }
+    out << "],\"validatedRuntimeQueryGroups\":[";
+    for (std::size_t i = 0; i < vulkanscope_registry::kValidatedRuntimeQueryGroups.size(); ++i) {
+        if (i) out << ',';
+        out << jsonString(vulkanscope_registry::kValidatedRuntimeQueryGroups[i]);
+    }
+    out << "],\"queryDescriptors\":[";
+    for (std::size_t i = 0; i < vulkanscope_registry::kValidatedQueryDescriptors.size(); ++i) {
+        if (i) out << ',';
+        const auto& descriptor = vulkanscope_registry::kValidatedQueryDescriptors[i];
+        out << "{\"group\":" << jsonString(descriptor.group)
+            << ",\"scope\":" << jsonString(descriptor.scope)
+            << ",\"extension\":" << jsonString(descriptor.extension)
+            << ",\"minApiMinor\":" << descriptor.minApiMinor
+            << ",\"queryKind\":" << jsonString(descriptor.queryKind) << "}";
+    }
+    out << "]}";
+    return out.str();
+}
+
+std::string extensionsJson(const std::vector<VkExtensionProperties>& values, const char* scope) {
+    std::ostringstream out;
+    out << '[';
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (i) out << ',';
+        out << "{\"name\":" << jsonString(values[i].extensionName) << ",\"specVersion\":" << values[i].specVersion << ",\"scope\":" << jsonString(scope) << '}';
+    }
+    out << ']';
+    return out.str();
+}
+
+std::string collect(jobject surfaceObject, JNIEnv* env, const char* driverMode, const char* driverIcdPath, const char* driverBundlePath, const char* hookLibDir) {
+    VulkanApi api;
+    if (!api.open(driverMode, driverIcdPath, driverBundlePath, hookLibDir)) {
+        return std::string("{\"error\":") + jsonString(api.openError.empty() ? "Vulkan loader unavailable" : api.openError) + "}";
+    }
+
+    uint32_t loaderVersion = VK_API_VERSION_1_0;
+    if (api.enumerateInstanceVersion) { VkResult versionResult = api.enumerateInstanceVersion(&loaderVersion); if (versionResult != VK_SUCCESS) loaderVersion = VK_API_VERSION_1_0; }
+    const auto instanceExts = instanceExtensions(api);
+    const auto instanceLayerValues = instanceLayers(api);
+    const bool androidSurfaceAvailable = hasExtension(instanceExts, "VK_KHR_android_surface");
+    const bool surfaceAvailable = hasExtension(instanceExts, "VK_KHR_surface");
+    const bool swapchainColorspaceAvailable = hasExtension(instanceExts, "VK_EXT_swapchain_colorspace");
+
+    std::vector<const char*> enabledExtensions;
+    if (surfaceAvailable) enabledExtensions.push_back("VK_KHR_surface");
+    if (androidSurfaceAvailable) enabledExtensions.push_back("VK_KHR_android_surface");
+    if (swapchainColorspaceAvailable) enabledExtensions.push_back("VK_EXT_swapchain_colorspace");
+
+    VkApplicationInfo appInfo{VK_STRUCTURE_TYPE_APPLICATION_INFO, nullptr, "VulkanScope", 1, "VulkanScope", 1, loaderVersion};
+    VkInstanceCreateInfo createInfo{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO, nullptr, 0, &appInfo, 0, nullptr, static_cast<uint32_t>(enabledExtensions.size()), enabledExtensions.data()};
+    VkInstance instance = nullptr;
+    VkResult result = api.createInstance(&createInfo, nullptr, &instance);
+    if (result != VK_SUCCESS) {
+        std::ostringstream out;
+        std::ostringstream out;
+        out << "{\"error\":\"vkCreateInstance failed: " << result << "\",\"loaderVersion\":" << jsonString(versionString(loaderVersion)) << '}';
+        return out.str();
+    }
+    if (!api.loadInstanceFunctions(instance)) {
+        api.destroyInstance(instance, nullptr);
+        return "{\"error\":\"Required Vulkan instance entry points are unavailable\"}";
+    }
+
+    uint32_t deviceCount = 0;
+    const VkResult deviceCountResult = api.enumeratePhysicalDevices(instance, &deviceCount, nullptr);
+    if (deviceCount > kMaxPhysicalDevices) {
+        api.destroyInstance(instance, nullptr);
+        return "{\"error\":\"Physical-device count exceeds safety limit.\"}";
+    }
+    if (deviceCountResult != VK_SUCCESS) {
+        api.destroyInstance(instance, nullptr);
+        return std::string("{\"error\":\"vkEnumeratePhysicalDevices failed: ") + std::to_string(deviceCountResult) + "\"}";
+    }
+    std::vector<VkPhysicalDevice> devices(deviceCount);
+    if (deviceCount) {
+        const VkResult devicesResult = api.enumeratePhysicalDevices(instance, &deviceCount, devices.data());
+        if (devicesResult != VK_SUCCESS && devicesResult != VK_INCOMPLETE) {
+            api.destroyInstance(instance, nullptr);
+            return std::string("{\"error\":\"vkEnumeratePhysicalDevices failed: ") + std::to_string(devicesResult) + "\"}";
+        }
+        devices.resize(deviceCount);
+    }
+
+    VkSurfaceKHR surface = 0;
+    ANativeWindow* window = nullptr;
+    bool surfaceCreated = false;
+    if (surfaceObject && androidSurfaceAvailable && api.createAndroidSurfaceKHR && api.destroySurfaceKHR && api.getPhysicalDeviceSurfaceCapabilitiesKHR && api.getPhysicalDeviceSurfaceFormatsKHR && api.getPhysicalDeviceSurfacePresentModesKHR && api.getPhysicalDeviceSurfaceSupportKHR) {
+        window = ANativeWindow_fromSurface(env, surfaceObject);
+        if (window) {
+            VkAndroidSurfaceCreateInfoKHR surfaceInfo{VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR, nullptr, 0, window};
+            if (api.createAndroidSurfaceKHR(instance, &surfaceInfo, nullptr, &surface) == VK_SUCCESS) surfaceCreated = true;
+            ANativeWindow_release(window);
+        }
+    }
+
+    std::ostringstream out;
+    out << "{\"loaderVersion\":" << jsonString(versionString(loaderVersion));
+    out << ",\"registryCoverage\":" << registryCoverageJson();
+    out << ",\"vulkanRegistryVersion\":\"1.4.357\"";
+    out << ",\"instanceExtensionDependencyQueryEnabled\":" << jsonBool(hasExtension(instanceExts, "VK_KHR_get_physical_device_properties2"));
+    out << ",\"instanceExtensions\":" << extensionsJson(instanceExts, "Instance");
+    out << ",\"instanceLayers\":" << layersJson(instanceLayerValues);
+    out << ",\"surfaceColorSpaceExtensionAvailable\":" << jsonBool(swapchainColorspaceAvailable);
+    out << ",\"surfaceColorSpaceExtensionEnabled\":" << jsonBool(swapchainColorspaceAvailable);
+    out << ",\"deviceCount\":" << deviceCount;
+    out << ",\"devices\":[";
+
+    for (uint32_t deviceIndex = 0; deviceIndex < deviceCount; ++deviceIndex) {
+        if (deviceIndex) out << ',';
+        VkPhysicalDevice device = devices[deviceIndex];
+        std::array<uint8_t, 4096> properties{};
+        api.getPhysicalDeviceProperties(device, properties.data());
+        uint32_t apiVersion = 0;
+        uint32_t driverVersion = 0;
+        uint32_t vendorId = 0;
+        uint32_t deviceId = 0;
+        uint32_t deviceType = 0;
+        std::memcpy(&apiVersion, properties.data(), sizeof(apiVersion));
+        std::memcpy(&driverVersion, properties.data() + 4, sizeof(driverVersion));
+        std::memcpy(&vendorId, properties.data() + 8, sizeof(vendorId));
+        std::memcpy(&deviceId, properties.data() + 12, sizeof(deviceId));
+        std::memcpy(&deviceType, properties.data() + 16, sizeof(deviceType));
+        const size_t nameLength = strnlen(reinterpret_cast<const char*>(properties.data() + 20), 256);
+        const std::string deviceName(reinterpret_cast<const char*>(properties.data() + 20), nameLength);
+        const auto devExts = deviceExtensions(api, device);
+        const std::string deviceLayers = deviceLayersJson(api, device);
+        const bool coreExtendedQueriesAvailable = api.getPhysicalDeviceProperties2 && api.getPhysicalDeviceFeatures2 && VK_API_VERSION_MINOR(apiVersion) >= 1;
+        const char* extendedQueryStatus = coreExtendedQueriesAvailable ? "available" : (VK_API_VERSION_MINOR(apiVersion) >= 1 ? "unavailable" : "not_applicable");
+        const char* extendedQueryReason = coreExtendedQueriesAvailable
+            ? "Core Vulkan 1.1–1.4 feature and property queries are collected in the base Vulkan instance."
+            : (VK_API_VERSION_MINOR(apiVersion) >= 1 ? "The Vulkan 1.1+ physical-device query entry points are not available from the active Vulkan stack." : "The device API version is below Vulkan 1.1.");
+        VkPhysicalDeviceFeatures features{};
+        api.getPhysicalDeviceFeatures(device, &features);
+        VkPhysicalDeviceMemoryProperties memory{};
+        api.getPhysicalDeviceMemoryProperties(device, &memory);
+        uint32_t queueCount = 0;
+        api.getPhysicalDeviceQueueFamilyProperties(device, &queueCount, nullptr);
+        if (queueCount > kMaxQueueFamilies) queueCount = 0;
+        std::vector<VkQueueFamilyProperties> queues(queueCount);
+        if (queueCount) api.getPhysicalDeviceQueueFamilyProperties(device, &queueCount, queues.data());
+
+        out << "{\"name\":" << jsonString(deviceName) << ",\"apiVersion\":" << jsonString(versionString(apiVersion))
+            << ",\"driverVersion\":" << jsonString(std::to_string(driverVersion)) << ",\"vendorId\":" << vendorId
+            << ",\"deviceId\":" << deviceId << ",\"deviceType\":" << deviceType
+            << ",\"extendedQueryStatus\":" << jsonString(extendedQueryStatus)
+            << ",\"extendedQueryReason\":" << jsonString(extendedQueryReason)
+            << ",\"deviceExtensions\":" << extensionsJson(devExts, "Device") << ",\"deviceLayers\":" << deviceLayers << ",\"features\":[";
+        for (size_t i = 0; i < 55; ++i) {
+            if (i) out << ',';
+            out << "{\"name\":" << jsonString(featureName(i)) << ",\"supported\":" << jsonBool(features.values[i] == VK_TRUE) << '}';
+        }
+        out << "],\"limits\":[";
+        VkPhysicalDeviceLimitsLayout limitsCopy{};
+        static_assert(292 + sizeof(VkPhysicalDeviceLimitsLayout) <= 4096, "VkPhysicalDeviceLimitsLayout exceeds the raw property buffer");
+        std::memcpy(&limitsCopy, properties.data() + 292, sizeof(limitsCopy));
+        const auto* limits = &limitsCopy;
+        VkPhysicalDeviceSparsePropertiesLayout sparseCopy{};
+        static_assert(292 + sizeof(VkPhysicalDeviceLimitsLayout) + sizeof(VkPhysicalDeviceSparsePropertiesLayout) <= 4096, "VkPhysicalDeviceSparsePropertiesLayout exceeds the raw property buffer");
+        std::memcpy(&sparseCopy, properties.data() + 292 + sizeof(VkPhysicalDeviceLimitsLayout), sizeof(sparseCopy));
+        struct LimitField { const char* name; std::string value; };
+        std::vector<LimitField> limitFields;
+        auto addU32 = [&](const char* name, uint32_t value) { limitFields.push_back({name, std::to_string(value)}); };
+        auto addI32 = [&](const char* name, int32_t value) { limitFields.push_back({name, std::to_string(value)}); };
+        auto addU64 = [&](const char* name, uint64_t value) { limitFields.push_back({name, std::to_string(value)}); };
+        auto addF32 = [&](const char* name, float value) { limitFields.push_back({name, std::to_string(value)}); };
+        auto addBool = [&](const char* name, VkBool32 value) { limitFields.push_back({name, value == VK_TRUE ? "true" : "false"}); };
+        auto addPair = [&](const char* name, uint32_t a, uint32_t b) { limitFields.push_back({name, std::to_string(a) + " × " + std::to_string(b)}); };
+        auto addTriple = [&](const char* name, uint32_t a, uint32_t b, uint32_t c) { limitFields.push_back({name, std::to_string(a) + " × " + std::to_string(b) + " × " + std::to_string(c)}); };
+        auto addFloatPair = [&](const char* name, float a, float b) { limitFields.push_back({name, std::to_string(a) + " … " + std::to_string(b)}); };
+        addU32("maxImageDimension1D", limits->maxImageDimension1D); addU32("maxImageDimension2D", limits->maxImageDimension2D); addU32("maxImageDimension3D", limits->maxImageDimension3D); addU32("maxImageDimensionCube", limits->maxImageDimensionCube);
+        addU32("maxImageArrayLayers", limits->maxImageArrayLayers); addU32("maxTexelBufferElements", limits->maxTexelBufferElements); addU32("maxUniformBufferRange", limits->maxUniformBufferRange); addU32("maxStorageBufferRange", limits->maxStorageBufferRange);
+        addU32("maxPushConstantsSize", limits->maxPushConstantsSize); addU32("maxMemoryAllocationCount", limits->maxMemoryAllocationCount); addU32("maxSamplerAllocationCount", limits->maxSamplerAllocationCount); addU64("bufferImageGranularity", limits->bufferImageGranularity); addU64("sparseAddressSpaceSize", limits->sparseAddressSpaceSize);
+        addU32("maxBoundDescriptorSets", limits->maxBoundDescriptorSets); addU32("maxPerStageDescriptorSamplers", limits->maxPerStageDescriptorSamplers); addU32("maxPerStageDescriptorUniformBuffers", limits->maxPerStageDescriptorUniformBuffers); addU32("maxPerStageDescriptorStorageBuffers", limits->maxPerStageDescriptorStorageBuffers); addU32("maxPerStageDescriptorSampledImages", limits->maxPerStageDescriptorSampledImages); addU32("maxPerStageDescriptorStorageImages", limits->maxPerStageDescriptorStorageImages); addU32("maxPerStageDescriptorInputAttachments", limits->maxPerStageDescriptorInputAttachments); addU32("maxPerStageResources", limits->maxPerStageResources);
+        addU32("maxDescriptorSetSamplers", limits->maxDescriptorSetSamplers); addU32("maxDescriptorSetUniformBuffers", limits->maxDescriptorSetUniformBuffers); addU32("maxDescriptorSetUniformBuffersDynamic", limits->maxDescriptorSetUniformBuffersDynamic); addU32("maxDescriptorSetStorageBuffers", limits->maxDescriptorSetStorageBuffers); addU32("maxDescriptorSetStorageBuffersDynamic", limits->maxDescriptorSetStorageBuffersDynamic); addU32("maxDescriptorSetSampledImages", limits->maxDescriptorSetSampledImages); addU32("maxDescriptorSetStorageImages", limits->maxDescriptorSetStorageImages); addU32("maxDescriptorSetInputAttachments", limits->maxDescriptorSetInputAttachments);
+        addU32("maxVertexInputAttributes", limits->maxVertexInputAttributes); addU32("maxVertexInputBindings", limits->maxVertexInputBindings); addU32("maxVertexInputAttributeOffset", limits->maxVertexInputAttributeOffset); addU32("maxVertexInputBindingStride", limits->maxVertexInputBindingStride); addU32("maxVertexOutputComponents", limits->maxVertexOutputComponents); addU32("maxTessellationGenerationLevel", limits->maxTessellationGenerationLevel); addU32("maxTessellationPatchSize", limits->maxTessellationPatchSize); addU32("maxTessellationControlPerVertexInputComponents", limits->maxTessellationControlPerVertexInputComponents); addU32("maxTessellationControlPerVertexOutputComponents", limits->maxTessellationControlPerVertexOutputComponents); addU32("maxTessellationControlPerPatchOutputComponents", limits->maxTessellationControlPerPatchOutputComponents); addU32("maxTessellationControlTotalOutputComponents", limits->maxTessellationControlTotalOutputComponents); addU32("maxTessellationEvaluationInputComponents", limits->maxTessellationEvaluationInputComponents); addU32("maxTessellationEvaluationOutputComponents", limits->maxTessellationEvaluationOutputComponents); addU32("maxGeometryShaderInvocations", limits->maxGeometryShaderInvocations); addU32("maxGeometryInputComponents", limits->maxGeometryInputComponents); addU32("maxGeometryOutputComponents", limits->maxGeometryOutputComponents); addU32("maxGeometryOutputVertices", limits->maxGeometryOutputVertices); addU32("maxGeometryTotalOutputComponents", limits->maxGeometryTotalOutputComponents);
+        addU32("maxFragmentInputComponents", limits->maxFragmentInputComponents); addU32("maxFragmentOutputAttachments", limits->maxFragmentOutputAttachments); addU32("maxFragmentDualSrcAttachments", limits->maxFragmentDualSrcAttachments); addU32("maxFragmentCombinedOutputResources", limits->maxFragmentCombinedOutputResources); addU32("maxComputeSharedMemorySize", limits->maxComputeSharedMemorySize); addTriple("maxComputeWorkGroupCount", limits->maxComputeWorkGroupCount[0], limits->maxComputeWorkGroupCount[1], limits->maxComputeWorkGroupCount[2]); addU32("maxComputeWorkGroupInvocations", limits->maxComputeWorkGroupInvocations); addTriple("maxComputeWorkGroupSize", limits->maxComputeWorkGroupSize[0], limits->maxComputeWorkGroupSize[1], limits->maxComputeWorkGroupSize[2]);
+        addU32("subPixelPrecisionBits", limits->subPixelPrecisionBits); addU32("subTexelPrecisionBits", limits->subTexelPrecisionBits); addU32("mipmapPrecisionBits", limits->mipmapPrecisionBits); addU32("maxDrawIndexedIndexValue", limits->maxDrawIndexedIndexValue); addU32("maxDrawIndirectCount", limits->maxDrawIndirectCount); addF32("maxSamplerLodBias", limits->maxSamplerLodBias); addF32("maxSamplerAnisotropy", limits->maxSamplerAnisotropy); addU32("maxViewports", limits->maxViewports); addPair("maxViewportDimensions", limits->maxViewportDimensions[0], limits->maxViewportDimensions[1]); addFloatPair("viewportBoundsRange", limits->viewportBoundsRange[0], limits->viewportBoundsRange[1]); addU32("viewportSubPixelBits", limits->viewportSubPixelBits); addU64("minMemoryMapAlignment", static_cast<uint64_t>(limits->minMemoryMapAlignment)); addU64("minTexelBufferOffsetAlignment", limits->minTexelBufferOffsetAlignment); addU64("minUniformBufferOffsetAlignment", limits->minUniformBufferOffsetAlignment); addU64("minStorageBufferOffsetAlignment", limits->minStorageBufferOffsetAlignment);
+        addI32("minTexelOffset", limits->minTexelOffset); addU32("maxTexelOffset", limits->maxTexelOffset); addI32("minTexelGatherOffset", limits->minTexelGatherOffset); addU32("maxTexelGatherOffset", limits->maxTexelGatherOffset); addF32("minInterpolationOffset", limits->minInterpolationOffset); addF32("maxInterpolationOffset", limits->maxInterpolationOffset); addU32("subPixelInterpolationOffsetBits", limits->subPixelInterpolationOffsetBits); addU32("maxFramebufferWidth", limits->maxFramebufferWidth); addU32("maxFramebufferHeight", limits->maxFramebufferHeight); addU32("maxFramebufferLayers", limits->maxFramebufferLayers); addU32("framebufferColorSampleCounts", limits->framebufferColorSampleCounts); addU32("framebufferDepthSampleCounts", limits->framebufferDepthSampleCounts); addU32("framebufferStencilSampleCounts", limits->framebufferStencilSampleCounts); addU32("framebufferNoAttachmentsSampleCounts", limits->framebufferNoAttachmentsSampleCounts); addU32("maxColorAttachments", limits->maxColorAttachments); addU32("sampledImageColorSampleCounts", limits->sampledImageColorSampleCounts); addU32("sampledImageIntegerSampleCounts", limits->sampledImageIntegerSampleCounts); addU32("sampledImageDepthSampleCounts", limits->sampledImageDepthSampleCounts); addU32("sampledImageStencilSampleCounts", limits->sampledImageStencilSampleCounts); addU32("storageImageSampleCounts", limits->storageImageSampleCounts); addU32("maxSampleMaskWords", limits->maxSampleMaskWords); addBool("timestampComputeAndGraphics", limits->timestampComputeAndGraphics); addF32("timestampPeriod", limits->timestampPeriod); addU32("maxClipDistances", limits->maxClipDistances); addU32("maxCullDistances", limits->maxCullDistances); addU32("maxCombinedClipAndCullDistances", limits->maxCombinedClipAndCullDistances); addU32("discreteQueuePriorities", limits->discreteQueuePriorities); addFloatPair("pointSizeRange", limits->pointSizeRange[0], limits->pointSizeRange[1]); addFloatPair("lineWidthRange", limits->lineWidthRange[0], limits->lineWidthRange[1]); addF32("pointSizeGranularity", limits->pointSizeGranularity); addF32("lineWidthGranularity", limits->lineWidthGranularity); addBool("strictLines", limits->strictLines); addBool("standardSampleLocations", limits->standardSampleLocations); addU64("optimalBufferCopyOffsetAlignment", limits->optimalBufferCopyOffsetAlignment); addU64("optimalBufferCopyRowPitchAlignment", limits->optimalBufferCopyRowPitchAlignment); addU64("nonCoherentAtomSize", limits->nonCoherentAtomSize);
+        for (size_t i = 0; i < limitFields.size(); ++i) {
+            if (i) out << ',';
+            out << "{\"name\":" << jsonString(limitFields[i].name) << ",\"value\":" << jsonString(limitFields[i].value) << '}';
+        }
+    
+        out << ']';
+
+        out << ",\"versionedFeatures\":[";
+        bool versionedFirst = true;
+        for (uint32_t targetMinor = 1; targetMinor <= 4; ++targetMinor) {
+            std::ostringstream versioned;
+            appendVersionedFeatures(versioned, apiVersion, api, device, targetMinor);
+            const std::string value = versioned.str();
+            if (value.size() > 2) {
+                const std::string body = value.substr(1, value.size() - 2);
+                if (!body.empty()) {
+                    if (!versionedFirst) out << ',';
+                    out << body;
+                    versionedFirst = false;
+                }
+            }
+        }
+        out << ']';
+        out << ",\"detailedProperties\":[";
+        bool detailedFirst = true;
+        appendProperty(out, detailedFirst, "Core 1.0", "pipelineCacheUUID", hexBytes(properties.data() + 276, 16));
+        appendBoolProperty(out, detailedFirst, "Core 1.0", "sparseResidencyStandard2DBlockShapeSupported", sparseCopy.residencyStandard2DBlockShape);
+        appendBoolProperty(out, detailedFirst, "Core 1.0", "sparseResidencyStandard2DMultisampleBlockShape", sparseCopy.residencyStandard2DMultisampleBlockShape);
+        appendBoolProperty(out, detailedFirst, "Core 1.0", "sparseResidencyStandard3DBlockShape", sparseCopy.residencyStandard3DBlockShape);
+        appendBoolProperty(out, detailedFirst, "Core 1.0", "sparseResidencyAlignedMipSize", sparseCopy.residencyAlignedMipSize);
+        appendBoolProperty(out, detailedFirst, "Core 1.0", "sparseResidencyNonResidentStrict", sparseCopy.residencyNonResidentStrict);
+        for (uint32_t targetMinor = 1; targetMinor <= 4; ++targetMinor) {
+            std::ostringstream coreProperties;
+            appendCoreProperties(coreProperties, apiVersion, api, device, devExts, targetMinor, false);
+            const std::string value = coreProperties.str();
+            if (value.size() > 2) {
+                const std::string body = value.substr(1, value.size() - 2);
+                if (!body.empty()) {
+                    if (!detailedFirst) out << ',';
+                    out << body;
+                    detailedFirst = false;
+                }
+            }
+        }
+        out << ']';
+        const bool vulkan14Available = coreExtendedQueriesAvailable && VK_API_VERSION_MINOR(apiVersion) >= 4;
+        out << ",\"vulkan14Status\":" << jsonString(vulkan14Available ? "available" : (VK_API_VERSION_MINOR(apiVersion) >= 4 ? "unavailable" : "not_applicable"))
+            << ",\"vulkan14Reason\":" << jsonString(vulkan14Available ? "Vulkan 1.4 core features and properties were queried in the base Vulkan instance." : (VK_API_VERSION_MINOR(apiVersion) >= 4 ? "Vulkan 1.4 query entry points are unavailable in this Vulkan stack." : "The device API version is below Vulkan 1.4."));
+        out << ",\"queues\":[";
+        for (uint32_t i = 0; i < queueCount; ++i) {
+            if (i) out << ',';
+            const auto& q = queues[i];
+            out << "{\"index\":" << i << ",\"count\":" << q.queueCount << ",\"timestampValidBits\":" << q.timestampValidBits
+                << ",\"flags\":" << q.queueFlags << ",\"graphics\":" << jsonBool((q.queueFlags & 1u) != 0)
+                << ",\"compute\":" << jsonBool((q.queueFlags & 2u) != 0) << ",\"transfer\":" << jsonBool((q.queueFlags & 4u) != 0)
+                << ",\"sparse\":" << jsonBool((q.queueFlags & 8u) != 0)
+                << ",\"protected\":" << jsonBool((q.queueFlags & 0x10u) != 0)
+                << ",\"opticalFlow\":" << jsonBool((q.queueFlags & 0x100u) != 0)
+                << ",\"minImageTransferGranularity\":" << jsonString(std::to_string(q.minImageTransferGranularity.width) + " × " + std::to_string(q.minImageTransferGranularity.height) + " × " + std::to_string(q.minImageTransferGranularity.depth)) << '}';
+        }
+        out << "] ,\"memory\":{\"heapCount\":" << memory.memoryHeapCount << ",\"heaps\":[";
+        for (uint32_t i = 0; i < memory.memoryHeapCount; ++i) {
+            if (i) out << ',';
+            out << "{\"index\":" << i << ",\"size\":" << memory.memoryHeaps[i].size << ",\"flags\":" << memory.memoryHeaps[i].flags << '}';
+        }
+        out << "],\"typeCount\":" << memory.memoryTypeCount << ",\"types\":[";
+        for (uint32_t i = 0; i < memory.memoryTypeCount; ++i) {
+            if (i) out << ',';
+            out << "{\"index\":" << i << ",\"heap\":" << memory.memoryTypes[i].heapIndex << ",\"flags\":" << memory.memoryTypes[i].propertyFlags << '}';
+        }
+        out << "]},\"formats\":[";
+        const int32_t formats[] = {
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+            12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+            24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
+            36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
+            48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59,
+            60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71,
+            72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83,
+            84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95,
+            96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107,
+            108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119,
+            120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131,
+            132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143,
+            144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155,
+            156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167,
+            168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179,
+            180, 181, 182, 183, 184, 1000054000, 1000054001, 1000054002, 1000054003, 1000054004, 1000054005, 1000054006,
+            1000054007, 1000066000, 1000066001, 1000066002, 1000066003, 1000066004, 1000066005, 1000066006, 1000066007, 1000066008, 1000066009, 1000066010,
+            1000066011, 1000066012, 1000066013, 1000156000, 1000156001, 1000156002, 1000156003, 1000156004, 1000156005, 1000156006, 1000156007, 1000156008,
+            1000156009, 1000156010, 1000156011, 1000156012, 1000156013, 1000156014, 1000156015, 1000156016, 1000156017, 1000156018, 1000156019, 1000156020,
+            1000156021, 1000156022, 1000156023, 1000156024, 1000156025, 1000156026, 1000156027, 1000156028, 1000156029, 1000156030, 1000156031, 1000156032,
+            1000156033, 1000288000, 1000288001, 1000288002, 1000288003, 1000288004, 1000288005, 1000288006, 1000288007, 1000288008, 1000288009, 1000288010,
+            1000288011, 1000288012, 1000288013, 1000288014, 1000288015, 1000288016, 1000288017, 1000288018, 1000288019, 1000288020, 1000288021, 1000288022,
+            1000288023, 1000288024, 1000288025, 1000288026, 1000288027, 1000288028, 1000288029, 1000330000, 1000330001, 1000330002, 1000330003, 1000340000,
+            1000340001, 1000460000, 1000460001, 1000460002, 1000460003, 1000464000, 1000470000, 1000470001, 1000609000, 1000609001, 1000609002, 1000609003,
+            1000609004, 1000609005, 1000609006, 1000609007, 1000609008, 1000609009, 1000609010, 1000609011, 1000609012, 1000609013,
+        };
+        bool firstFormat = true;
+        for (int64_t format : formats) {
+            VkFormatProperties props{};
+            api.getPhysicalDeviceFormatProperties(device, static_cast<int32_t>(format), &props);
+            const std::string name = formatName(format);
+            if (name.rfind("VK_FORMAT_" + std::to_string(format), 0) == 0) continue;
+            const bool supported = props.linearTilingFeatures != 0 || props.optimalTilingFeatures != 0 || props.bufferFeatures != 0;
+            if (!firstFormat) out << ',';
+            firstFormat = false;
+            out << "{\"name\":" << jsonString(name) << ",\"supported\":" << jsonBool(supported)
+                << ",\"linear\":" << props.linearTilingFeatures
+                << ",\"optimal\":" << props.optimalTilingFeatures << ",\"buffer\":" << props.bufferFeatures << '}';
+        }
+        out << "]";
+
+        out << ",\"surface\":{\"available\":" << jsonBool(surfaceCreated)
+            << ",\"colorSpaceExtensionAvailable\":" << jsonBool(swapchainColorspaceAvailable)
+            << ",\"colorSpaceExtensionEnabled\":" << jsonBool(swapchainColorspaceAvailable);
+        if (surfaceCreated) {
+            bool presentationSupported = false;
+            for (uint32_t i = 0; i < queueCount; ++i) {
+                VkBool32 supported = 0;
+                if (api.getPhysicalDeviceSurfaceSupportKHR(device, i, surface, &supported) == VK_SUCCESS && supported == VK_TRUE) {
+                    presentationSupported = true;
+                    break;
+                }
+            }
+            out << ",\"presentationSupported\":" << jsonBool(presentationSupported);
+            if (presentationSupported) {
+                VkSurfaceCapabilitiesKHR caps{};
+                const VkResult capResult = api.getPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &caps);
+                out << ",\"capabilityResult\":" << capResult;
+                if (capResult == VK_SUCCESS) {
+                    out << ",\"minImageCount\":" << caps.minImageCount
+                        << ",\"maxImageCount\":" << caps.maxImageCount << ",\"currentExtent\":" << jsonString(std::to_string(caps.currentExtent.width) + " × " + std::to_string(caps.currentExtent.height))
+                        << ",\"minExtent\":" << jsonString(std::to_string(caps.minImageExtent.width) + " × " + std::to_string(caps.minImageExtent.height))
+                        << ",\"maxExtent\":" << jsonString(std::to_string(caps.maxImageExtent.width) + " × " + std::to_string(caps.maxImageExtent.height))
+                        << ",\"maxImageArrayLayers\":" << caps.maxImageArrayLayers << ",\"supportedTransforms\":" << caps.supportedTransforms
+                        << ",\"currentTransform\":" << caps.currentTransform << ",\"supportedCompositeAlpha\":" << caps.supportedCompositeAlpha
+                        << ",\"supportedUsageFlags\":" << caps.supportedUsageFlags;
+                }
+
+                uint32_t formatCount = 0;
+                const VkResult formatCountResult = api.getPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
+                std::vector<VkSurfaceFormatKHR> surfaceFormats;
+                int32_t formatResult = -1;
+                bool formatQuerySecondAttempted = false;
+                bool formatQuerySafetyRejected = false;
+                if (formatCountResult == VK_SUCCESS || formatCountResult == VK_INCOMPLETE) {
+                    if (formatCount > kMaxSurfaceFormatEntries) {
+                        formatCount = 0;
+                        formatQuerySafetyRejected = true;
+                    } else {
+                        surfaceFormats.resize(formatCount);
+                        if (formatCount) {
+                            formatQuerySecondAttempted = true;
+                            formatResult = api.getPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, surfaceFormats.data());
+                        } else {
+                            formatQuerySecondAttempted = true;
+                            formatResult = VK_SUCCESS;
+                        }
+                    }
+                }
+                out << ",\"formatQueryResult\":" << formatCountResult
+                    << ",\"formatQueryResultSecond\":" << formatResult
+                    << ",\"formatQuerySecondAttempted\":" << jsonBool(formatQuerySecondAttempted)
+                    << ",\"formatQuerySafetyRejected\":" << jsonBool(formatQuerySafetyRejected)
+                    << ",\"formatCount\":" << formatCount << ",\"formats\":[";
+                for (uint32_t i = 0; i < formatCount && i < surfaceFormats.size(); ++i) {
+                    if (i) out << ',';
+                    out << "{\"format\":" << jsonString(formatName(surfaceFormats[i].format)) << ",\"colorSpace\":" << jsonString(colorSpaceName(surfaceFormats[i].colorSpace))
+                        << ",\"class\":" << jsonString(colorSpaceClass(surfaceFormats[i].colorSpace))
+                        << ",\"description\":" << jsonString(colorSpaceDescription(surfaceFormats[i].colorSpace)) << '}';
+                }
+                out << "]";
+
+                uint32_t modeCount = 0;
+                const VkResult modeCountResult = api.getPhysicalDeviceSurfacePresentModesKHR(device, surface, &modeCount, nullptr);
+                std::vector<uint32_t> modes;
+                if (modeCountResult == VK_SUCCESS || modeCountResult == VK_INCOMPLETE) {
+                    if (modeCount > kMaxPresentModeEntries) {
+                        modeCount = 0;
+                    }
+                    modes.resize(modeCount);
+                    if (modeCount) api.getPhysicalDeviceSurfacePresentModesKHR(device, surface, &modeCount, modes.data());
+                }
+                out << ",\"presentModes\":[";
+                for (uint32_t i = 0; i < modeCount && i < modes.size(); ++i) {
+                    if (i) out << ',';
+                    const char* name = modes[i] == 0 ? "VK_PRESENT_MODE_IMMEDIATE_KHR" : modes[i] == 1 ? "VK_PRESENT_MODE_MAILBOX_KHR" : modes[i] == 2 ? "VK_PRESENT_MODE_FIFO_KHR" : modes[i] == 3 ? "VK_PRESENT_MODE_FIFO_RELAXED_KHR" : modes[i] == 1000111000 ? "VK_PRESENT_MODE_SHARED_DEMAND_REFRESH_KHR" : modes[i] == 1000111001 ? "VK_PRESENT_MODE_SHARED_CONTINUOUS_REFRESH_KHR" : modes[i] == 1000361000 ? "VK_PRESENT_MODE_FIFO_LATEST_READY_KHR" : "VK_PRESENT_MODE_UNKNOWN";
+                    out << jsonString(name);
+                }
+                out << "],\"queuePresentation\":[";
+                bool firstPresent = true;
+                for (uint32_t i = 0; i < queueCount; ++i) {
+                    VkBool32 supported = 0;
+                    if (api.getPhysicalDeviceSurfaceSupportKHR(device, i, surface, &supported) != VK_SUCCESS) continue;
+                    if (!firstPresent) out << ',';
+                    firstPresent = false;
+                    out << "{\"queueFamily\":" << i << ",\"supported\":" << jsonBool(supported == VK_TRUE) << '}';
+                }
+                out << "]";
+            }
+        } else {
+            out << ",\"presentationSupported\":false";
+        }
+        out << "}";
+        
+        
+        
+        out << "}";
+
+    }
+    out << "]}";
+    if (surfaceCreated) api.destroySurfaceKHR(instance, surface, nullptr);
+    api.destroyInstance(instance, nullptr);
+    return out.str();
+}
+
+
+std::string collectVulkanCoreGroup(const char* driverMode, const char* driverIcdPath, const char* driverBundlePath, const char* hookLibDir, uint32_t targetMinor) {
+    const char* group = targetMinor == 1 ? "core11" : targetMinor == 2 ? "core12" : targetMinor == 3 ? "core13" : "core14";
+    VulkanApi api;
+    if (!api.open(driverMode, driverIcdPath, driverBundlePath, hookLibDir)) {
+        return std::string("{\"status\":\"unavailable\",\"group\":") + jsonString(group) + ",\"reason\":" + jsonString(api.openError.empty() ? "Vulkan loader unavailable" : api.openError) + ",\"devices\":[]}";
+    }
+    uint32_t loaderVersion = VK_API_VERSION_1_0;
+    if (api.enumerateInstanceVersion) {
+        VkResult versionResult = api.enumerateInstanceVersion(&loaderVersion);
+        if (versionResult != VK_SUCCESS) loaderVersion = VK_API_VERSION_1_0;
+    }
+    const uint32_t requestedVersion = std::min(loaderVersion, (1u << 22) | (4u << 12));
+    VkApplicationInfo appInfo{VK_STRUCTURE_TYPE_APPLICATION_INFO, nullptr, "VulkanScope Core Probe", 1, "VulkanScope", 1, requestedVersion};
+    const auto queryInstanceExtensions = buildQueryInstanceExtensions(api);
+    VkInstanceCreateInfo createInfo{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO, nullptr, 0, &appInfo, 0, nullptr, static_cast<uint32_t>(queryInstanceExtensions.size()), queryInstanceExtensions.empty() ? nullptr : queryInstanceExtensions.data()};
+    VkInstance instance = nullptr;
+    if (api.createInstance(&createInfo, nullptr, &instance) != VK_SUCCESS || !instance) {
+        return std::string("{\"status\":\"unavailable\",\"group\":") + jsonString(group) + ",\"reason\":\"Unable to create a Vulkan instance for the isolated core query.\",\"devices\":[]}";
+    }
+    if (!api.loadInstanceFunctions(instance) || !api.getPhysicalDeviceProperties2 || !api.getPhysicalDeviceFeatures2) {
+        api.destroyInstance(instance, nullptr);
+        return std::string("{\"status\":\"unavailable\",\"group\":") + jsonString(group) + ",\"reason\":\"Vulkan extended physical-device query entry points are unavailable.\",\"devices\":[]}";
+    }
+    uint32_t count = 0;
+    if (api.enumeratePhysicalDevices(instance, &count, nullptr) != VK_SUCCESS || count == 0) {
+    if (count > kMaxPhysicalDevices) { api.destroyInstance(instance, nullptr); return std::string("{\"status\":\"unavailable\",\"reason\":\"Physical-device count exceeds safety limit.\",\"devices\":[]}"); }
+        api.destroyInstance(instance, nullptr);
+        return std::string("{\"status\":\"not_applicable\",\"group\":") + jsonString(group) + ",\"reason\":\"No physical Vulkan devices were enumerated.\",\"devices\":[]}";
+    }
+    std::vector<VkPhysicalDevice> devices(count);
+    if (api.enumeratePhysicalDevices(instance, &count, devices.data()) != VK_SUCCESS) {
+        api.destroyInstance(instance, nullptr);
+        return std::string("{\"status\":\"unavailable\",\"group\":") + jsonString(group) + ",\"reason\":\"Unable to enumerate physical Vulkan devices for the isolated core query.\",\"devices\":[]}";
+    }
+    std::ostringstream out;
+    out << "{\"status\":\"available\",\"group\":" << jsonString(group) << ",\"reason\":\"\",\"devices\":[";
+    bool firstDevice = true;
+    bool matchedAny = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        std::array<uint8_t, 1024> raw{};
+        api.getPhysicalDeviceProperties(devices[i], raw.data());
+        const uint32_t apiVersion = readU32Unaligned(raw.data());
+        if (VK_API_VERSION_MINOR(apiVersion) < targetMinor) continue;
+        matchedAny = true;
+        const uint32_t vendorId = readU32Unaligned(raw.data() + 8);
+        const uint32_t deviceId = readU32Unaligned(raw.data() + 12);
+        const char* name = reinterpret_cast<const char*>(raw.data() + 20);
+        const auto devExts = deviceExtensions(api, devices[i]);
+        if (!firstDevice) out << ',';
+        firstDevice = false;
+        out << "{\"vendorId\":" << vendorId << ",\"deviceId\":" << deviceId << ",\"name\":" << jsonString(name ? name : "Unknown GPU") << ",\"apiVersion\":" << jsonString(versionString(apiVersion)) << ",\"features\":";
+        appendVersionedFeatures(out, apiVersion, api, devices[i], targetMinor);
+        out << ",\"properties\":";
+        appendCoreProperties(out, apiVersion, api, devices[i], devExts, targetMinor, false);
+        out << '}';
+    }
+    out << "]}";
+    if (!matchedAny) {
+        api.destroyInstance(instance, nullptr);
+        return std::string("{\"status\":\"not_applicable\",\"group\":") + jsonString(group) + ",\"reason\":\"The installed Vulkan device API version is below the requested core version.\",\"devices\":[]}";
+    }
+    api.destroyInstance(instance, nullptr);
+    return out.str();
+}
+
+std::string collectVulkanExtensionGroup(const char* driverMode, const char* driverIcdPath, const char* driverBundlePath, const char* hookLibDir, const char* group) {
+    VulkanApi api;
+    if (!api.open(driverMode, driverIcdPath, driverBundlePath, hookLibDir)) {
+        return std::string("{\"status\":\"unavailable\",\"group\":") + jsonString(group ? group : "") + ",\"reason\":" + jsonString(api.openError.empty() ? "Vulkan loader unavailable" : api.openError) + ",\"devices\":[]}";

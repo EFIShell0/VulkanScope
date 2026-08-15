@@ -1,3 +1,270 @@
+0.19.8
+- Fixed duplicate Jetpack Compose lazy-list keys in the Formats, Features, and Physical-device Properties screens. Duplicate Vulkan property names are now safely keyed without dropping or merging entries.
+
+# VulkanScope 0.19.7
+
+- Fixed Turnip eligibility state: it is now derived from the actual base Vulkan device report instead of remaining permanently `UNKNOWN`.
+- Turnip eligibility requires Android 9+, `arm64-v8a`, Qualcomm vendor ID `0x5143`, and a runtime-reported Adreno device name; the driver bundle remains a separate installation requirement.
+- Preserved the existing rootless AdrenoTools/Turnip loading path and all Vulkan inspection features.
+- Bumped versionName to 0.19.7 and versionCode to 114.
+
+# VulkanScope 0.19.5
+
+- Restored the Vulkan 0.15.5 base-probe architecture: the base inventory no longer creates or queries an Android WSI surface.
+- Base inspection publishes `baseReportComplete=true` immediately after physical-device properties/features/memory/queues/extensions/formats are collected.
+- Registry metadata and instance-layer metadata remain intact through the isolated `metadata` query.
+- Surface capabilities, formats, present modes, colorspaces, and presentation support remain intact through the isolated surface query.
+- Core 1.1–1.4 and advanced/extension queries remain isolated/lazy; no feature was removed.
+- Prevents optional WSI/metadata operations from blocking the main inspection state.
+- Bumped versionName to 0.19.5.
+
+# 0.19.5
+- Core 1.4 is now fetched only when the Core 1.4 section is actually opened; it is no longer part of the Features/Properties page startup workload. All Core 1.4 fields and the existing native query implementation remain present.
+- Preserved Core 1.1/1.2/1.3 queries on the normal inspection pages and kept every advanced/extension query group intact.
+- SurfaceView API 34+ now uses the attachment-bound lifecycle, and a recreated Android Surface triggers only the isolated surface-capability probe instead of restarting the full Vulkan device inspection.
+- Bumped versionName to 0.19.5 and versionCode to 112.
+
+# 0.19.3
+- Separated Android Surface lifecycle refresh from full Vulkan device collection. A recreated Surface now triggers only the isolated Surface probe instead of restarting the entire Vulkan inspection.
+- Prevents SurfaceView lifecycle churn from keeping the UI in an endless initial inspection loop while preserving all surface capability/HDR/present-mode queries.
+- Bumped versionName to 0.19.3 and versionCode 111.
+
+# 0.19.5
+- Removed eager startup execution of Vulkan 1.1/1.2/1.3/1.4 core probes. The full core query paths remain intact and are now executed only when the Features or Properties inspection page needs them.
+- Prevents a vendor-specific Core 1.4 query (including deep property arrays) from being part of the initial inspection lifecycle; an isolated query failure now cannot block the base Vulkan report.
+- Kept all existing advanced and extension query groups; no Vulkan capability/query implementation was removed.
+- Bumped versionName to 0.19.5 and versionCode to 110.
+
+# 0.19.1
+
+- Removed eager startup execution of advanced image, format, memory, sparse, queue, video and extension-detail probes. Those query paths remain implemented and are now loaded lazily from the corresponding inspection pages so a vendor-specific advanced query cannot destabilize the initial Vulkan report.
+- Preserved Vulkan 1.1-1.4 core queries, Surface/HDR probing, runtime extension enumeration, extension specVersion data and all registry-driven query groups.
+- Added a per-session lazy-query circuit breaker so a crashing optional Vulkan query is not automatically retried in a loop.
+- Reset lazy-query state when the active driver mode changes.
+- Bumped versionName to 0.19.1 and versionCode to 109.
+
+# 0.19.0
+
+- Restored the full base Vulkan report path after the format-query checkpoint; the collector no longer returns a partial report before surface and instance metadata collection.
+- Preserved the validated baseReportReady checkpoint handoff so the UI can render the complete base device, feature, limit, queue, memory and format data without waiting on later optional metadata work.
+- Preserved all runtime extension, layer, surface, versioned-feature and generated-registry query paths.
+
+0.18.29 - Fixed the base probe stall after device collection by publishing a complete device report before registry/layer metadata; moved registry coverage and instance-layer extension enumeration into a separately isolated metadata probe so no base collection can remain stuck there. Preserved all existing queries and CapsViewer-parity fields.
+0.18.28 - Fixed atomic native checkpoint publication and invalid intermediate JSON acceptance; repaired the base memory/type checkpoint closure without removing any query coverage.
+0.18.27 - Added progressive base checkpoints before and after device extension, feature, limit and memory/queue stages; moved Vulkan 1.1-1.4 core feature/property collection to isolated validated probes without removing any query coverage.
+
+0.18.26 - Reworked base collection so legacy Vulkan 1.0 properties, features, limits, queues, memory and runtime extensions are checkpointed before vendor-sensitive extended queries. Vulkan 1.1-1.4 feature/property queries remain intact and are now merged through isolated validated core probes. Added progressive format-safe checkpoints and preserved CapsViewer-style collection order without removing any feature/query coverage.
+
+0.18.20 - Qualcomm-safe base discovery: Vulkan 1.1 core discovery instance with no optional instance extensions; physical-device enumeration result logging; no query/UI feature removal.
+
+- 0.18.19: Hardened base Vulkan instance creation against loader/device API mismatch by capping the initial discovery instance at Vulkan 1.3, added runtime-gated VK_KHR_get_physical_device_properties2 enabling, fixed duplicated API version serialization, merged core14 feature/property results without removing any query coverage, and stopped futile enrichment when base discovery yields no devices.
+- 0.18.18: Fixed layer-extension helper declaration order and added VK_INCOMPLETE-safe device-layer enumeration retry; no feature/query coverage removed.
+# 0.18.14
+
+- Restored full Surface, advanced, and extension enrichment after base probe.
+- Base Vulkan collection is again Surface-independent; WSI failure cannot erase core device data.
+- All enrichment probes remain strictly sequential behind the process-wide native probe lock.
+- Preserved Surface2, extension-gated format queries, generated feature/property coverage, and Qualcomm probe isolation.
+
+# 0.18.13
+
+- Removed eager startup execution of isolated advanced and extension Vulkan probes so initial collection uses one base Vulkan instance plus the real Android Surface probe.
+- Serialized all native Vulkan probe invocations process-wide to prevent overlapping driver initialization and global crash-guard state races.
+- Increased base and Surface probe timeouts to 45 seconds and 35 seconds respectively.
+
+0.18.12
+
+- Fixed native release compilation against canonical Vulkan-Headers 1.4.357 after extension coverage generation introduced promoted and provisional symbol mismatches.
+- Enabled the canonical provisional Vulkan header set for beta-only extension structures while keeping runtime support gated by exact extension enumeration.
+- Corrected Provoking Vertex, Map Memory Placed, Portability Subset and YCbCr 2-plane 4:4:4 structure identifiers to their canonical Vulkan 1.4.357 names.
+- Moved the extension helper declaration before its first use and made coverage generation refuse non-1.4.357 headers.
+
+0.18.10
+
+- Expanded runtime extension feature/property collection toward CapsViewer 4.12 parity using single Features2/Properties2 pNext chains.
+- Added conditional extension-family format queries for PVRTC, ASTC HDR, YCbCr, ASTC 3D, YCbCr 2-plane 4:4:4, 4444, ARM tensor/format-pack, and Vulkan 1.4 core formats.
+- Preserved RULES distinction between unsupported and unavailable data and avoided unrelated extension-format Vulkan calls.
+
+# VulkanScope 0.18.9
+
+- Unified Android Surface querying so `VK_KHR_get_surface_capabilities2` uses the Surface2 capability and format query paths whenever the implementation exposes the extension.
+- Reduced base format-property probing to the canonical Vulkan core format range and removed extension-format brute-force queries that generated noisy unsupported-format driver logs.
+- Preserved exact Vulkan surface format and color-space reporting, safety caps and legacy Surface queries only when Surface2 is unavailable.
+- Updated release metadata to versionName 0.18.9 / versionCode 86.
+
+## 0.18.8 — Probe serialization and Adreno stability hardening
+
+- VulkanProbeService now serializes all native Vulkan requests through one worker thread instead of starting an independent thread for every startService request.
+- This prevents overlapping Vulkan instance creation and physical-device enumeration inside the same :vulkan_probe process.
+- Surface, advanced and extension query contracts remain unchanged, preserving the existing report model while eliminating the concurrent-probe race.
+- Preserved exact Surface/View lifecycle behavior and isolated-query failure semantics.
+
+## 0.18.7
+- Restored real Android `Surface` -> `VkSurfaceKHR` WSI probing through a separate isolated probe path.
+- Base physical-device enumeration no longer depends on WSI instance extensions.
+- Surface capabilities, exact format/color-space pairs, present modes and queue presentation support are merged into the base report when the isolated Surface probe succeeds.
+- Surface probe failures remain isolated and are reported as unavailable instead of discarding the core Vulkan report.
+
+# 0.18.6
+
+- Isolated base physical-device enumeration from surface and optional instance-extension enablement.
+- Removed optional instance extension enablement from the isolated advanced-query path to reduce vendor-driver crash surface.
+- Improved native signal diagnostics for physical-device enumeration termination.
+
+# VulkanScope 0.18.4
+
+- Fixed the native release build failure in the extended Vulkan feature probe caused by an unused `VkApplicationInfo` local under `-Werror`.
+- The extended feature probe continues to use the centralized `createInstanceCompatible` path, so loader/API version negotiation remains single-sourced and consistent with the rest of the native collector.
+- Incremented versionCode to 81 and versionName to 0.18.4.
+
+# VulkanScope 0.18.3
+
+- Hardened Vulkan instance creation with spec-aware API-version fallback across Vulkan 1.4 through 1.0 when the active loader/driver pair rejects a requested instance version.
+- Made device-layer enumeration optional so an unavailable optional layer entry point no longer invalidates the base physical-device report.
+- Added signal-safe native probe-stage diagnostics for isolated failures.
+- Preserved separate loader, instance and physical-device Vulkan API version reporting.
+- Improved the Overview state when the Vulkan inspection itself fails so it is not presented as a missing GPU.
+- Incremented versionCode to 80 and versionName to 0.18.3.
+
+# VulkanScope 0.18.1
+
+- Preserved instance/device extension entries independently so each runtime-reported scope and `specVersion` remains exact.
+- Hardened advanced native queries so missing optional Vulkan entry points resolve to `Unavailable` instead of invoking a null function pointer.
+- Hardened probe result paths to remain inside the app cache directory.
+- Switched probe service completion to `stopSelfResult(startId)` for safe handling of multiple start requests.
+- Removed non-canonical placeholder physical-device struct names from the generated registry coverage manifest.
+- Improved release verification for the updated metadata and query safety paths.
+
+# VulkanScope 0.18.0
+
+- Reworked Features presentation with Core 1.0-1.4 provenance and runtime support filters.
+- Expanded Memory, Queue and Format presentation with canonical flag names and explicit unknown-bit reporting.
+- Preserved the distinction between Vulkan surface color-space data and Android display HDR data.
+- Kept advanced native query results visible through the detailed-properties path with explicit availability states.
+- Incremented versionCode to 77 and versionName to 0.18.0.
+
+# VulkanScope 0.17.12
+
+- Fixed Vulkan 1.1+ physical-device query availability by enabling `VK_KHR_get_physical_device_properties2` whenever advertised, including stacks whose loader reports Vulkan 1.1 or newer.
+- Added a fallback lookup for `vkGetPhysicalDeviceToolPropertiesEXT` when the Vulkan 1.3 core entry point is not exposed.
+- Improved query-status diagnostics so missing `Properties2`/`Features2` entry points and the advertised KHR dependency are distinguishable.
+
+# 0.17.10
+
+- Removed unused native helpers that failed release builds under `-Werror`.
+- Kept canonical registry-driven enum/flag formatting in the field generator without retaining unused runtime helpers.
+- Removed obsolete raw-reader helper and unused generated array/float helpers.
+
+# VulkanScope 0.17.7
+
+- Fixed canonical Vulkan type usage in the core property, format, surface-present, and Vulkan Video collectors.
+- Fixed Vulkan Video profile/capability construction to use the exact enum, bit, structure, and StdVideo types required by Vulkan-Headers 1.4.357.
+- Fixed pipeline cache UUID access to use the canonical `VkPhysicalDeviceProperties::pipelineCacheUUID` field.
+- Fixed present-mode and format enumeration buffer element types.
+- Fixed generated OCP microscaling and ASTC 3D structure/type names.
+- Preserved the rules.md safety, ABI, canonical-header, and Pythonless-build requirements.
+
+# VulkanScope 0.17.6
+
+- Fixed canonical generated Vulkan field/pNext integration for release builds.
+- Fixed generated hex serializer ABI/signature mismatch.
+- Fixed canonical Khronos OCP microscaling type/member spelling.
+- Repaired generated pNext translation unit wrapper so generated statements are inside their function scope.
+- Preserved Pythonless Android build requirements.
+
+# Changelog
+
+## 0.17.4
+- Fixed generated native field serializer helper integration (`generatedEmitHexTyped`).
+- Fixed versioned Vulkan 1.1/1.2/1.3 feature query code to use canonical Vulkan feature structs instead of a nonexistent generic chain type.
+- Fixed a malformed generated numeric helper fragment that broke C++ parsing.
+- Preserved Pythonless Android CMake build and canonical Vulkan-Headers 1.4.357 workflow.
+
+# VulkanScope 0.17.3
+
+- Removed the Python interpreter from the Android CMake configure/build dependency chain.
+- Checked in canonical Vulkan metadata generated from Vulkan-Headers 1.4.357.
+- Made native clean/reconfigure independent of a system Python installation.
+- Preserved canonical Vulkan header verification and generated pNext/field coverage.
+
+
+## 0.17.2
+
+### Reliability, Security and Compatibility
+- Hardened Vulkan memory heap/type enumeration against invalid driver-reported counts using canonical Vulkan array limits.
+- Added safety caps for queue-family, sparse-image-property and video-format enumerations.
+- Published isolated probe results atomically to prevent partial JSON reads and false unavailable states.
+- Bounded imported AdrenoTools metadata parsing.
+- Removed unused probe state and cleaned the native source tree to maintain the no-comments project rule.
+- Validated the project against the current Vulkan 1.4.357 specification and Android display HDR API behavior.
+# VulkanScope 0.17.1
+
+## Feature-quality / parity hardening
+- Hardened canonical enum and bitmask semantic decoding using Vulkan XML type relationships.
+- Preserved unknown enum values and unknown flag bits in raw numeric form.
+- Added canonical names for enum/flag arrays instead of numeric-only array output.
+- Added decimal + hexadecimal representation for numeric arrays.
+- Added a field-level CapsViewer parity audit mode that classifies missing, partial and covered physical-device feature/property fields when a 4.12 source checkout is supplied.
+- Added vendor semantic audit metadata and explicit source-file provenance in parity reports.
+
+# VulkanScope 0.17.0
+
+- Canonical enum and bitmask semantic rendering
+- Decimal + hexadecimal numeric rendering
+- Type-aware raw-byte fallback for unsupported field types
+- Stronger generated field coverage verification
+
+# VulkanScope 0.16.9
+
+- Added generated runtime pNext query integration to the native collector so canonical Vulkan feature/property coverage is actually compiled and executed.
+- Added a build-time coverage audit path for canonical `vk.xml` physical-device feature/property structures.
+- Added release-gate checks that fail when generated pNext code is not wired into the native collector.
+- Kept canonical Vulkan-Headers 1.4.357 and Gradle 9.7.0 baselines.
+
+# VulkanScope 0.16.8
+
+- Canonical Vulkan-Headers 1.4.357 driven runtime extension feature/property pNext generation.
+- Build-time vk.xml coverage generation for extension-specific and vendor-specific physical-device feature/property structures.
+- Runtime queries now chain every validated structure belonging to the selected device extension before serializing results.
+- Added release coverage gating for generated runtime pNext query generation.
+
+# VulkanScope 0.16.7
+
+## Complete extension/property field coverage
+
+- Added generated runtime field coverage for every validated physical-device feature/property structure bundled with the 1.4.357 registry baseline.
+- Added pNext-chain traversal with cycle and depth guards.
+- Added automatic missing-field exposure without replacing exact runtime extension names or feature states.
+- Added a build-time field-coverage generator so validated Vulkan metadata cannot silently disappear from the native report.
+
+## 0.16.5
+- Added feature search to the Overview Explore -> Features destination.
+- Isolated Vulkan query instances no longer enable unrelated optional instance extensions; core and advanced queries use the Vulkan loader/core API directly.
+- Query status reporting now distinguishes unavailable query execution from device capability results.
+
+# Changelog
+
+## 0.16.3
+- Hardened Vulkan memory enumeration with explicit heap/type safety caps and report status fields.
+
+## 0.16.2
+- Updated the Gradle wrapper to Gradle 9.7.0.
+- Aligned the project build rules with the Gradle 9.7.x build family.
+- Bumped versionCode to 56 and versionName to 0.16.2.
+
+# VulkanScope 0.16.1
+
+- Synchronized Display navigation transition direction with the actual navigation order.
+- Cached display capability collection between recompositions and refreshes it on activity resume.
+- Added safety limits to physical-device, queue-family, tool, video-format and device-group enumeration.
+- Removed an unaligned native property read in extension query reporting.
+- Preserved canonical Vulkan and rules-driven status semantics.
+
+# VulkanScope 0.16.0
+
+- Expanded runtime information presentation for instance layer extensions, physical-device group membership, Vulkan tool purpose names, and queue flag names.
+- Increased report schema to 4.
+
 # VulkanScope 0.15.5
 
 - Fixed Vulkan 1.4 copy-layout property query scope and bounded second-query allocations.
@@ -122,3 +389,27 @@
 ## Version
 - versionName: 0.9.0
 - versionCode: 39
+
+## 0.16.5
+
+Expanded validated Vulkan extension-specific feature coverage and completed all remaining generated feature query groups in the bundled registry catalog.
+
+## 0.18.3
+- Hardened Vulkan instance creation with spec-aware API-version fallback across Vulkan 1.4 through 1.0 when the active loader/driver pair rejects a requested instance version.
+- Made device-layer enumeration optional so an unavailable optional layer entry point no longer invalidates the base physical-device report.
+- Added explicit native probe stages to signal-safe crash reporting so isolated query failures retain their actual failing stage.
+- Preserved distinct loader, instance and physical-device Vulkan API version reporting.
+- Improved the Overview empty-device state so a failed Vulkan inspection is not presented as an undifferentiated missing GPU.
+## 0.18.12
+
+- Fixed Vulkan 1.4.357 generated extension field coverage for VK_NV_cooperative_matrix2 to match the canonical header fields.
+- Fixed VK_EXT_ycbcr_2plane_444_formats canonical structure-type spelling in runtime pNext generation.
+- Restored canonical VkPresentModeKHR name formatting in surface reporting.
+- Fixed advanced format/image/sparse query extension-scope variable lifetime.
+- Preserved RULES requirements for canonical Vulkan naming, extension-gated format queries, deterministic probe behavior, and generated metadata validation.
+
+
+## 0.18.23
+- Restored the intact Surface probe and all existing feature/property/versioned query output.
+- Hardened only the base probe's prerequisite physical-device queries with stable core entry points; no query group or GUI field was removed.
+- Fixed the source corruption introduced in 0.18.22.

@@ -15,6 +15,7 @@ import android.net.Uri
 import java.io.File
 import java.io.FileOutputStream
 import java.util.zip.ZipInputStream
+import java.util.Collections
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -47,6 +48,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AssistChip
@@ -69,6 +71,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -117,6 +120,13 @@ private data class PropertyEntry(val section: String, val name: String, val valu
 private data class QueueEntry(val index: Int, val count: Int, val timestampBits: Int, val flags: Long, val graphics: Boolean, val compute: Boolean, val transfer: Boolean, val sparse: Boolean, val protected: Boolean, val opticalFlow: Boolean, val granularity: String, val videoCodecOperations: Long = 0L)
 private data class MemoryHeapEntry(val index: Int, val size: Long, val flags: Long)
 private data class MemoryTypeEntry(val index: Int, val heap: Int, val flags: Long)
+private val ISOLATED_CORE_GROUPS = linkedMapOf(
+    "core11" to "Vulkan 1.1 Core",
+    "core12" to "Vulkan 1.2 Core",
+    "core13" to "Vulkan 1.3 Core",
+    "core14" to "Vulkan 1.4 Core"
+)
+
 private val ISOLATED_ADVANCED_GROUPS = linkedMapOf(
     "tools" to "Vulkan Tools",
     "queue2" to "Queue Family Properties 2",
@@ -179,6 +189,7 @@ private data class DeviceReport(
     val name: String,
     val apiVersion: String,
     val driverVersion: String,
+    val driverVersionText: String,
     val vendorId: String,
     val vendorIdRaw: Long,
     val deviceId: String,
@@ -238,18 +249,25 @@ private enum class DriverMode(val label: String) {
 private enum class TurnipSupport { UNKNOWN, SUPPORTED, UNSUPPORTED }
 
 class MainActivity : ComponentActivity() {
+
     private lateinit var prefs: android.content.SharedPreferences
     private var turnipSupport by mutableStateOf(TurnipSupport.UNKNOWN)
     private var driverMode by mutableStateOf(DriverMode.SYSTEM)
     private val surfaceLock = Any()
     private val collectMutex = Mutex()
     private var currentSurface: Surface? = null
-    private var pendingProbe: kotlin.coroutines.Continuation<String>? = null
     private var latestReport by mutableStateOf<VulkanReport?>(null)
+    private var displayReportState by mutableStateOf<DisplayReport?>(null)
     private var reportLoading by mutableStateOf(true)
     private var collectionInFlight = false
     private var collectionPending = false
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val requestedQueryGroups = Collections.synchronizedSet(mutableSetOf<String>())
+
+    override fun onResume() {
+        super.onResume()
+        displayReportState = displayReport()
+    }
 
     override fun onDestroy() {
         activityScope.cancel()
@@ -263,11 +281,12 @@ class MainActivity : ComponentActivity() {
             window.isNavigationBarContrastEnforced = false
         }
         prefs = getSharedPreferences("settings", MODE_PRIVATE)
+        displayReportState = displayReport()
         driverMode = DriverMode.values().find { it.name == prefs.getString("driver_mode", DriverMode.SYSTEM.name) } ?: DriverMode.SYSTEM
-        if (!Build.SUPPORTED_ABIS.contains("arm64-v8a")) turnipSupport = TurnipSupport.UNSUPPORTED
+        if (!isTurnipPlatformEligible()) turnipSupport = TurnipSupport.UNSUPPORTED
         setContent {
             VulkanScopeApp(
-                displayReport = displayReport(),
+                displayReport = displayReportState ?: DisplayReport("Unknown", "Unknown", false, "Not exposed", emptyList(), "Not exposed", "Not exposed", "Not exposed", emptyList()),
                 report = latestReport,
                 loading = reportLoading,
                 surfaceReady = { surface ->
@@ -276,7 +295,13 @@ class MainActivity : ComponentActivity() {
                         currentSurface = surface
                         different
                     }
-                    if (changed) requestReportCollection()
+                    if (changed) {
+                        if (latestReport == null) {
+                            requestReportCollection()
+                        } else {
+                            requestSurfaceRefresh(surface)
+                        }
+                    }
                 },
                 surfaceDestroyed = {
                     synchronized(surfaceLock) { currentSurface = null }
@@ -284,7 +309,9 @@ class MainActivity : ComponentActivity() {
                 driverMode = driverMode,
                 turnipSupport = turnipSupport,
                 onDriverModeChanged = { mode -> requestDriverModeChange(mode) },
-                onInstallDriverBundle = { openDriverBundlePicker() }
+                onInstallDriverBundle = { openDriverBundlePicker() },
+                onPageOpened = { page -> requestPageQueries(page) },
+                onRequestQuery = { group -> requestQueryGroup(group) }
             )
         }
     }
@@ -295,11 +322,11 @@ class MainActivity : ComponentActivity() {
 
     private fun openDriverBundlePicker() {
         if (!Build.SUPPORTED_ABIS.contains("arm64-v8a")) {
-            android.widget.Toast.makeText(this, "Unavailable on this ABI. Turnip support requires arm64-v8a.", android.widget.Toast.LENGTH_LONG).show()
+            android.widget.Toast.makeText(this, "Turnip requires Android 9+ and arm64-v8a.", android.widget.Toast.LENGTH_LONG).show()
             return
         }
         if (turnipSupport != TurnipSupport.SUPPORTED) {
-            android.widget.Toast.makeText(this, "Turnip availability is unknown until a system Vulkan scan confirms a Qualcomm Adreno device.", android.widget.Toast.LENGTH_LONG).show()
+            android.widget.Toast.makeText(this, "Turnip is available only when a Qualcomm Adreno Vulkan device is detected.", android.widget.Toast.LENGTH_LONG).show()
             return
         }
         driverPickerLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
@@ -348,6 +375,9 @@ class MainActivity : ComponentActivity() {
 
             val metadataFile = tempDir.walkTopDown().firstOrNull { it.isFile && it.name.equals("meta.json", true) }
                 ?: throw IllegalArgumentException("This is not an AdrenoTools driver package. Required file: meta.json")
+            if (metadataFile.length() > 1024L * 1024L) {
+                throw IllegalArgumentException("AdrenoTools meta.json is too large")
+            }
             val metadata = runCatching { JSONObject(metadataFile.readText()) }.getOrElse {
                 throw IllegalArgumentException("The AdrenoTools meta.json is invalid")
             }
@@ -415,6 +445,24 @@ class MainActivity : ComponentActivity() {
         return root.walkTopDown().firstOrNull { it.isFile && it.extension.equals("so", true) }?.absolutePath
     }
 
+    private fun isTurnipPlatformEligible(): Boolean =
+        Build.VERSION.SDK_INT >= 28 && Build.SUPPORTED_ABIS.contains("arm64-v8a")
+
+    private fun updateTurnipSupport(report: VulkanReport) {
+        if (!isTurnipPlatformEligible()) {
+            turnipSupport = TurnipSupport.UNSUPPORTED
+            return
+        }
+        if (report.error != null && report.devices.isEmpty()) {
+            turnipSupport = TurnipSupport.UNKNOWN
+            return
+        }
+        val hasQualcommAdreno = report.devices.any {
+            it.vendorIdRaw == 0x5143L && it.name.contains("Adreno", ignoreCase = true)
+        }
+        turnipSupport = if (hasQualcommAdreno) TurnipSupport.SUPPORTED else TurnipSupport.UNSUPPORTED
+    }
+
     private fun requestReportCollection() {
         if (isFinishing || isDestroyed) return
         if (collectionInFlight) {
@@ -424,16 +472,36 @@ class MainActivity : ComponentActivity() {
         collectionInFlight = true
         reportLoading = true
         activityScope.launch {
-            val result = runCatching { collectReport() }.getOrElse { e ->
-                Log.e("VulkanScope", "Vulkan probe orchestration failed", e)
-                VulkanReport("Unknown", emptyList(), emptyList(), emptyList(), "Vulkan report unavailable: ${e.message ?: "probe failed"}")
+            val base = runCatching { collectReport() }.getOrElse { e ->
+                Log.e("VulkanScope", "Vulkan base orchestration failed", e)
+                VulkanReport("Unknown", emptyList(), emptyList(), emptyList(), "Vulkan base report unavailable: ${e.message ?: "probe failed"}")
             }
-            latestReport = result
+            latestReport = base
+            updateTurnipSupport(base)
             reportLoading = false
+            val enriched = runCatching { enrichReport(base) }.getOrElse { e ->
+                Log.e("VulkanScope", "Vulkan advanced enrichment failed; preserving base report", e)
+                base
+            }
+            latestReport = enriched
             collectionInFlight = false
             if (collectionPending && !isFinishing && !isDestroyed) {
                 collectionPending = false
                 requestReportCollection()
+            }
+        }
+    }
+
+    private fun requestSurfaceRefresh(surface: Surface) {
+        if (isFinishing || isDestroyed) return
+        if (collectionInFlight || latestReport == null) return
+        activityScope.launch {
+            val base = latestReport ?: return@launch
+            runCatching {
+                val rawSurface = runSurfaceProbe(surface)
+                latestReport = mergeSurfaceProbeReport(base, rawSurface)
+            }.onFailure { e ->
+                Log.e("VulkanScope", "Surface refresh failed; preserving existing Vulkan report", e)
             }
         }
     }
@@ -445,6 +513,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         if (mode == driverMode) return
+        requestedQueryGroups.clear()
         driverMode = mode
         prefs.edit().putString("driver_mode", mode.name).apply()
         if (synchronized(surfaceLock) { currentSurface?.isValid == true }) requestReportCollection()
@@ -466,7 +535,8 @@ class MainActivity : ComponentActivity() {
             ?: return DisplayReport("Unknown", "Unknown", false, "Not exposed", emptyList(), "Not exposed", "Not exposed", "Not exposed", emptyList())
         val mode = display.mode
         val hdr = display.hdrCapabilities
-        val hdrNames = hdr.supportedHdrTypes.map { hdrTypeName(it) }
+        val hdrTypes = if (android.os.Build.VERSION.SDK_INT >= 34) mode.supportedHdrTypes else hdr.supportedHdrTypes
+        val hdrNames = hdrTypes.map { hdrTypeName(it) }
         val modes = display.supportedModes.map { "${it.physicalWidth} × ${it.physicalHeight} · ${formatHz(it.refreshRate)}" }.distinct().sorted()
         val wideGamut = android.os.Build.VERSION.SDK_INT >= 26 && display.isWideColorGamut
         val preferred = if (android.os.Build.VERSION.SDK_INT >= 29) display.preferredWideGamutColorSpace?.name ?: "Not exposed" else "Not exposed"
@@ -485,65 +555,104 @@ class MainActivity : ComponentActivity() {
 
     private suspend fun collectReport(): VulkanReport = withContext(Dispatchers.IO) {
         collectMutex.withLock {
-            val surface = synchronized(surfaceLock) { currentSurface?.takeIf { it.isValid } }
-            val raw = runCatching { runProbe(surface) }.getOrElse { e ->
-                Log.e("VulkanScope", "Vulkan probe failed", e)
-                "{\"error\":${JSONObject.quote(e.message ?: "Vulkan probe failed")}}"
-            }
-            val parsed = runCatching { parseReport(raw) }.getOrElse { e ->
-                Log.e("VulkanScope", "Vulkan JSON parse failed: length=${raw.length}, error=${e.message}", e)
-                VulkanReport("Unknown", emptyList(), emptyList(), emptyList(), "Vulkan report parse failed: ${e.message}")
-            }
-            var enriched = parsed.copy(devices = parsed.devices.map { device ->
-                if (apiAtLeast(device.apiVersion, 1, 1)) {
-                    device.copy(
-                        extendedQueryStatus = if (device.extendedQueryStatus == "unavailable") "unavailable" else "available",
-                        extendedQueryReason = if (device.extendedQueryStatus == "unavailable") device.extendedQueryReason else "Core Vulkan 1.1+ feature/property data was queried directly from the active base Vulkan instance."
-                    )
-                } else {
-                    device.copy(extendedQueryStatus = "not_applicable", extendedQueryReason = "The device API version is below Vulkan 1.1.")
-                }
-            })
-            for ((group, label) in ISOLATED_ADVANCED_GROUPS) {
-                val rawAdvanced = runCatching { runIsolatedProbe(group) }.getOrElse { e ->
-                    Log.e("VulkanScope", "Vulkan advanced query failed: $group", e)
-                    "{\"status\":\"unavailable\",\"group\":${JSONObject.quote(group)},\"reason\":${JSONObject.quote(e.message ?: "The isolated advanced Vulkan query failed.")},\"devices\":[]}"
-                }
-                enriched = mergeAdvancedQueryReport(enriched, rawAdvanced, group, label)
-            }
-            for ((group, extensionName) in ISOLATED_EXTENSION_GROUPS) {
-                if (!enriched.devices.any { device -> device.extensions.any { it.name == extensionName } }) continue
-                val rawGroup = runCatching { runIsolatedProbe(group) }.getOrElse { e ->
-                    Log.e("VulkanScope", "Vulkan extension probe failed: $group", e)
-                    "{\"status\":\"unavailable\",\"group\":${JSONObject.quote(group)},\"extension\":${JSONObject.quote(extensionName)},\"reason\":${JSONObject.quote(e.message ?: "The isolated extension probe failed.")},\"devices\":[]}"
-                }
-                enriched = mergeExtensionGroupReport(enriched, rawGroup, group, extensionName)
-            }
-            val hasAdreno = enriched.devices.any { it.vendorIdRaw == 0x5143L }
-            val support = when {
-                !Build.SUPPORTED_ABIS.contains("arm64-v8a") -> TurnipSupport.UNSUPPORTED
-                hasAdreno -> TurnipSupport.SUPPORTED
-                enriched.error == null && enriched.devices.isNotEmpty() -> TurnipSupport.UNSUPPORTED
-                else -> TurnipSupport.UNKNOWN
-            }
-            withContext(Dispatchers.Main.immediate) {
-                turnipSupport = support
-                if (support != TurnipSupport.SUPPORTED && driverMode == DriverMode.TURNIP) {
-                    driverMode = DriverMode.SYSTEM
-                    prefs.edit().putString("driver_mode", DriverMode.SYSTEM.name).apply()
-                }
-            }
-            enriched
+            collectBaseReport()
         }
     }
 
-    private suspend fun runIsolatedProbe(group: String): String = runServiceProbe(group, null, if (group in ISOLATED_ADVANCED_GROUPS.keys) 30_000L else 12_000L)
+    private suspend fun collectBaseReport(): VulkanReport {
+        val raw = runCatching { runProbe(null) }.getOrElse { e ->
+            Log.e("VulkanScope", "Vulkan base probe failed", e)
+            return VulkanReport("Unknown", emptyList(), emptyList(), emptyList(), "Vulkan base probe failed: ${e.message ?: "probe failed"}")
+        }
+        Log.i("VulkanScope", "Vulkan base probe result bytes=${raw.length}")
+        return runCatching { parseReport(raw) }.getOrElse { e ->
+            Log.e("VulkanScope", "Vulkan base JSON parse failed: length=${raw.length}", e)
+            VulkanReport("Unknown", emptyList(), emptyList(), emptyList(), "Vulkan base report parse failed: ${e.message ?: "invalid probe result"}")
+        }
+    }
 
-    private suspend fun runProbe(surface: Surface?): String = runServiceProbe("base", surface, 25_000L)
+    private suspend fun enrichReport(base: VulkanReport): VulkanReport = withContext(Dispatchers.IO) {
+        var enriched = base.copy(devices = base.devices.map { device ->
+            if (apiAtLeast(device.apiVersion, 1, 1)) {
+                device.copy(
+                    extendedQueryStatus = if (device.extendedQueryStatus == "unavailable") "unavailable" else "available",
+                    extendedQueryReason = if (device.extendedQueryStatus == "unavailable") device.extendedQueryReason else "Core Vulkan 1.1+ feature/property data was queried directly from the active base Vulkan instance."
+                )
+            } else {
+                device.copy(extendedQueryStatus = "not_applicable", extendedQueryReason = "The device API version is below Vulkan 1.1.")
+            }
+        })
+
+        runCatching {
+            val rawMetadata = runIsolatedProbe("metadata")
+            enriched = mergeMetadataReport(enriched, rawMetadata)
+        }.onFailure { e ->
+            Log.e("VulkanScope", "Vulkan metadata query failed; preserving base report", e)
+        }
+
+        if (enriched.devices.isEmpty()) return@withContext enriched
+
+        val surface = synchronized(surfaceLock) { currentSurface?.takeIf { it.isValid } }
+        if (surface != null && enriched.devices.isNotEmpty()) {
+            runCatching {
+                val rawSurface = runSurfaceProbe(surface)
+                enriched = mergeSurfaceProbeReport(enriched, rawSurface)
+            }.onFailure { e ->
+                Log.e("VulkanScope", "Vulkan surface probe failed without discarding base report", e)
+            }
+        }
+
+        enriched
+    }
+
+    private suspend fun runIsolatedProbe(group: String): String =
+        runServiceProbe(group, null, if (group in ISOLATED_ADVANCED_GROUPS.keys) 30_000L else 12_000L)
+
+    private fun requestQueryGroup(group: String) {
+        if (latestReport?.devices.isNullOrEmpty()) return
+        if (!requestedQueryGroups.add(group)) return
+        activityScope.launch {
+            val current = latestReport ?: return@launch
+            val label = ISOLATED_ADVANCED_GROUPS[group] ?: ISOLATED_CORE_GROUPS[group]
+            val extensionName = ISOLATED_EXTENSION_GROUPS[group]
+            if (extensionName != null && current.devices.none { device -> device.extensions.any { it.name == extensionName } }) return@launch
+            val raw = runCatching { runIsolatedProbe(group) }.getOrElse { e ->
+                Log.e("VulkanScope", "Vulkan lazy query failed: $group", e)
+                ""
+            }
+            if (raw.isBlank()) return@launch
+            latestReport = if (extensionName != null) {
+                mergeExtensionGroupReport(latestReport ?: current, raw, group, extensionName)
+            } else if (label != null) {
+                mergeAdvancedQueryReport(latestReport ?: current, raw, group, label)
+            } else {
+                latestReport ?: current
+            }
+        }
+    }
+
+    private fun requestPageQueries(page: Page) {
+        val groups = when (page) {
+            Page.Features -> ISOLATED_CORE_GROUPS.keys.toList()
+            Page.Formats -> listOf("format2", "imageFormat2")
+            Page.Memory -> listOf("memory2", "external", "sparse")
+            Page.Queues -> listOf("queue2", "videoCapabilities")
+            Page.Properties -> listOf("core11", "core12", "core13", "tools", "groups")
+            Page.Extensions -> ISOLATED_EXTENSION_GROUPS.keys.toList()
+            else -> emptyList()
+        }
+        groups.forEach(::requestQueryGroup)
+    }
+
+    private suspend fun runProbe(surface: Surface?): String = runServiceProbe("base", surface, 45_000L)
+
+    private suspend fun runSurfaceProbe(surface: Surface): String = runServiceProbe("surface", surface, 25_000L)
 
     private suspend fun runServiceProbe(group: String, surface: Surface?, timeoutMs: Long): String {
         val resultFile = File(cacheDir, "vulkan_probe_${java.util.UUID.randomUUID()}.json")
+        val crashMarkerFile = File(resultFile.absolutePath + ".crash")
         resultFile.delete()
+        crashMarkerFile.delete()
         val intent = Intent(this@MainActivity, VulkanProbeService::class.java)
             .putExtra(VulkanProbeService.EXTRA_QUERY_GROUP, group)
             .putExtra(VulkanProbeService.EXTRA_DRIVER_MODE, driverMode.name)
@@ -565,15 +674,31 @@ class MainActivity : ComponentActivity() {
         }
         val result = withContext(Dispatchers.IO) {
             var value: String? = null
+            var partialCandidate: String? = null
             try {
                 withTimeout(timeoutMs) {
                     while (value == null) {
                         if (resultFile.isFile && resultFile.length() > 0L) {
-                            value = runCatching { resultFile.readText() }.getOrElse { error ->
+                            val candidate = runCatching { resultFile.readText() }.getOrElse { error ->
                                 if (group == "base") {
                                     "{\"status\":\"unavailable\",\"reason\":${JSONObject.quote(error.message ?: "Unable to read Vulkan probe result")},\"devices\":[]}"
                                 } else {
                                     "{\"status\":\"unavailable\",\"group\":${JSONObject.quote(group)},\"reason\":${JSONObject.quote(error.message ?: "Unable to read Vulkan query result")},\"devices\":[]}"
+                                }
+                            }
+                            if (group != "base") {
+                                value = candidate
+                            } else {
+                                val parsedCandidate = runCatching { JSONObject(candidate) }.getOrNull()
+                                if (parsedCandidate != null) {
+                                    partialCandidate = candidate
+                                    val complete = parsedCandidate.optBoolean("baseReportComplete", false)
+                                    val ready = parsedCandidate.optBoolean("baseReportReady", false)
+                                    val status = parsedCandidate.optString("status", "unavailable")
+                                    if (complete || ready || status == "unavailable" || crashMarkerFile.isFile) value = candidate
+                                } else {
+                                    Log.w("VulkanScope", "Ignoring invalid intermediate base probe checkpoint bytes=${candidate.length}")
+                                    if (crashMarkerFile.isFile && partialCandidate != null) value = partialCandidate
                                 }
                             }
                         } else {
@@ -582,13 +707,14 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-                value = if (group == "base") {
+                value = partialCandidate ?: if (group == "base") {
                     "{\"status\":\"unavailable\",\"reason\":\"The isolated Vulkan probe did not complete within the timeout.\",\"devices\":[]}"
                 } else {
                     "{\"status\":\"unavailable\",\"group\":${JSONObject.quote(group)},\"reason\":\"The isolated $group query did not complete within the timeout.\",\"devices\":[]}"
                 }
             } finally {
                 resultFile.delete()
+                crashMarkerFile.delete()
             }
             value ?: if (group == "base") {
                 "{\"status\":\"unavailable\",\"reason\":\"The isolated Vulkan probe returned no result.\",\"devices\":[]}"
@@ -620,6 +746,118 @@ private fun apiAtLeast(value: String, major: Int, minor: Int): Boolean {
     return parsedMajor > major || (parsedMajor == major && parsedMinor >= minor)
 }
 
+private fun mergeMetadataReport(base: VulkanReport, raw: String): VulkanReport {
+    val root = runCatching { JSONObject(raw) }.getOrElse {
+        return base
+    }
+    if (root.optString("status", "unavailable") != "available") return base
+    val registry = root.optJSONObject("registryCoverage")
+    val parsedCoverage = if (registry != null) {
+        val structs = mutableListOf<String>()
+        val structArray = registry.optJSONArray("implementedPhysicalDeviceStructs") ?: JSONArray()
+        for (i in 0 until structArray.length()) structs += structArray.optString(i)
+        val groups = mutableListOf<String>()
+        val groupArray = registry.optJSONArray("validatedRuntimeQueryGroups") ?: JSONArray()
+        for (i in 0 until groupArray.length()) groups += groupArray.optString(i)
+        RegistryCoverage(
+            baseline = registry.optString("baseline", base.registryCoverage.baseline),
+            mode = registry.optString("mode", base.registryCoverage.mode),
+            implementedPhysicalDeviceStructCount = registry.optInt("implementedPhysicalDeviceStructCount", base.registryCoverage.implementedPhysicalDeviceStructCount),
+            validatedRuntimeQueryGroupCount = registry.optInt("validatedRuntimeQueryGroupCount", base.registryCoverage.validatedRuntimeQueryGroupCount),
+            runtimeExtensionTokenCount = registry.optInt("runtimeExtensionTokenCount", base.registryCoverage.runtimeExtensionTokenCount),
+            catalogSchemaVersion = registry.optInt("catalogSchemaVersion", base.registryCoverage.catalogSchemaVersion),
+            reportSchema = registry.optString("reportSchema", base.registryCoverage.reportSchema),
+            headerBaseline = registry.optString("headerBaseline", base.registryCoverage.headerBaseline),
+            instanceDependencyCandidateCount = registry.optInt("instanceDependencyCandidateCount", base.registryCoverage.instanceDependencyCandidateCount),
+            implementedPhysicalDeviceStructs = structs,
+            validatedRuntimeQueryGroups = groups
+        )
+    } else base.registryCoverage
+    val instanceExtensions = parseExtensions(root.optJSONArray("instanceExtensions"), "Instance")
+    val instanceLayers = mutableListOf<LayerEntry>()
+    val layerArray = root.optJSONArray("instanceLayers") ?: JSONArray()
+    for (i in 0 until layerArray.length()) {
+        val layer = layerArray.optJSONObject(i) ?: continue
+        val layerExtensions = parseExtensions(layer.optJSONArray("extensions"), "Instance layer")
+        instanceLayers += LayerEntry(layer.optString("name"), layer.optString("description"), layer.optInt("specVersion"), layer.optInt("implementationVersion"), layerExtensions)
+    }
+    return base.copy(
+        instanceExtensions = if (instanceExtensions.isNotEmpty()) instanceExtensions else base.instanceExtensions,
+        instanceLayers = if (root.optBoolean("instanceLayersComplete", false)) instanceLayers else base.instanceLayers,
+        registryCoverage = if (root.optBoolean("registryCoverageComplete", false)) parsedCoverage else base.registryCoverage
+    )
+}
+
+private fun mergeSurfaceProbeReport(base: VulkanReport, raw: String): VulkanReport {
+    val root = runCatching { JSONObject(raw) }.getOrElse {
+        return base.copy(devices = base.devices.map { device ->
+            device.copy(detailedProperties = device.detailedProperties + PropertyEntry("Vulkan Query Status", "Surface probe", "Unavailable: isolated surface probe returned invalid data."))
+        })
+    }
+    val status = root.optString("status", "unavailable")
+    val reason = root.optString("reason", "The isolated surface probe did not return a result.")
+    val resultDevices = root.optJSONArray("devices") ?: JSONArray()
+    return base.copy(devices = base.devices.map { device ->
+        val deviceId = device.deviceId.removePrefix("0x").toLongOrNull(16)
+        val match = (0 until resultDevices.length()).asSequence()
+            .mapNotNull { resultDevices.optJSONObject(it) }
+            .firstOrNull { it.optLong("vendorId", -1L) == device.vendorIdRaw && it.optLong("deviceId", -1L) == deviceId }
+        if (status != "available" || match == null) {
+            device.copy(
+                surfaceAvailable = false,
+                surfacePresentationSupported = false,
+                surfaceColorSpaceExtensionAvailable = root.optBoolean("surfaceColorSpaceExtensionAvailable", false),
+                surfaceColorSpaceExtensionEnabled = false,
+                surfaceFormatQueryResult = -1,
+                surfaceFormatQueryResultSecond = -1,
+                surfaceFormatQuerySecondAttempted = false,
+                surfaceFormatQuerySafetyRejected = false,
+                surfaceCapabilities = emptyList(),
+                surfaceFormats = emptyList(),
+                presentModes = emptyList(),
+                presentationQueues = emptyList(),
+                detailedProperties = device.detailedProperties + PropertyEntry("Vulkan Query Status", "Surface probe", "Unavailable: $reason")
+            )
+        } else {
+            val surface = match.optJSONObject("surface")
+            val surfaceFormats = mutableListOf<SurfaceFormatEntry>()
+            val formatArray = surface?.optJSONArray("formats") ?: JSONArray()
+            for (i in 0 until formatArray.length()) {
+                val sf = formatArray.optJSONObject(i) ?: continue
+                surfaceFormats += SurfaceFormatEntry(sf.optString("format"), sf.optString("colorSpace"), sf.optString("class"), sf.optString("description"), true)
+            }
+            val capabilities = mutableListOf<Pair<String, String>>()
+            listOf("minImageCount", "maxImageCount", "currentExtent", "minExtent", "maxExtent", "maxImageArrayLayers", "supportedTransforms", "currentTransform", "supportedCompositeAlpha", "supportedUsageFlags", "capabilityResult").forEach { key ->
+                if (surface?.has(key) == true) capabilities += key to surface.optString(key)
+            }
+            val presentModes = mutableListOf<String>()
+            val presentArray = surface?.optJSONArray("presentModes") ?: JSONArray()
+            for (i in 0 until presentArray.length()) presentModes += presentArray.optString(i)
+            val presentationQueues = mutableListOf<Pair<Int, Boolean>>()
+            val queueArray = surface?.optJSONArray("queuePresentation") ?: JSONArray()
+            for (i in 0 until queueArray.length()) {
+                val q = queueArray.optJSONObject(i) ?: continue
+                presentationQueues += q.optInt("queueFamily") to q.optBoolean("supported")
+            }
+            device.copy(
+                surfaceAvailable = surface?.optBoolean("available") == true,
+                surfacePresentationSupported = surface?.optBoolean("presentationSupported") == true,
+                surfaceColorSpaceExtensionAvailable = root.optBoolean("surfaceColorSpaceExtensionAvailable", false),
+                surfaceColorSpaceExtensionEnabled = root.optBoolean("surfaceColorSpaceExtensionEnabled", false),
+                surfaceFormatQueryResult = surface?.optInt("formatQueryResult", -1) ?: -1,
+                surfaceFormatQueryResultSecond = surface?.optInt("formatQueryResultSecond", -1) ?: -1,
+                surfaceFormatQuerySecondAttempted = surface?.optBoolean("formatQuerySecondAttempted", false) ?: false,
+                surfaceFormatQuerySafetyRejected = surface?.optBoolean("formatQuerySafetyRejected", false) ?: false,
+                surfaceCapabilities = capabilities,
+                surfaceFormats = surfaceFormats,
+                presentModes = presentModes,
+                presentationQueues = presentationQueues,
+                detailedProperties = device.detailedProperties + PropertyEntry("Vulkan Query Status", "Surface probe", "Available")
+            )
+        }
+    })
+}
+
 private fun mergeAdvancedQueryReport(base: VulkanReport, raw: String, group: String, label: String): VulkanReport {
     val root = runCatching { JSONObject(raw) }.getOrElse {
         return base.copy(devices = base.devices.map { device ->
@@ -629,18 +867,28 @@ private fun mergeAdvancedQueryReport(base: VulkanReport, raw: String, group: Str
     val status = root.optString("status", "unavailable")
     val reason = root.optString("reason", "The isolated advanced query did not return a result.")
     val resultDevices = root.optJSONArray("devices") ?: JSONArray()
-    val parsed = mutableListOf<Triple<Long, Long, List<PropertyEntry>>>()
+    val parsed = mutableListOf<Triple<Long, Long, Pair<List<FeatureEntry>, List<PropertyEntry>>>>()
+    val core14Status = mutableMapOf<Pair<Long, Long>, Pair<String, String>>()
     for (i in 0 until resultDevices.length()) {
         val item = resultDevices.optJSONObject(i) ?: continue
         val vendor = item.optLong("vendorId", -1L)
         val deviceId = item.optLong("deviceId", -1L)
+        val features = mutableListOf<FeatureEntry>()
+        val featureArray = item.optJSONArray("features") ?: JSONArray()
+        for (j in 0 until featureArray.length()) {
+            val feature = featureArray.optJSONObject(j) ?: continue
+            features += FeatureEntry(feature.optString("name"), feature.optBoolean("supported"))
+        }
         val properties = mutableListOf<PropertyEntry>()
         val pa = item.optJSONArray("properties") ?: JSONArray()
         for (j in 0 until pa.length()) {
             val prop = pa.optJSONObject(j) ?: continue
             properties += PropertyEntry(prop.optString("section"), prop.optString("name"), prop.optString("value"))
         }
-        parsed += Triple(vendor, deviceId, properties)
+        parsed += Triple(vendor, deviceId, features to properties)
+        if (group == "core14") {
+            core14Status[vendor to deviceId] = item.optString("status", "available") to item.optString("reason", "")
+        }
     }
     val videoQueuesByDevice: List<Triple<Long, Long, Map<Int, Long>>> = if (group == "queue2") {
         val valuesByDevice = mutableListOf<Triple<Long, Long, Map<Int, Long>>>()
@@ -665,11 +913,23 @@ private fun mergeAdvancedQueryReport(base: VulkanReport, raw: String, group: Str
         val match = parsed.firstOrNull { it.first == device.vendorIdRaw && it.second == deviceId }
         val videoMatch = videoQueuesByDevice.firstOrNull { it.first == device.vendorIdRaw && it.second == deviceId }
         val mergedQueues = if (videoMatch != null) device.queues.map { q -> q.copy(videoCodecOperations = videoMatch.third[q.index] ?: q.videoCodecOperations) } else device.queues
-        when {
-            status == "available" && match != null -> device.copy(detailedProperties = device.detailedProperties + match.third + PropertyEntry("Vulkan Query Status", "$label query", "Available"), queues = mergedQueues)
-            status == "not_applicable" -> device.copy(detailedProperties = device.detailedProperties + PropertyEntry("Vulkan Query Status", "$label query", "Not applicable: ${reason.ifBlank { "the query does not apply to this device." }}"), queues = mergedQueues)
-            else -> device.copy(detailedProperties = device.detailedProperties + PropertyEntry("Vulkan Query Status", "$label query", "Unavailable: ${reason.ifBlank { "the isolated query did not complete." }}"), queues = mergedQueues)
+        val mergedFeatures = if (match != null) device.features + match.third.first.filterNot { incoming -> device.features.any { it.name == incoming.name } } else device.features
+        val mergedProperties = if (match != null) device.detailedProperties + match.third.second else device.detailedProperties
+        val statusProperty = if (status == "available" && match != null) {
+            PropertyEntry("Vulkan Query Status", "$label query", "Available")
+        } else if (status == "not_applicable") {
+            PropertyEntry("Vulkan Query Status", "$label query", "Not applicable: ${reason.ifBlank { "the query does not apply to this device." }}")
+        } else {
+            PropertyEntry("Vulkan Query Status", "$label query", "Unavailable: ${reason.ifBlank { "the isolated query did not complete." }}")
         }
+        var merged = device.copy(features = mergedFeatures, detailedProperties = mergedProperties + statusProperty, queues = mergedQueues)
+        if (group == "core14") {
+            val coreStatus = core14Status[device.vendorIdRaw to (deviceId ?: -1L)]
+            if (coreStatus != null) {
+                merged = merged.copy(vulkan14Status = coreStatus.first, vulkan14Reason = coreStatus.second)
+            }
+        }
+        merged
     })
 }
 
@@ -727,12 +987,14 @@ private fun mergeExtensionGroupReport(base: VulkanReport, raw: String, group: St
 private fun parseReport(raw: String): VulkanReport {
     val root = JSONObject(raw)
     val error = if (root.has("error") && !root.isNull("error")) root.optString("error") else null
+    val nativeStatus = root.optString("status", if (error == null) "available" else "unavailable")
     val instanceExtensions = parseExtensions(root.optJSONArray("instanceExtensions"))
     val instanceLayers = mutableListOf<LayerEntry>()
     val layerArray = root.optJSONArray("instanceLayers") ?: JSONArray()
     for (i in 0 until layerArray.length()) {
         val layer = layerArray.optJSONObject(i) ?: continue
-        instanceLayers += LayerEntry(layer.optString("name"), layer.optString("description"), layer.optInt("specVersion"), layer.optInt("implementationVersion"))
+        val layerExtensions = parseExtensions(layer.optJSONArray("extensions"), "Instance layer")
+        instanceLayers += LayerEntry(layer.optString("name"), layer.optString("description"), layer.optInt("specVersion"), layer.optInt("implementationVersion"), layerExtensions)
     }
     val devices = mutableListOf<DeviceReport>()
     val deviceArray = root.optJSONArray("devices") ?: JSONArray()
@@ -828,6 +1090,7 @@ private fun parseReport(raw: String): VulkanReport {
             item.optString("name", "Unknown GPU"),
             item.optString("apiVersion", "Unknown"),
             item.optString("driverVersion", "Unknown"),
+            item.optString("driverVersionText", item.optString("driverVersion", "Unknown")),
             "0x${item.optLong("vendorId").toString(16).uppercase()}",
             item.optLong("vendorId"),
             "0x${item.optLong("deviceId").toString(16).uppercase()}",
@@ -881,7 +1144,15 @@ private fun parseReport(raw: String): VulkanReport {
             validatedRuntimeQueryGroups = groups
         )
     } else RegistryCoverage()
-    return VulkanReport(root.optString("loaderVersion", "Unknown"), instanceExtensions, instanceLayers, devices, error, registryCoverage)
+    val effectiveError = when {
+        error != null -> error
+        nativeStatus == "unavailable" -> root.optString("reason", "Vulkan base probe reported unavailable.")
+        nativeStatus == "not_applicable" -> root.optString("reason", "Vulkan device enumeration is not applicable.")
+        devices.isEmpty() -> root.optString("reason", "Vulkan instance was created but no physical device was returned.")
+        else -> null
+    }
+    Log.i("VulkanScope", "Vulkan parsed status=$nativeStatus devices=${devices.size} error=${effectiveError ?: "none"}")
+    return VulkanReport(root.optString("loaderVersion", "Unknown"), instanceExtensions, instanceLayers, devices, effectiveError, registryCoverage)
 }
 
 private fun parseExtensions(array: JSONArray?, scopeOverride: String? = null): List<ExtensionEntry> {
@@ -912,9 +1183,12 @@ private fun VulkanScopeApp(
     driverMode: DriverMode,
     turnipSupport: TurnipSupport,
     onDriverModeChanged: (DriverMode) -> Unit,
-    onInstallDriverBundle: () -> Unit
+    onInstallDriverBundle: () -> Unit,
+    onPageOpened: (Page) -> Unit,
+    onRequestQuery: (String) -> Unit
 ) {
     var page by remember { mutableStateOf(Page.Overview) }
+    LaunchedEffect(page) { onPageOpened(page) }
 
     val red = ComposeColor(0xFFF21D2F)
     MaterialTheme(colorScheme = darkColorScheme(background = ComposeColor.Black, surface = ComposeColor(0xFF101010), surfaceVariant = ComposeColor(0xFF191919), primary = red, onPrimary = ComposeColor.White, secondary = red, tertiary = ComposeColor(0xFFFF6573), onBackground = ComposeColor(0xFFF4F4F4), onSurface = ComposeColor(0xFFF4F4F4))) {
@@ -970,7 +1244,7 @@ private fun VulkanScopeApp(
                             AnimatedContent(
                                 targetState = page,
                                 transitionSpec = {
-                                    val forward = targetState.ordinal > initialState.ordinal
+                                    val forward = pageTransitionIndex(targetState) > pageTransitionIndex(initialState)
                                     if (forward) {
                                         slideInHorizontally(animationSpec = spring()) { it / 5 } + fadeIn(animationSpec = spring()) togetherWith
                                             slideOutHorizontally(animationSpec = spring()) { -it / 5 } + fadeOut(animationSpec = spring())
@@ -981,7 +1255,7 @@ private fun VulkanScopeApp(
                                 },
                                 label = "pageTransition"
                             ) { targetPage ->
-                                PageContent(targetPage, current, displayReport, driverMode, turnipSupport, onDriverModeChanged, onInstallDriverBundle, onNavigate = { page = it })
+                                PageContent(targetPage, current, displayReport, driverMode, turnipSupport, onDriverModeChanged, onInstallDriverBundle, onNavigate = { page = it }, onRequestQuery = onRequestQuery)
                             }
                         }
                     }
@@ -990,6 +1264,321 @@ private fun VulkanScopeApp(
         }
     }
 }
+
+@Composable
+private fun SurfaceProbe(
+    modifier: Modifier = Modifier,
+    onCreated: (Surface) -> Unit,
+    onDestroyed: () -> Unit
+) {
+    AndroidView(
+        modifier = modifier.alpha(0f),
+        factory = { context ->
+            SurfaceView(context).apply {
+                setBackgroundColor(Color.BLACK)
+                if (Build.VERSION.SDK_INT >= 34) {
+                    setSurfaceLifecycle(SurfaceView.SURFACE_LIFECYCLE_FOLLOWS_ATTACHMENT)
+                }
+                holder.addCallback(object : SurfaceHolder.Callback {
+                    override fun surfaceCreated(holder: SurfaceHolder) { onCreated(holder.surface) }
+                    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
+                    override fun surfaceDestroyed(holder: SurfaceHolder) { onDestroyed() }
+                })
+            }
+        },
+        update = {}
+    )
+}
+
+
+
+@Composable
+private fun PageContent(page: Page, report: VulkanReport, display: DisplayReport, driverMode: DriverMode, turnipSupport: TurnipSupport, onDriverModeChanged: (DriverMode) -> Unit, onInstallDriverBundle: () -> Unit, onNavigate: (Page) -> Unit, onRequestQuery: (String) -> Unit) {
+    val device = report.devices.firstOrNull()
+    when (page) {
+        Page.Overview -> OverviewPage(report, device, display, driverMode, onNavigate)
+        Page.Vulkan -> VulkanPage(report, device, turnipSupport == TurnipSupport.SUPPORTED)
+        Page.Display -> DisplayPage(display, device)
+        Page.Surface -> SurfacePage(device)
+        Page.Features -> FeaturesPage(device)
+        Page.Memory -> MemoryPage(device)
+        Page.Queues -> QueuesPage(device)
+        Page.Formats -> FormatsPage(device)
+        Page.Properties -> PropertiesPage(device, onRequestQuery)
+        Page.Extensions -> ExtensionsPage(report, device)
+        Page.Profiles -> ProfilesPage(report, device)
+        Page.Settings -> SettingsPage(report, display, driverMode, turnipSupport, onDriverModeChanged, onInstallDriverBundle)
+        Page.Info -> InfoPage(report.registryCoverage)
+    }
+}
+
+
+
+@Composable
+private fun OverviewPage(report: VulkanReport, device: DeviceReport?, display: DisplayReport, driverMode: DriverMode, navigate: (Page) -> Unit) {
+    LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        item {
+            HeroCard(device, report, driverMode)
+        }
+        if (report.error != null) {
+            item {
+                SectionCard("Vulkan inspection error") {
+                    Text(report.error, color = ComposeColor(0xFFFF6B6B))
+                    Text(
+                        "The driver mode is shown separately from the inspection result.",
+                        color = ComposeColor(0xFF9E9E9E),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        }
+        item {
+            ExploreCard { destination -> navigate(destination) }
+        }
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                MetricCard("Vulkan", device?.apiVersion ?: "Unknown", Modifier.weight(1f))
+                MetricCard("Display", display.refreshRate, Modifier.weight(1f))
+            }
+        }
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                MetricCard("HDR", if (display.hdrTypes.isEmpty()) "No" else "${display.hdrTypes.size} types", Modifier.weight(1f))
+                MetricCard("Wide gamut", if (display.wideGamut) "Supported" else "Not exposed", Modifier.weight(1f))
+            }
+        }
+        item { SectionCard("Quick access") {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    QuickAccessCard("Vulkan", Page.Vulkan, navigate, Modifier.weight(1f))
+                    QuickAccessCard("Surface", Page.Surface, navigate, Modifier.weight(1f))
+                    QuickAccessCard("Display", Page.Display, navigate, Modifier.weight(1f))
+                    QuickAccessCard("HDR & Color", Page.Display, navigate, Modifier.weight(1f))
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    QuickAccessCard("Extensions", Page.Extensions, navigate, Modifier.weight(1f))
+                    QuickAccessCard("Profiles", Page.Profiles, navigate, Modifier.weight(1f))
+                    QuickAccessCard("More", Page.Features, navigate, Modifier.weight(1f))
+                    Spacer(Modifier.weight(1f))
+                }
+            }
+        } }
+        item { SectionCard("Capability snapshot") {
+            KeyValue("GPU", device?.name ?: "Unknown")
+            KeyValue("Driver", device?.driverVersionText ?: device?.driverVersion ?: "Unknown")
+            KeyValue("Vendor ID", device?.vendorId ?: "Unknown")
+            KeyValue("Device ID", device?.deviceId ?: "Unknown")
+            KeyValue("Device type", device?.deviceType ?: "Unknown")
+            KeyValue("Loader API", report.loaderVersion)
+            KeyValue("Instance extensions", report.instanceExtensions.size.toString())
+            KeyValue("Device extensions", device?.extensions?.size?.toString() ?: "0")
+        } }
+    }
+}
+
+
+
+@Composable
+private fun VulkanPage(report: VulkanReport, device: DeviceReport?, turnipSupported: Boolean) {
+    LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        item { SectionCard("Vulkan API") {
+            KeyValue("Loader / instance API", report.loaderVersion)
+            KeyValue("Device API", device?.apiVersion ?: "Unknown")
+            KeyValue("Driver", device?.driverVersionText ?: device?.driverVersion ?: "Unknown")
+            KeyValue("Device type", device?.deviceType ?: "Unknown")
+            KeyValue("Vendor ID", device?.vendorId ?: "Unknown")
+            KeyValue("Device ID", device?.deviceId ?: "Unknown")
+        } }
+        item { SectionCard("Instance layers") {
+            if (report.instanceLayers.isEmpty()) {
+                Text("No instance layers are exposed by the active Vulkan implementation.")
+                Text("This is normal on many Android production/driver configurations; validation layers are optional and are not bundled by VulkanScope.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
+            }
+            report.instanceLayers.forEach { layer ->
+                Column(Modifier.padding(vertical = 5.dp)) {
+                    Text(layer.name, fontWeight = FontWeight.SemiBold)
+                    Text("spec ${layer.specVersion} · implementation ${layer.implementationVersion}", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelSmall)
+                    if (layer.description.isNotBlank()) Text(layer.description, color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        } }
+        item { SectionCard("Device layers") {
+            if (device?.deviceLayers.isNullOrEmpty()) {
+                Text("No device layers are exposed.")
+                Text("Device layers are legacy functionality; modern Vulkan uses instance layers.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
+            }
+            device?.deviceLayers?.forEach { layer ->
+                Column(Modifier.padding(vertical = 5.dp)) {
+                    Text(layer.name, fontWeight = FontWeight.SemiBold)
+                    Text("spec ${layer.specVersion} · implementation ${layer.implementationVersion}", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelSmall)
+                    if (layer.description.isNotBlank()) Text(layer.description, color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
+                    layer.extensions.forEach { ext -> Text("${ext.name} · spec ${ext.specVersion}", color = ComposeColor(0xFFBDBDBD), style = MaterialTheme.typography.labelSmall) }
+                }
+            }
+        } }
+        item { SectionCard("Instance extensions") {
+            report.instanceExtensions.sortedBy { it.name }.forEach { ext -> Text("${ext.name} · spec ${ext.specVersion}") }
+        } }
+        item { SectionCard("Operating system") {
+            KeyValue("Architecture", Build.SUPPORTED_ABIS.firstOrNull() ?: "Unknown")
+            KeyValue("Version", Build.VERSION.RELEASE)
+            KeyValue("Codename", Build.VERSION.CODENAME)
+            KeyValue("SDK", Build.VERSION.SDK_INT.toString())
+            KeyValue("Build ID", Build.ID)
+            KeyValue("Build incremental", Build.VERSION.INCREMENTAL)
+            KeyValue("Security patch", Build.VERSION.SECURITY_PATCH)
+            KeyValue("Brand", Build.BRAND)
+            KeyValue("Manufacturer", Build.MANUFACTURER)
+            KeyValue("Product", Build.PRODUCT)
+            KeyValue("Device", Build.DEVICE)
+            KeyValue("Board", Build.BOARD)
+            KeyValue("Hardware", Build.HARDWARE)
+            KeyValue("Fingerprint", Build.FINGERPRINT)
+        } }
+        item { SectionCard("Android runtime") {
+            KeyValue("Architecture", Build.SUPPORTED_ABIS.joinToString(", "))
+            KeyValue("Manufacturer", Build.MANUFACTURER)
+            KeyValue("Model", Build.MODEL)
+            KeyValue("Android", Build.VERSION.RELEASE)
+            KeyValue("SDK", Build.VERSION.SDK_INT.toString())
+            KeyValue("Build ID", Build.ID)
+            KeyValue("Build incremental", Build.VERSION.INCREMENTAL)
+            KeyValue("Turnip eligibility", if (turnipSupported) "arm64-v8a + Qualcomm Adreno detected" else "Unknown / not eligible")
+        } }
+        item { SectionCard("Feature coverage") {
+            val supported = device?.features?.count { it.supported } ?: 0
+            val total = device?.features?.size ?: 0
+            KeyValue("Queried feature fields", "$supported / $total supported")
+            KeyValue("Instance extensions", report.instanceExtensions.size.toString())
+            KeyValue("Device extensions", device?.extensions?.size?.toString() ?: "0")
+        } }
+    }
+}
+
+
+
+@Composable
+private fun HeroCard(device: DeviceReport?, report: VulkanReport, driverMode: DriverMode) {
+    Card(colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF171717)), shape = RoundedCornerShape(28.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                VendorLogo(device?.vendorIdRaw, Modifier.size(82.dp))
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(device?.name ?: if (report.error != null) "Vulkan unavailable" else "Vulkan device unavailable", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(if (device != null) vendorInfo(device.vendorIdRaw).name else report.error?.take(120) ?: "Unknown vendor", color = ComposeColor(0xFFBDBDBD), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(driverMode.label, color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+}
+
+
+
+@Composable
+private fun QuickAccessCard(title: String, destination: Page, navigate: (Page) -> Unit, modifier: Modifier) {
+    Card(
+        onClick = { navigate(destination) },
+        colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF171717)),
+        shape = RoundedCornerShape(18.dp),
+        modifier = modifier.height(72.dp)
+    ) {
+        Column(
+            Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 7.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically)
+        ) {
+            Icon(
+                painterResource(pageIcon(destination)),
+                contentDescription = null,
+                modifier = Modifier.size(19.dp),
+                tint = ComposeColor(0xFFF21D2F)
+            )
+            Text(
+                title,
+                fontSize = 11.sp,
+                lineHeight = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+
+
+@Composable
+private fun CompactNavigationRail(selectedPage: Page, onPageSelected: (Page) -> Unit, red: ComposeColor) {
+    Surface(
+        modifier = Modifier.width(80.dp),
+        color = ComposeColor(0xFF101010)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 6.dp, vertical = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            navigationItems().forEach { item ->
+                val selected = selectedPage == item.page
+                Card(
+                    onClick = { onPageSelected(item.page) },
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (selected) red else ComposeColor.Transparent
+                    ),
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.fillMaxWidth().height(54.dp)
+                ) {
+                    Column(
+                        Modifier.fillMaxSize().padding(horizontal = 2.dp, vertical = 4.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(1.dp, Alignment.CenterVertically)
+                    ) {
+                        Icon(
+                            painterResource(item.icon),
+                            contentDescription = item.label,
+                            modifier = Modifier.size(21.dp),
+                            tint = if (selected) ComposeColor.White else ComposeColor(0xFFB8B8B8)
+                        )
+                        Text(
+                            item.label,
+                            color = if (selected) ComposeColor.White else ComposeColor(0xFFB8B8B8),
+                            fontSize = 9.sp,
+                            lineHeight = 10.sp,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+
+@Composable
+private fun ExploreCard(onNavigate: (Page) -> Unit) {
+    SectionCard("Explore") {
+        Text("Detailed Vulkan inspection areas", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(Page.Features, Page.Memory, Page.Queues, Page.Formats, Page.Properties).forEach { page ->
+                AssistChip(
+                    onClick = { onNavigate(page) },
+                    leadingIcon = { Icon(painterResource(pageIcon(page)), contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    label = { Text(page.title) }
+                )
+            }
+        }
+    }
+}
+
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1138,13 +1727,45 @@ private fun buildSurfaceCatalog(supported: List<SurfaceFormatEntry>): List<Surfa
 
 @Composable
 private fun FeaturesPage(device: DeviceReport?) {
-    LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    var query by remember { mutableStateOf("") }
+    var filter by remember { mutableStateOf(SupportFilter.ALL) }
+    var sourceFilter by remember { mutableStateOf("All") }
+    val all = device?.features ?: emptyList()
+    val sources = remember(all) { listOf("All") + all.map { featureSource(it.name) }.distinct() }
+    val filtered = remember(all, query, filter, sourceFilter) {
+        all.filter { feature ->
+            val supportMatches = when (filter) {
+                SupportFilter.ALL -> true
+                SupportFilter.SUPPORTED -> feature.supported
+                SupportFilter.UNSUPPORTED -> !feature.supported
+            }
+            val sourceMatches = sourceFilter == "All" || featureSource(feature.name) == sourceFilter
+            val textMatches = query.isBlank() || feature.name.contains(query, ignoreCase = true)
+            supportMatches && sourceMatches && textMatches
+        }
+    }
+    LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
-            Text("Core feature bits reported by vkGetPhysicalDeviceFeatures", style = MaterialTheme.typography.bodySmall, color = ComposeColor(0xFF8F8F8F), modifier = Modifier.padding(bottom = 8.dp))
+            Text("Runtime feature support. Core 1.0, promoted core versions and extension-provided feature blocks remain distinguishable.", style = MaterialTheme.typography.bodySmall, color = ComposeColor(0xFF8F8F8F))
+            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), label = { Text("Search features") }, singleLine = true)
+            SupportFilterRow(filter) { filter = it }
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                sources.forEach { source -> FilterChip(selected = sourceFilter == source, onClick = { sourceFilter = source }, label = { Text(source) }) }
+            }
+            Text("${filtered.size} features", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(vertical = 6.dp))
         }
-        items(device?.features ?: emptyList()) { feature ->
-            DataRow(feature.name, if (feature.supported) "SUPPORTED" else "NOT SUPPORTED", feature.supported)
+        itemsIndexed(filtered, key = { index, feature -> "feature:${feature.name}:$index" }) { _, feature ->
+            Card(colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF111111)), shape = RoundedCornerShape(16.dp)) {
+                Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(featureNameOnly(feature.name), fontWeight = FontWeight.Medium)
+                        Text(featureSource(feature.name), color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelSmall)
+                    }
+                    Text(if (feature.supported) "SUPPORTED" else "NOT SUPPORTED", fontWeight = FontWeight.SemiBold, color = if (feature.supported) ComposeColor(0xFF73C991) else ComposeColor(0xFFFF6B6B), style = MaterialTheme.typography.labelSmall)
+                }
+            }
         }
+        if (filtered.isEmpty()) item { EmptyState("No matching features") }
     }
 }
 
@@ -1152,13 +1773,23 @@ private fun FeaturesPage(device: DeviceReport?) {
 private fun MemoryPage(device: DeviceReport?) {
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { SectionCard("Memory heaps") {
+            if (device?.heaps.isNullOrEmpty()) EmptyState("Memory heap data unavailable")
             device?.heaps?.forEach { heap ->
-                KeyValue("Heap ${heap.index}", "${formatBytes(heap.size)} · flags ${heap.flags}")
+                Column(Modifier.padding(vertical = 5.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("Heap ${heap.index}", fontWeight = FontWeight.SemiBold)
+                    KeyValue("Size", formatBytes(heap.size))
+                    KeyValue("Flags", memoryHeapFlags(heap.flags))
+                }
             }
         } }
         item { SectionCard("Memory types") {
+            if (device?.memoryTypes.isNullOrEmpty()) EmptyState("Memory type data unavailable")
             device?.memoryTypes?.forEach { type ->
-                KeyValue("Type ${type.index}", "heap ${type.heap} · flags ${type.flags}")
+                Column(Modifier.padding(vertical = 5.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("Type ${type.index}", fontWeight = FontWeight.SemiBold)
+                    KeyValue("Heap", type.heap.toString())
+                    KeyValue("Properties", memoryTypeFlags(type.flags))
+                }
             }
         } }
     }
@@ -1167,20 +1798,22 @@ private fun MemoryPage(device: DeviceReport?) {
 @Composable
 private fun QueuesPage(device: DeviceReport?) {
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        items(device?.queues ?: emptyList()) { queue ->
+        items(device?.queues ?: emptyList(), key = { it.index }) { queue ->
             SectionCard("Queue family ${queue.index}") {
                 KeyValue("Queue count", queue.count.toString())
                 KeyValue("Timestamp valid bits", queue.timestampBits.toString())
+                KeyValue("Capabilities", queueCapabilityFlags(queue.flags))
                 KeyValue("Graphics", if (queue.graphics) "YES" else "NO")
                 KeyValue("Compute", if (queue.compute) "YES" else "NO")
                 KeyValue("Transfer", if (queue.transfer) "YES" else "NO")
                 KeyValue("Sparse binding", if (queue.sparse) "YES" else "NO")
-                KeyValue("Flags", queue.flags.toString())
-                if (queue.videoCodecOperations != 0L) {
-                    KeyValue("Video codec operations", videoCodecOperationsName(queue.videoCodecOperations))
-                }
+                KeyValue("Protected", if (queue.protected) "YES" else "NO")
+                KeyValue("Optical flow", if (queue.opticalFlow) "YES" else "NO")
+                KeyValue("Min image transfer granularity", queue.granularity)
+                if (queue.videoCodecOperations != 0L) KeyValue("Video codec operations", videoCodecOperationsName(queue.videoCodecOperations))
             }
         }
+        if (device?.queues.isNullOrEmpty()) item { EmptyState("Queue family data unavailable") }
     }
 }
 
@@ -1191,217 +1824,18 @@ private fun FormatsPage(device: DeviceReport?) {
     val filtered = remember(query, formats) { if (query.isBlank()) formats else formats.filter { it.name.contains(query, true) } }
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
-            Text("Implementation-reported format properties. Each format exposes the exact Linear / Optimal / Buffer feature bitmasks returned by vkGetPhysicalDeviceFormatProperties.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
+            Text("Implementation-reported format capabilities. Bitmasks are expanded to canonical Vulkan feature names; unknown bits remain visible in hexadecimal.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
             OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true, placeholder = { Text("Search formats…") })
             Text("${filtered.size} formats", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(vertical = 6.dp))
         }
-        items(filtered) { format ->
+        itemsIndexed(filtered, key = { index, format -> "format:${format.name}:$index" }) { _, format ->
             Card(colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF111111)), shape = RoundedCornerShape(18.dp)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(format.name, fontWeight = FontWeight.Medium)
                     KeyValue("Status", if (format.supported) "SUPPORTED" else "NOT SUPPORTED")
-                    KeyValue("Linear tiling flags", format.linear.toString())
-                    KeyValue("Optimal tiling flags", format.optimal.toString())
-                    KeyValue("Buffer features", format.buffer.toString())
-                }
-            }
-        }
-    }
-}
-
-
-@Composable
-private fun SurfaceProbe(
-    modifier: Modifier = Modifier,
-    onCreated: (Surface) -> Unit,
-    onDestroyed: () -> Unit
-) {
-    AndroidView(
-        modifier = modifier.alpha(0f),
-        factory = { context ->
-            SurfaceView(context).apply {
-                setBackgroundColor(Color.BLACK)
-                holder.addCallback(object : SurfaceHolder.Callback {
-                    override fun surfaceCreated(holder: SurfaceHolder) { onCreated(holder.surface) }
-                    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
-                    override fun surfaceDestroyed(holder: SurfaceHolder) { onDestroyed() }
-                })
-            }
-        },
-        update = {}
-    )
-}
-
-@Composable
-private fun PageContent(page: Page, report: VulkanReport, display: DisplayReport, driverMode: DriverMode, turnipSupport: TurnipSupport, onDriverModeChanged: (DriverMode) -> Unit, onInstallDriverBundle: () -> Unit, onNavigate: (Page) -> Unit) {
-    val device = report.devices.firstOrNull()
-    when (page) {
-        Page.Overview -> OverviewPage(report, device, display, driverMode, onNavigate)
-        Page.Vulkan -> VulkanPage(report, device, turnipSupport == TurnipSupport.SUPPORTED)
-        Page.Display -> DisplayPage(display, device)
-        Page.Surface -> SurfacePage(device)
-        Page.Features -> FeaturesPage(device)
-        Page.Memory -> MemoryPage(device)
-        Page.Queues -> QueuesPage(device)
-        Page.Formats -> FormatsPage(device)
-        Page.Properties -> PropertiesPage(device)
-        Page.Extensions -> ExtensionsPage(report, device)
-        Page.Profiles -> ProfilesPage(report, device)
-        Page.Settings -> SettingsPage(report, display, driverMode, turnipSupport, onDriverModeChanged, onInstallDriverBundle)
-        Page.Info -> InfoPage(report.registryCoverage)
-    }
-}
-
-@Composable
-private fun OverviewPage(report: VulkanReport, device: DeviceReport?, display: DisplayReport, driverMode: DriverMode, navigate: (Page) -> Unit) {
-    LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item {
-            HeroCard(device, report, driverMode)
-        }
-        if (report.error != null) {
-            item {
-                SectionCard("Vulkan inspection error") {
-                    Text(report.error, color = ComposeColor(0xFFFF6B6B))
-                    Text(
-                        "The driver mode is shown separately from the inspection result.",
-                        color = ComposeColor(0xFF9E9E9E),
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
-        }
-        item {
-            ExploreCard { destination -> navigate(destination) }
-        }
-        item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MetricCard("Vulkan", device?.apiVersion ?: "Unknown", Modifier.weight(1f))
-                MetricCard("Display", display.refreshRate, Modifier.weight(1f))
-            }
-        }
-        item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MetricCard("HDR", if (display.hdrTypes.isEmpty()) "No" else "${display.hdrTypes.size} types", Modifier.weight(1f))
-                MetricCard("Wide gamut", if (display.wideGamut) "Supported" else "Not exposed", Modifier.weight(1f))
-            }
-        }
-        item { SectionCard("Quick access") {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    QuickAccessCard("Vulkan", Page.Vulkan, navigate, Modifier.weight(1f))
-                    QuickAccessCard("Surface", Page.Surface, navigate, Modifier.weight(1f))
-                    QuickAccessCard("Display", Page.Display, navigate, Modifier.weight(1f))
-                    QuickAccessCard("HDR & Color", Page.Display, navigate, Modifier.weight(1f))
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    QuickAccessCard("Extensions", Page.Extensions, navigate, Modifier.weight(1f))
-                    QuickAccessCard("Profiles", Page.Profiles, navigate, Modifier.weight(1f))
-                    QuickAccessCard("More", Page.Features, navigate, Modifier.weight(1f))
-                    Spacer(Modifier.weight(1f))
-                }
-            }
-        } }
-        item { SectionCard("Capability snapshot") {
-            KeyValue("GPU", device?.name ?: "Unknown")
-            KeyValue("Driver", device?.driverVersion ?: "Unknown")
-            KeyValue("Vendor ID", device?.vendorId ?: "Unknown")
-            KeyValue("Device ID", device?.deviceId ?: "Unknown")
-            KeyValue("Device type", device?.deviceType ?: "Unknown")
-            KeyValue("Loader API", report.loaderVersion)
-            KeyValue("Instance extensions", report.instanceExtensions.size.toString())
-            KeyValue("Device extensions", device?.extensions?.size?.toString() ?: "0")
-        } }
-    }
-}
-
-@Composable
-private fun VulkanPage(report: VulkanReport, device: DeviceReport?, turnipSupported: Boolean) {
-    LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item { SectionCard("Vulkan API") {
-            KeyValue("Loader / instance API", report.loaderVersion)
-            KeyValue("Device API", device?.apiVersion ?: "Unknown")
-            KeyValue("Driver", device?.driverVersion ?: "Unknown")
-            KeyValue("Device type", device?.deviceType ?: "Unknown")
-            KeyValue("Vendor ID", device?.vendorId ?: "Unknown")
-            KeyValue("Device ID", device?.deviceId ?: "Unknown")
-        } }
-        item { SectionCard("Instance layers") {
-            if (report.instanceLayers.isEmpty()) {
-                Text("No instance layers are exposed by the active Vulkan implementation.")
-                Text("This is normal on many Android production/driver configurations; validation layers are optional and are not bundled by VulkanScope.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
-            }
-            report.instanceLayers.forEach { layer ->
-                Column(Modifier.padding(vertical = 5.dp)) {
-                    Text(layer.name, fontWeight = FontWeight.SemiBold)
-                    Text("spec ${layer.specVersion} · implementation ${layer.implementationVersion}", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelSmall)
-                    if (layer.description.isNotBlank()) Text(layer.description, color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        } }
-        item { SectionCard("Device layers") {
-            if (device?.deviceLayers.isNullOrEmpty()) {
-                Text("No device layers are exposed.")
-                Text("Device layers are legacy functionality; modern Vulkan uses instance layers.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
-            }
-            device?.deviceLayers?.forEach { layer ->
-                Column(Modifier.padding(vertical = 5.dp)) {
-                    Text(layer.name, fontWeight = FontWeight.SemiBold)
-                    Text("spec ${layer.specVersion} · implementation ${layer.implementationVersion}", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelSmall)
-                    if (layer.description.isNotBlank()) Text(layer.description, color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
-                    layer.extensions.forEach { ext -> Text("${ext.name} · spec ${ext.specVersion}", color = ComposeColor(0xFFBDBDBD), style = MaterialTheme.typography.labelSmall) }
-                }
-            }
-        } }
-        item { SectionCard("Instance extensions") {
-            report.instanceExtensions.sortedBy { it.name }.forEach { ext -> Text("${ext.name} · spec ${ext.specVersion}") }
-        } }
-        item { SectionCard("Operating system") {
-            KeyValue("Architecture", Build.SUPPORTED_ABIS.firstOrNull() ?: "Unknown")
-            KeyValue("Version", Build.VERSION.RELEASE)
-            KeyValue("Codename", Build.VERSION.CODENAME)
-            KeyValue("SDK", Build.VERSION.SDK_INT.toString())
-            KeyValue("Build ID", Build.ID)
-            KeyValue("Build incremental", Build.VERSION.INCREMENTAL)
-            KeyValue("Security patch", Build.VERSION.SECURITY_PATCH)
-            KeyValue("Brand", Build.BRAND)
-            KeyValue("Manufacturer", Build.MANUFACTURER)
-            KeyValue("Product", Build.PRODUCT)
-            KeyValue("Device", Build.DEVICE)
-            KeyValue("Board", Build.BOARD)
-            KeyValue("Hardware", Build.HARDWARE)
-            KeyValue("Fingerprint", Build.FINGERPRINT)
-        } }
-        item { SectionCard("Android runtime") {
-            KeyValue("Architecture", Build.SUPPORTED_ABIS.joinToString(", "))
-            KeyValue("Manufacturer", Build.MANUFACTURER)
-            KeyValue("Model", Build.MODEL)
-            KeyValue("Android", Build.VERSION.RELEASE)
-            KeyValue("SDK", Build.VERSION.SDK_INT.toString())
-            KeyValue("Build ID", Build.ID)
-            KeyValue("Build incremental", Build.VERSION.INCREMENTAL)
-            KeyValue("Turnip eligibility", if (turnipSupported) "arm64-v8a + Qualcomm Adreno detected" else "Unknown / not eligible")
-        } }
-        item { SectionCard("Feature coverage") {
-            val supported = device?.features?.count { it.supported } ?: 0
-            val total = device?.features?.size ?: 0
-            KeyValue("Queried feature fields", "$supported / $total supported")
-            KeyValue("Instance extensions", report.instanceExtensions.size.toString())
-            KeyValue("Device extensions", device?.extensions?.size?.toString() ?: "0")
-        } }
-    }
-}
-
-@Composable
-private fun HeroCard(device: DeviceReport?, report: VulkanReport, driverMode: DriverMode) {
-    Card(colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF171717)), shape = RoundedCornerShape(28.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                VendorLogo(device?.vendorIdRaw, Modifier.size(82.dp))
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(device?.name ?: "Vulkan device unavailable", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(if (device != null) vendorInfo(device.vendorIdRaw).name else "Unknown vendor", color = ComposeColor(0xFFBDBDBD))
-                    Text(driverMode.label, color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
+                    KeyValue("Linear", formatFeatureFlags(format.linear))
+                    KeyValue("Optimal", formatFeatureFlags(format.optimal))
+                    KeyValue("Buffer", formatFeatureFlags(format.buffer))
                 }
             }
         }
@@ -1409,145 +1843,139 @@ private fun HeroCard(device: DeviceReport?, report: VulkanReport, driverMode: Dr
 }
 
 @Composable
-private fun QuickAccessCard(title: String, destination: Page, navigate: (Page) -> Unit, modifier: Modifier) {
-    Card(
-        onClick = { navigate(destination) },
-        colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF171717)),
-        shape = RoundedCornerShape(18.dp),
-        modifier = modifier.height(72.dp)
-    ) {
-        Column(
-            Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 7.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically)
-        ) {
-            Icon(
-                painterResource(pageIcon(destination)),
-                contentDescription = null,
-                modifier = Modifier.size(19.dp),
-                tint = ComposeColor(0xFFF21D2F)
-            )
-            Text(
-                title,
-                fontSize = 11.sp,
-                lineHeight = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
-}
-
-@Composable
-private fun CompactNavigationRail(selectedPage: Page, onPageSelected: (Page) -> Unit, red: ComposeColor) {
-    Surface(
-        modifier = Modifier.width(80.dp),
-        color = ComposeColor(0xFF101010)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 6.dp, vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            navigationItems().forEach { item ->
-                val selected = selectedPage == item.page
-                Card(
-                    onClick = { onPageSelected(item.page) },
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (selected) red else ComposeColor.Transparent
-                    ),
-                    shape = RoundedCornerShape(18.dp),
-                    modifier = Modifier.fillMaxWidth().height(54.dp)
-                ) {
-                    Column(
-                        Modifier.fillMaxSize().padding(horizontal = 2.dp, vertical = 4.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(1.dp, Alignment.CenterVertically)
-                    ) {
-                        Icon(
-                            painterResource(item.icon),
-                            contentDescription = item.label,
-                            modifier = Modifier.size(21.dp),
-                            tint = if (selected) ComposeColor.White else ComposeColor(0xFFB8B8B8)
-                        )
-                        Text(
-                            item.label,
-                            color = if (selected) ComposeColor.White else ComposeColor(0xFFB8B8B8),
-                            fontSize = 9.sp,
-                            lineHeight = 10.sp,
-                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ExploreCard(onNavigate: (Page) -> Unit) {
-    SectionCard("Explore") {
-        Text("Detailed Vulkan inspection areas", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(Page.Features, Page.Memory, Page.Queues, Page.Formats, Page.Properties).forEach { page ->
-                AssistChip(
-                    onClick = { onNavigate(page) },
-                    leadingIcon = { Icon(painterResource(pageIcon(page)), contentDescription = null, modifier = Modifier.size(18.dp)) },
-                    label = { Text(page.title) }
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun PropertiesPage(device: DeviceReport?) {
+private fun PropertiesPage(device: DeviceReport?, onRequestQuery: (String) -> Unit) {
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf("All") }
     val properties = remember(device) { device?.detailedProperties ?: emptyList() }
+    val limitGroups = remember(device?.limits) { (device?.limits ?: emptyList()).groupBy { limitCategory(it.first) } }
     val sections = remember(properties, device?.apiVersion, device?.vulkan14Status) {
-        val base = listOf("All") + properties.map { it.section }.distinct()
+        val base = listOf("All", "Limits") + properties.map { it.section }.distinct()
         if (apiAtLeast(device?.apiVersion ?: "", 1, 4) && !base.contains("Core 1.4")) base + "Core 1.4" else base
+    }
+    LaunchedEffect(filter) {
+        if (filter == "Core 1.4") onRequestQuery("core14")
     }
     val filtered = remember(query, filter, properties) {
         properties.filter {
-            (filter == "All" || it.section == filter) &&
+            (filter != "Limits" && (filter == "All" || it.section == filter)) &&
                 (query.isBlank() || it.name.contains(query, true) || it.value.contains(query, true) || it.section.contains(query, true))
         }
     }
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
-            Text("Detailed physical-device properties queried through vkGetPhysicalDeviceProperties2. Core 1.1/1.2/1.3/1.4 entries are collected from the active Vulkan stack and remain attributable to their promoted core version.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
-            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true, placeholder = { Text("Search properties…") })
+            Text("Physical-device properties and limits are shown only from runtime Vulkan queries. Advanced query groups keep their explicit availability state.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
+            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true, placeholder = { Text("Search properties and limits…") })
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 sections.forEach { section -> FilterChip(selected = filter == section, onClick = { filter = section }, label = { Text(section) }) }
             }
-            if (filter == "Core 1.4" && device?.vulkan14Status == "unavailable") {
-                Card(colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF191919)), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Vulkan 1.4 unavailable", fontWeight = FontWeight.SemiBold)
-                        Text(device.vulkan14Reason.ifBlank { "The Vulkan 1.4 property/feature query is unavailable on this device or Vulkan stack." }, color = ComposeColor(0xFFBDBDBD), style = MaterialTheme.typography.bodySmall)
+        }
+        if (filter == "Limits") {
+            limitGroups.toSortedMap().forEach { (category, entries) ->
+                item { SectionCard(category) {
+                    val visible = entries.filter { query.isBlank() || it.first.contains(query, true) || it.second.contains(query, true) }
+                    if (visible.isEmpty()) Text("No matching limits", color = ComposeColor(0xFF9E9E9E))
+                    visible.forEach { (name, value) ->
+                        Column(Modifier.padding(vertical = 4.dp)) {
+                            Text(name, fontWeight = FontWeight.Medium)
+                            Text(value, color = ComposeColor(0xFFD8D8D8), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                } }
+            }
+        } else {
+                if (filter == "Core 1.4") {
+                val status = device?.vulkan14Status ?: "unavailable"
+                val message = when (status) {
+                    "not_applicable" -> "Vulkan 1.4 is not exposed by this physical device. Device API: ${device?.apiVersion ?: "Unknown"}."
+                    "unavailable" -> device?.vulkan14Reason?.ifBlank { "The Vulkan 1.4 property/feature query is unavailable on this device or Vulkan stack." } ?: "Vulkan 1.4 query status unavailable."
+                    else -> "Vulkan 1.4 properties were queried from the active physical device."
+                }
+                if (properties.none { it.section == "Core 1.4" }) {
+                    item { SectionCard("Vulkan 1.4 status") { Text(message, color = ComposeColor(0xFFFFC857)) } }
+                }
+            }
+            item { Text("${filtered.size} properties", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelMedium) }
+            itemsIndexed(filtered, key = { index, property -> "${property.section}:${property.name}:$index" }) { _, property ->
+                Card(colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF111111)), shape = RoundedCornerShape(16.dp)) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(property.name, fontWeight = FontWeight.Medium)
+                        Text(property.section, color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelSmall)
+                        Text(property.value, color = ComposeColor(0xFFD8D8D8), style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
-            Text("${filtered.size} properties", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(vertical = 6.dp))
-        }
-        items(filtered) { property ->
-            Card(colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF111111)), shape = RoundedCornerShape(16.dp)) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(property.name, fontWeight = FontWeight.Medium)
-                    Text(property.section, color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelSmall)
-                    Text(property.value, color = ComposeColor(0xFFD8D8D8), style = MaterialTheme.typography.bodySmall)
-                }
-            }
+            if (filtered.isEmpty()) item { EmptyState("No matching properties") }
         }
     }
+}
+
+private fun limitCategory(name: String): String = when {
+    name.contains("Image", true) || name.contains("Framebuffer", true) || name.contains("Attachment", true) -> "Images and framebuffer"
+    name.contains("Shader", true) || name.contains("Tessellation", true) || name.contains("Geometry", true) -> "Shader and pipeline"
+    name.contains("Compute", true) -> "Compute"
+    name.contains("Descriptor", true) || name.contains("Sampler", true) -> "Descriptors and samplers"
+    name.contains("Memory", true) || name.contains("Allocation", true) || name.contains("Buffer", true) -> "Memory and buffers"
+    name.contains("Viewport", true) || name.contains("Scissor", true) || name.contains("View", true) -> "Rasterization and views"
+    name.contains("Draw", true) || name.contains("Vertex", true) || name.contains("Index", true) -> "Drawing"
+    name.contains("Timestamp", true) || name.contains("Query", true) -> "Queries and timestamps"
+    else -> "Other limits"
+}
+
+private fun featureSource(name: String): String = when {
+    name.startsWith("Vulkan 1.1 · ") -> "Core 1.1"
+    name.startsWith("Vulkan 1.2 · ") -> "Core 1.2"
+    name.startsWith("Vulkan 1.3 · ") -> "Core 1.3"
+    name.startsWith("Vulkan 1.4 · ") -> "Core 1.4"
+    name.contains(" · ") -> name.substringBefore(" · ").ifBlank { "Extension" }
+    else -> "Core 1.0"
+}
+
+private fun featureNameOnly(name: String): String = name.substringAfter(" · ", name)
+
+private fun rawBitsSuffix(bits: Long, known: Set<Long>): String {
+    var remaining = bits
+    known.forEach { remaining = remaining and it.inv() }
+    return if (remaining != 0L) " | UNKNOWN_BITS=0x${remaining.toString(16).uppercase()}" else ""
+}
+
+private fun memoryHeapFlags(bits: Long): String = buildList {
+    if ((bits and 0x1L) != 0L) add("DEVICE_LOCAL")
+    if ((bits and 0x2L) != 0L) add("MULTI_INSTANCE")
+}.joinToString(" | ").ifBlank { "NONE" } + rawBitsSuffix(bits, setOf(0x1L, 0x2L))
+
+private fun memoryTypeFlags(bits: Long): String = buildList {
+    if ((bits and 0x1L) != 0L) add("DEVICE_LOCAL")
+    if ((bits and 0x2L) != 0L) add("HOST_VISIBLE")
+    if ((bits and 0x4L) != 0L) add("HOST_COHERENT")
+    if ((bits and 0x8L) != 0L) add("HOST_CACHED")
+    if ((bits and 0x10L) != 0L) add("LAZILY_ALLOCATED")
+    if ((bits and 0x20L) != 0L) add("PROTECTED")
+    if ((bits and 0x40L) != 0L) add("DEVICE_COHERENT_AMD")
+    if ((bits and 0x80L) != 0L) add("DEVICE_UNCACHED_AMD")
+    if ((bits and 0x100L) != 0L) add("RDMA_CAPABLE_NV")
+}.joinToString(" | ").ifBlank { "NONE" } + rawBitsSuffix(bits, setOf(0x1L,0x2L,0x4L,0x8L,0x10L,0x20L,0x40L,0x80L,0x100L))
+
+private fun queueCapabilityFlags(bits: Long): String = buildList {
+    if ((bits and 0x1L) != 0L) add("GRAPHICS")
+    if ((bits and 0x2L) != 0L) add("COMPUTE")
+    if ((bits and 0x4L) != 0L) add("TRANSFER")
+    if ((bits and 0x8L) != 0L) add("SPARSE_BINDING")
+    if ((bits and 0x10L) != 0L) add("PROTECTED")
+}.joinToString(" | ").ifBlank { "NONE" } + rawBitsSuffix(bits, setOf(0x1L,0x2L,0x4L,0x8L,0x10L))
+
+private fun formatFeatureFlags(bits: Long): String {
+    if (bits == 0L) return "NONE"
+    val names = listOf(
+        0x1L to "SAMPLED_IMAGE", 0x2L to "STORAGE_IMAGE", 0x4L to "STORAGE_IMAGE_ATOMIC", 0x8L to "UNIFORM_TEXEL_BUFFER",
+        0x10L to "STORAGE_TEXEL_BUFFER", 0x20L to "STORAGE_TEXEL_BUFFER_ATOMIC", 0x40L to "UNIFORM_BUFFER", 0x80L to "STORAGE_BUFFER",
+        0x100L to "STORAGE_BUFFER_ATOMIC", 0x200L to "VERTEX_BUFFER", 0x400L to "COLOR_ATTACHMENT", 0x800L to "COLOR_ATTACHMENT_BLEND",
+        0x1000L to "DEPTH_STENCIL_ATTACHMENT", 0x2000L to "BLIT_SRC", 0x4000L to "BLIT_DST", 0x8000L to "SAMPLED_IMAGE_FILTER_LINEAR",
+        0x10000L to "TRANSFER_SRC", 0x20000L to "TRANSFER_DST", 0x40000L to "MIDPOINT_CHROMA_SAMPLES", 0x80000L to "SAMPLED_IMAGE_YCBCR_CONVERSION_LINEAR_FILTER",
+        0x100000L to "SAMPLED_IMAGE_YCBCR_CONVERSION_SEPARATE_RECONSTRUCTION_FILTER", 0x200000L to "SAMPLED_IMAGE_YCBCR_CONVERSION_CHROMA_RECONSTRUCTION_EXPLICIT", 0x400000L to "SAMPLED_IMAGE_YCBCR_CONVERSION_CHROMA_RECONSTRUCTION_EXPLICIT_FORCEABLE",
+        0x800000L to "DISJOINT", 0x1000000L to "COSITED_CHROMA_SAMPLES"
+    )
+    val known = names.filter { (bit, _) -> (bits and bit) != 0L }.map { it.second }
+    return known.joinToString(" | ").ifBlank { "NONE" } + rawBitsSuffix(bits, names.map { it.first }.toSet())
 }
 
 private data class ProfileResult(val name: String, val revision: String, val status: String, val missingExtensions: List<String>, val missingFeatures: List<String>, val unknownFeatures: List<String>, val failingLimits: List<String>, val unknownLimits: List<String>, val failingBooleanLimits: List<String> = emptyList(), val unknownBooleanLimits: List<String> = emptyList())
@@ -1873,37 +2301,46 @@ private fun DriverOption(option: DriverMode, selected: Boolean, description: Str
 @Composable
 private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
     var query by remember { mutableStateOf("") }
-    var filter by remember { mutableStateOf(SupportFilter.ALL) }
+    var filter by remember { mutableStateOf("All") }
     val supported = remember(report, device) {
         (report.instanceExtensions + (device?.extensions ?: emptyList()))
-            .groupBy { it.name }
-            .map { (_, values) -> ExtensionEntry(values.first().name, values.map { it.scope }.distinctScopes(), values.maxOf { it.specVersion }, true) }
-            .sortedBy { it.name }
+            .sortedWith(compareBy<ExtensionEntry> { it.name }.thenBy { it.scope }.thenBy { it.specVersion })
     }
-    val knownUnsupported = remember { KNOWN_VULKAN_EXTENSIONS - supported.map { it.name }.toSet() }
-    val all = remember(supported, knownUnsupported) {
-        (supported + knownUnsupported.map { ExtensionEntry(it, "Registry reference only", 0, false) }).sortedBy { it.name }
+    val supportedNames = remember(supported) { supported.map { it.name }.toSet() }
+    val catalog = remember(supportedNames) { KNOWN_VULKAN_EXTENSIONS.filterNot { it in supportedNames }.sorted() }
+    val filteredSupported = remember(query, supported, filter) {
+        if (filter == "Not enumerated") emptyList() else supported.filter { query.isBlank() || it.name.contains(query, true) || it.scope.contains(query, true) }
     }
-    val filtered = remember(query, filter, all) {
-        all.filter { entry ->
-            val statusOk = when (filter) { SupportFilter.ALL -> true; SupportFilter.SUPPORTED -> entry.supported; SupportFilter.UNSUPPORTED -> !entry.supported }
-            statusOk && (query.isBlank() || entry.name.contains(query, true) || entry.scope.contains(query, true))
+    val filteredCatalog = remember(query, catalog, filter) {
+        if (filter == "Supported") emptyList() else catalog.filter { query.isBlank() || it.contains(query, true) }
+    }
+    val total = filteredSupported.size + filteredCatalog.size
+    LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        item {
+            Text("Runtime-enumerated extensions are shown exactly as reported. Registry references are never labeled unsupported.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
+            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true, placeholder = { Text("Search Vulkan extension names") })
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("All", "Supported", "Not enumerated").forEach { value -> FilterChip(selected = filter == value, onClick = { filter = value }, label = { Text(value) }) }
+            }
+            Text("$total entries", modifier = Modifier.padding(vertical = 6.dp), color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelMedium)
         }
-    }
-    Column(Modifier.fillMaxSize()) {
-        OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp), singleLine = true, placeholder = { Text("Search Vulkan extension names") })
-        SupportFilterRow(filter) { filter = it }
-        Text("${filtered.size} extensions", modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp), color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelMedium)
-        LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            items(filtered, key = { it.name }) { extension ->
-                Card(colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF111111)), shape = RoundedCornerShape(18.dp)) {
-                    Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(extension.name, fontWeight = FontWeight.SemiBold)
-                        Text(if (extension.supported) "SUPPORTED · ${extension.scope} · spec ${extension.specVersion}" else "NOT ENUMERATED · registry reference only", color = if (extension.supported) ComposeColor(0xFF7DFF9B) else ComposeColor(0xFFFF6B6B), style = MaterialTheme.typography.labelSmall)
-                    }
+        items(filteredSupported, key = { "supported:${it.scope}:${it.name}:${it.specVersion}" }) { extension ->
+            Card(colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF111111)), shape = RoundedCornerShape(18.dp)) {
+                Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(extension.name, fontWeight = FontWeight.SemiBold)
+                    Text("SUPPORTED · ${extension.scope} · spec ${extension.specVersion}", color = ComposeColor(0xFF73C991), style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
+        items(filteredCatalog, key = { "catalog:$it" }) { name ->
+            Card(colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF17130A)), shape = RoundedCornerShape(18.dp)) {
+                Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(name, fontWeight = FontWeight.SemiBold)
+                    Text("NOT ENUMERATED · registry reference only", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+        if (total == 0) item { EmptyState("No matching extensions") }
     }
 }
 
@@ -1956,7 +2393,7 @@ private fun reportToText(report: VulkanReport, display: DisplayReport, mode: Dri
     vulkanProfileCatalog().forEach { appendLine("${it.first} | ${it.second}") }
         report.devices.forEachIndexed { index, d ->
         appendLine(); appendLine("DEVICE #${index + 1}: ${d.name}")
-        appendLine("API: ${d.apiVersion}"); appendLine("Driver version: ${d.driverVersion}"); appendLine("Vendor: ${d.vendorId}"); appendLine("Device ID: ${d.deviceId}"); appendLine("Type: ${d.deviceType}"); appendLine("Extended query status: ${d.extendedQueryStatus}"); appendLine("Extended query reason: ${d.extendedQueryReason}"); appendLine("Vulkan 1.4 status: ${d.vulkan14Status}"); appendLine("Vulkan 1.4 reason: ${d.vulkan14Reason}")
+        appendLine("API: ${d.apiVersion}"); appendLine("Driver version: ${d.driverVersionText}"); appendLine("Vendor: ${d.vendorId}"); appendLine("Device ID: ${d.deviceId}"); appendLine("Type: ${d.deviceType}"); appendLine("Extended query status: ${d.extendedQueryStatus}"); appendLine("Extended query reason: ${d.extendedQueryReason}"); appendLine("Vulkan 1.4 status: ${d.vulkan14Status}"); appendLine("Vulkan 1.4 reason: ${d.vulkan14Reason}")
         appendLine(); appendLine("DEVICE LAYERS"); d.deviceLayers.forEach { appendLine("${it.name} | spec ${it.specVersion} | implementation ${it.implementationVersion} | ${it.description}"); it.extensions.forEach { ext -> appendLine("  ${ext.name} | spec ${ext.specVersion}") } }; appendLine(); appendLine("DEVICE EXTENSIONS"); d.extensions.forEach { appendLine("${it.name} | ${it.scope} | spec ${it.specVersion}") }
         appendLine(); appendLine("FEATURES"); d.features.forEach { appendLine("${it.name} = ${it.supported}") }
         appendLine(); appendLine("DETAILED PROPERTIES"); d.detailedProperties.forEach { appendLine("[${it.section}] ${it.name} = ${it.value}") }
@@ -1989,7 +2426,7 @@ private fun reportToHtml(report: VulkanReport, display: DisplayReport, mode: Dri
         report.devices.forEach { d ->
         append("<div class=\"section\"><h2>Device: ${htmlEscape(d.name)}</h2>")
         table("Device layers", "<th>Layer</th><th>Details</th>", d.deviceLayers.map { it.name to "spec ${it.specVersion}, implementation ${it.implementationVersion}; ${it.description}; extensions=${it.extensions.size}" })
-        table("Device properties", "<th>Property</th><th>Value</th>", listOf("API" to d.apiVersion, "Driver version" to d.driverVersion, "Vendor" to d.vendorId, "Device ID" to d.deviceId, "Type" to d.deviceType, "Extended query status" to d.extendedQueryStatus, "Extended query reason" to d.extendedQueryReason, "Vulkan 1.4 status" to d.vulkan14Status, "Vulkan 1.4 reason" to d.vulkan14Reason))
+        table("Device properties", "<th>Property</th><th>Value</th>", listOf("API" to d.apiVersion, "Driver version" to d.driverVersionText, "Vendor" to d.vendorId, "Device ID" to d.deviceId, "Type" to d.deviceType, "Extended query status" to d.extendedQueryStatus, "Extended query reason" to d.extendedQueryReason, "Vulkan 1.4 status" to d.vulkan14Status, "Vulkan 1.4 reason" to d.vulkan14Reason))
         table("Profile evaluation", "<th>Profile</th><th>Status</th>", vulkanProfileRequirements().map { it.name to profileSummary(evaluateProfile(report, d, it)) })
         table("Detailed properties", "<th>Property</th><th>Value</th>", d.detailedProperties.map { "[${it.section}] ${it.name}" to it.value })
         table("Features", "<th>Feature</th><th>Supported</th>", d.features.map { it.name to it.supported.toString() })
@@ -2086,6 +2523,23 @@ private fun pageIcon(page: Page): Int = when (page) {
     Page.Profiles -> R.drawable.ic_extensions
     Page.Settings -> R.drawable.ic_settings
     Page.Info -> R.drawable.ic_info
+}
+
+
+private fun pageTransitionIndex(page: Page): Int = when (page) {
+    Page.Overview -> 0
+    Page.Vulkan -> 1
+    Page.Surface -> 2
+    Page.Display -> 3
+    Page.Extensions -> 4
+    Page.Features -> 5
+    Page.Memory -> 6
+    Page.Queues -> 7
+    Page.Formats -> 8
+    Page.Properties -> 9
+    Page.Profiles -> 10
+    Page.Settings -> 11
+    Page.Info -> 12
 }
 
 private data class VendorInfo(val name: String, val logo: Int)

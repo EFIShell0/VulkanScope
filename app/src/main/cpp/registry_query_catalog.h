@@ -7,12 +7,12 @@ namespace vulkanscope_registry {
 inline constexpr const char* kBaseline = "Vulkan 1.4.357";
 inline constexpr const char* kMode = "offline registry-driven validated runtime query catalog";
 inline constexpr const char* kHeaderBaseline = "Vulkan 1.4.357 / official header baseline";
-inline constexpr const char* kReportSchema = "3";
+inline constexpr const char* kReportSchema = "4";
 inline constexpr std::size_t kCatalogSchemaVersion = 6;
-inline constexpr std::size_t kImplementedPhysicalDeviceStructCount = 78;
+inline constexpr std::size_t kImplementedPhysicalDeviceStructCount = 77;
 inline constexpr std::size_t kValidatedRuntimeQueryGroupCount = 57;
 inline constexpr std::size_t kRuntimeExtensionTokenCount = 266;
-inline constexpr std::array<const char*, 78> kImplementedPhysicalDeviceStructs = {
+inline constexpr std::array<const char*, 77> kImplementedPhysicalDeviceStructs = {
     "VkPhysicalDeviceComputeOccupancyPriorityFeaturesNV",
     "VkPhysicalDeviceCooperativeMatrixConversionFeaturesQCOM",
     "VkPhysicalDeviceCooperativeMatrixDecodeVectorFeaturesNV",
@@ -39,7 +39,7 @@ inline constexpr std::array<const char*, 78> kImplementedPhysicalDeviceStructs =
     "VkPhysicalDeviceImageFormatInfo2",
     "VkPhysicalDeviceImageProcessing3FeaturesQCOM",
     "VkPhysicalDeviceInternallySynchronizedQueuesFeaturesKHR",
-    "VkPhysicalDeviceLimitsLayout",
+    "VkPhysicalDeviceLimits",
     "VkPhysicalDeviceMaintenance10FeaturesKHR",
     "VkPhysicalDeviceMaintenance10PropertiesKHR",
     "VkPhysicalDeviceMaintenance11FeaturesKHR",
@@ -76,7 +76,7 @@ inline constexpr std::array<const char*, 78> kImplementedPhysicalDeviceStructs =
     "VkPhysicalDeviceShaderMixedFloatDotProductFeaturesVALVE",
     "VkPhysicalDeviceShaderMultipleWaitQueuesFeaturesQCOM",
     "VkPhysicalDeviceShaderMultipleWaitQueuesPropertiesQCOM",
-    "VkPhysicalDeviceShaderOcpMicroscalingTypesFeaturesEXT",
+    "VkPhysicalDeviceShaderOCPMicroscalingTypesFeaturesEXT",
     "VkPhysicalDeviceShaderSplitBarrierFeaturesEXT",
     "VkPhysicalDeviceShaderSplitBarrierPropertiesEXT",
     "VkPhysicalDeviceShaderSubgroupPartitionedFeaturesEXT",
@@ -90,7 +90,6 @@ inline constexpr std::array<const char*, 78> kImplementedPhysicalDeviceStructs =
     "VkPhysicalDeviceVulkan12Properties",
     "VkPhysicalDeviceVulkan13Properties",
     "VkPhysicalDeviceVulkan14Properties",
-    "VkPhysicalDevice_T",
 };
 inline constexpr std::array<const char*, 57> kValidatedRuntimeQueryGroups = {
     "astc3D",

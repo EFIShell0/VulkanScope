@@ -17,6 +17,12 @@ typedef uint64_t VkSurfaceKHR;
 typedef void* VkAllocationCallbacks;
 typedef int32_t VkResult;
 typedef void* PFN_vkVoidFunction;
+#ifndef VK_ERROR_EXTENSION_NOT_PRESENT
+#define VK_ERROR_EXTENSION_NOT_PRESENT (-7)
+#endif
+#ifndef VK_MAX_DEVICE_GROUP_SIZE
+#define VK_MAX_DEVICE_GROUP_SIZE 32
+#endif
 
 typedef struct VkExtensionProperties { char extensionName[256]; uint32_t specVersion; } VkExtensionProperties;
 typedef struct VkLayerProperties { char layerName[256]; uint32_t specVersion; uint32_t implementationVersion; char description[256]; } VkLayerProperties;
