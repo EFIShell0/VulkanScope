@@ -2,7 +2,7 @@
 
 VulkanScope is an offline Android Vulkan, Surface, Display and HDR inspection tool.
 
-**Current version: 0.21.6**
+**Current version: 0.21.14**
 
 ## UI
 
