@@ -4,7 +4,7 @@
 
 It is designed to expose information reported by the device's Vulkan implementation in a structured, searchable interface instead of reducing the result to a simple "Vulkan supported" message.
 
-> **Current version: 0.19.8**
+> **Current version: 0.20.7**
 
 [![Android](https://img.shields.io/badge/platform-Android-3DDC84?logo=android&logoColor=white)](https://www.android.com/)
 [![Vulkan](https://img.shields.io/badge/API-Vulkan%201.0%E2%80%931.4-AC162C)](https://www.vulkan.org/)
@@ -35,14 +35,6 @@ VulkanScope inspects the Vulkan implementation exposed by an Android device and 
 The application is intended for developers, advanced users, driver debugging, GPU capability inspection and comparing Vulkan implementations across Android devices.
 
 ---
-
-## Important: Data May Arrive Progressively
-
-VulkanScope does **not** require every query to finish before showing the initial Vulkan result.
-
-The initial inspection first collects the core physical-device information and publishes a validated base report. Additional information is then collected through isolated or lazy queries.
-
-Because of this, **some sections may appear empty, incomplete or still loading for a short time after the GPU name and Vulkan version have already appeared**.
 
 
 # Screenshots
