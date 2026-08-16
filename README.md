@@ -23,7 +23,6 @@ The native collector queries the installed Android Vulkan loader and physical de
 <p align="center">
   <img src="screenshots/4.jpeg" width="200">
   <img src="screenshots/5.jpeg" width="200">
-  <img src="screenshots/6.jpeg" width="200">
 </p>
 
 <p align="center">
