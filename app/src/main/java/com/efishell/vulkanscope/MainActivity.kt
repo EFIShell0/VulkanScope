@@ -11,7 +11,11 @@ import android.util.Log
 import android.hardware.display.DisplayManager
 import android.content.Intent
 import android.content.Context
+import android.content.ActivityNotFoundException
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Environment
+import android.provider.MediaStore
 import java.io.File
 import java.io.FileOutputStream
 import java.util.zip.ZipInputStream
@@ -21,6 +25,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.result.ActivityResultLauncher
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -33,8 +38,11 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -79,9 +87,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.layout.ContentScale
@@ -1654,6 +1666,8 @@ private fun QuickAccessCard(title: String, destination: Page, navigate: (Page) -
 
 @Composable
 private fun CompactNavigationRail(selectedPage: Page, onPageSelected: (Page) -> Unit, red: ComposeColor) {
+    val firstFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { firstFocusRequester.requestFocus() }
     Surface(
         modifier = Modifier.width(80.dp),
         color = ComposeColor(0xFF101010)
@@ -1662,19 +1676,29 @@ private fun CompactNavigationRail(selectedPage: Page, onPageSelected: (Page) -> 
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
+                .focusGroup()
                 .padding(horizontal = 6.dp, vertical = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            navigationItems().forEach { item ->
+            navigationItems().forEachIndexed { index, item ->
                 val selected = selectedPage == item.page
+                val bringIntoViewRequester = remember { BringIntoViewRequester() }
+                val scope = rememberCoroutineScope()
                 Card(
                     onClick = { onPageSelected(item.page) },
                     colors = CardDefaults.cardColors(
                         containerColor = if (selected) red else ComposeColor.Transparent
                     ),
                     shape = RoundedCornerShape(18.dp),
-                    modifier = Modifier.fillMaxWidth().height(54.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(54.dp)
+                        .then(if (index == 0) Modifier.focusRequester(firstFocusRequester) else Modifier)
+                        .bringIntoViewRequester(bringIntoViewRequester)
+                        .onFocusChanged { state ->
+                            if (state.isFocused) scope.launch { bringIntoViewRequester.bringIntoView() }
+                        }
                 ) {
                     Column(
                         Modifier.fillMaxSize().padding(horizontal = 2.dp, vertical = 4.dp),
@@ -1702,7 +1726,6 @@ private fun CompactNavigationRail(selectedPage: Page, onPageSelected: (Page) -> 
         }
     }
 }
-
 
 
 @Composable
@@ -2391,6 +2414,17 @@ private fun turnipSupportDescription(support: TurnipSupport): String = when (sup
 private fun SettingsPage(report: VulkanReport, display: DisplayReport, mode: DriverMode, turnipSupport: TurnipSupport, onModeChanged: (DriverMode) -> Unit, onInstallDriverBundle: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val exportStem = remember(report) { exportFileStem(report) }
+    val pendingLegacyExport = remember { mutableStateOf<ExportPayload?>(null) }
+    val legacyPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val pending = pendingLegacyExport.value
+        pendingLegacyExport.value = null
+        if (pending == null) return@rememberLauncherForActivityResult
+        if (granted) {
+            writeExportToDownloads(context, pending.filename, pending.content, pending.mime)
+        } else {
+            android.widget.Toast.makeText(context, "Storage permission is required to save the report.", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
     val textLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         writeExport(context, uri, reportToText(report, display, mode), "text/plain")
@@ -2398,6 +2432,16 @@ private fun SettingsPage(report: VulkanReport, display: DisplayReport, mode: Dri
     val htmlLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/html")) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         writeExport(context, uri, reportToHtml(report, display, mode), "text/html")
+    }
+    fun exportDocument(filename: String, content: String, mime: String, launcher: ActivityResultLauncher<String>) {
+        exportWithSafOrDownloads(context, filename, content, mime, launcher) { payload ->
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                pendingLegacyExport.value = payload
+                legacyPermissionLauncher.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            } else {
+                writeExportToDownloads(context, payload.filename, payload.content, payload.mime)
+            }
+        }
     }
     val bundleDir = File(context.filesDir, "turnip")
     val bundleInstalled = bundleDir.exists() && bundleDir.walkTopDown().any { it.isFile && it.extension.equals("so", true) }
@@ -2420,8 +2464,8 @@ private fun SettingsPage(report: VulkanReport, display: DisplayReport, mode: Dri
         item { SectionCard("Export complete report") {
             Text("Export the complete currently collected VulkanScope report, including device properties, detailed Core 1.1/1.2/1.3/1.4 properties when available, features, memory, queues, formats, surface data, extensions, layers and Android/display information.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = { textLauncher.launch("${exportStem}.txt") }, modifier = Modifier.weight(1f)) { Text("Export TXT") }
-                Button(onClick = { htmlLauncher.launch("${exportStem}.html") }, modifier = Modifier.weight(1f)) { Text("Export HTML") }
+                Button(onClick = { exportDocument("${exportStem}.txt", reportToText(report, display, mode), "text/plain", textLauncher) }, modifier = Modifier.weight(1f)) { Text("Export TXT") }
+                Button(onClick = { exportDocument("${exportStem}.html", reportToHtml(report, display, mode), "text/html", htmlLauncher) }, modifier = Modifier.weight(1f)) { Text("Export HTML") }
             }
         } }
         item { SectionCard("Important") {
@@ -2495,6 +2539,76 @@ private fun exportFileStem(report: VulkanReport): String {
     val gpuName = report.devices.firstOrNull()?.name?.trim().orEmpty().ifBlank { "Unknown-GPU" }
     val safeGpu = gpuName.replace(Regex("[^A-Za-z0-9._-]+"), "_").trim('_').ifBlank { "Unknown-GPU" }
     return "VulkanScope-${safeGpu}-report"
+}
+
+private data class ExportPayload(val filename: String, val content: String, val mime: String)
+
+private fun isTvDevice(context: Context): Boolean {
+    val uiModeType = context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK
+    return context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || uiModeType == Configuration.UI_MODE_TYPE_TELEVISION
+}
+
+private fun exportWithSafOrDownloads(context: Context, filename: String, content: String, mime: String, launcher: ActivityResultLauncher<String>, onDownloadsFallback: (ExportPayload) -> Unit) {
+    val payload = ExportPayload(filename, content, mime)
+    if (isTvDevice(context)) {
+        onDownloadsFallback(payload)
+        return
+    }
+    runCatching { launcher.launch(filename) }
+        .onFailure { error ->
+            Log.w("VulkanScope", "Document picker unavailable; using Downloads", error)
+            onDownloadsFallback(payload)
+        }
+}
+
+private fun writeExportToDownloads(context: Context, filename: String, content: String, mime: String) {
+    val success = runCatching {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = android.content.ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, filename)
+                put(MediaStore.Downloads.MIME_TYPE, mime)
+                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+            val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                ?: throw IllegalStateException("Unable to create the Downloads entry")
+            try {
+                context.contentResolver.openOutputStream(uri)?.use { it.write(content.toByteArray(Charsets.UTF_8)) }
+                    ?: throw IllegalStateException("Unable to open the Downloads entry")
+                values.clear()
+                values.put(MediaStore.Downloads.IS_PENDING, 0)
+                context.contentResolver.update(uri, values, null, null)
+            } catch (error: Throwable) {
+                context.contentResolver.delete(uri, null, null)
+                throw error
+            }
+        } else {
+            val directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            if (!directory.exists() && !directory.mkdirs()) throw IllegalStateException("Unable to create the Downloads directory")
+            val target = uniqueDownloadFile(directory, filename)
+            FileOutputStream(target).use { it.write(content.toByteArray(Charsets.UTF_8)) }
+        }
+    }.isSuccess
+    val message = if (success) {
+        if (mime == "text/html") "HTML report saved to Downloads" else "TXT report saved to Downloads"
+    } else {
+        if (mime == "text/html") "HTML report could not be saved" else "TXT report could not be saved"
+    }
+    android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+}
+
+private fun uniqueDownloadFile(directory: File, filename: String): File {
+    val original = File(directory, filename)
+    if (!original.exists()) return original
+    val dot = filename.lastIndexOf('.')
+    val base = if (dot > 0) filename.substring(0, dot) else filename
+    val extension = if (dot > 0) filename.substring(dot) else ""
+    var index = 2
+    while (true) {
+        val candidate = File(directory, "${base} (${index})${extension}")
+        if (!candidate.exists()) return candidate
+        index++
+    }
 }
 
 private fun writeExport(context: Context, uri: Uri, content: String, mime: String) {
@@ -2802,9 +2916,9 @@ private fun CollectionStatusBanner(status: CollectionStatus) {
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     if (collecting) {
-                        AssistChip(onClick = {}, enabled = false, label = { Text("Bilgiler alınıyor…") })
+                        AssistChip(onClick = {}, enabled = false, label = { Text("Collecting information…") })
                         Text(
-                            "VulkanScope tüm Vulkan bilgilerini arka planda topluyor.",
+                            "VulkanScope is collecting Vulkan information in the background.",
                             color = ComposeColor(0xFF9E9E9E),
                             style = MaterialTheme.typography.labelMedium,
                             maxLines = 1,
@@ -2822,13 +2936,13 @@ private fun CollectionStatusBanner(status: CollectionStatus) {
                             }
                         }
                         Text(
-                            "Tamamlandı",
+                            "Completed",
                             color = ComposeColor(0xFF55D98A),
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            "Vulkan bilgileri güncellendi.",
+                            "Vulkan information updated.",
                             color = ComposeColor(0xFF9E9E9E),
                             style = MaterialTheme.typography.labelMedium,
                             maxLines = 1,

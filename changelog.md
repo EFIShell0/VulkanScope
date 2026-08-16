@@ -1,3 +1,13 @@
+## 0.21.6
+
+- Rebased the release on VulkanScope 0.20.7 query and report coverage; no Vulkan query group, property group or report path was removed or consolidated.
+- Replaced the collection status banner with English text: "Collecting information…", "VulkanScope is collecting Vulkan information in the background.", "Completed", and "Vulkan information updated."
+- TXT and HTML export now uses Android's standard CreateDocument SAF flow on non-TV devices and falls back directly to the public Downloads location when the document picker is unavailable.
+- Android TV saves TXT and HTML exports directly into the Android Downloads location.
+- Android 10+ uses MediaStore Downloads with Environment.DIRECTORY_DOWNLOADS; older supported Android versions use the public Downloads directory after requesting the required legacy storage permission.
+- Added Android TV D-pad focus grouping, initial focus and bring-into-view behavior for the navigation rail while preserving existing touch and mouse interaction.
+- Bumped versionName to 0.21.6 and versionCode to 133.
+
 ## 0.20.7
 
 - Fixed repeated Vulkan query-status entries accumulating in Properties & Limits after Android Surface recreation.
