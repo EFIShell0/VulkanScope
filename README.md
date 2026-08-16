@@ -51,6 +51,7 @@ The application is intended for developers, advanced users, driver debugging, GP
 </p>
 <p align="center">
   <img src="screenshots/6.png" width="500">
+  <img src="screenshots/html.png" width="500">
 </p>
 
 
