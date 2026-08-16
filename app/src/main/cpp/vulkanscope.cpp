@@ -786,6 +786,7 @@ std::string colorSpaceClass(int32_t value) {
         case VK_COLOR_SPACE_ADOBERGB_LINEAR_EXT: return "Adobe RGB / Linear";
         case VK_COLOR_SPACE_ADOBERGB_NONLINEAR_EXT: return "Adobe RGB";
         case VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT: return "scRGB / Linear";
+        case VK_COLOR_SPACE_SRGB_NONLINEAR_KHR: return "sRGB";
         case VK_COLOR_SPACE_EXTENDED_SRGB_NONLINEAR_EXT: return "scRGB";
         case VK_COLOR_SPACE_PASS_THROUGH_EXT: return "Pass-through";
         case VK_COLOR_SPACE_DISPLAY_NATIVE_AMD: return "Display Native";
@@ -828,7 +829,8 @@ std::vector<VkExtensionProperties> instanceExtensions(VulkanApi& api) {
     for (uint32_t attempt = 0; attempt < 4; ++attempt) {
         uint32_t count = 0;
         const VkResult countResult = api.enumerateInstanceExtensionProperties(nullptr, &count, nullptr);
-        if (countResult != VK_SUCCESS || count > kMaxExtensionEntries) return {};
+        if (countResult != VK_SUCCESS && countResult != VK_INCOMPLETE) return {};
+        if (count > kMaxExtensionEntries) return {};
         std::vector<VkExtensionProperties> values(count);
         const VkResult dataResult = count ? api.enumerateInstanceExtensionProperties(nullptr, &count, values.data()) : VK_SUCCESS;
         if (dataResult == VK_SUCCESS) {
@@ -923,7 +925,8 @@ std::vector<VkExtensionProperties> deviceExtensions(VulkanApi& api, VkPhysicalDe
     for (uint32_t attempt = 0; attempt < 4; ++attempt) {
         uint32_t count = 0;
         const VkResult countResult = api.enumerateDeviceExtensionProperties(device, nullptr, &count, nullptr);
-        if (countResult != VK_SUCCESS || count > kMaxExtensionEntries) return {};
+        if (countResult != VK_SUCCESS && countResult != VK_INCOMPLETE) return {};
+        if (count > kMaxExtensionEntries) return {};
         std::vector<VkExtensionProperties> values(count);
         const VkResult dataResult = count ? api.enumerateDeviceExtensionProperties(device, nullptr, &count, values.data()) : VK_SUCCESS;
         if (dataResult == VK_SUCCESS) {
@@ -1343,19 +1346,6 @@ uint32_t getQueueFamilyPropertiesPrimary(VulkanApi& api, VkPhysicalDevice device
     return 0;
 }
 
-bool getFormatPropertiesPrimary(VulkanApi& api, VkPhysicalDevice device, VkFormat format, VkFormatProperties& out) {
-    if (api.getPhysicalDeviceFormatProperties) {
-        api.getPhysicalDeviceFormatProperties(device, format, &out);
-        return true;
-    }
-    if (api.getPhysicalDeviceFormatProperties2) {
-        VkFormatProperties2 p2{VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2, nullptr, {}};
-        api.getPhysicalDeviceFormatProperties2(device, format, &p2);
-        out = p2.formatProperties;
-        return true;
-    }
-    return false;
-}
 
 void appendCoreProperties(std::ostringstream& out, uint32_t apiVersion, VulkanApi& api, VkPhysicalDevice device, const std::vector<VkExtensionProperties>& devExts, uint32_t targetMinor, bool includeExtensions) {
     out << '[';
@@ -1815,7 +1805,7 @@ std::string collect(jobject surfaceObject, JNIEnv* env, const char* driverMode, 
     const bool surfaceExtensionAvailable = hasExtension(instanceExts, "VK_KHR_surface");
     const bool androidSurfaceExtensionAvailable = hasExtension(instanceExts, "VK_KHR_android_surface");
     const bool getSurfaceCapabilities2Available = hasExtension(instanceExts, "VK_KHR_get_surface_capabilities2");
-    const bool hasLiveSurface = false; // Base probe is intentionally surface-independent; WSI is queried by the isolated surface probe.
+    const bool hasLiveSurface = false;
 
     std::vector<const char*> enabledExtensions;
     if (hasLiveSurface) {
@@ -2052,9 +2042,10 @@ std::string collect(jobject surfaceObject, JNIEnv* env, const char* driverMode, 
         appendBoolProperty(out, detailedFirst, "Core 1.0", "sparseResidencyAlignedMipSize", sparseProperties->residencyAlignedMipSize);
         appendBoolProperty(out, detailedFirst, "Core 1.0", "sparseResidencyNonResidentStrict", sparseProperties->residencyNonResidentStrict);
         out << ']';
-        const bool coreExtendedQueriesDeferred = VK_API_VERSION_MINOR(apiVersion) >= 1;
         out << ",\"vulkan14Status\":" << jsonString(VK_API_VERSION_MINOR(apiVersion) >= 4 ? "deferred" : "not_applicable")
-            << ",\"vulkan14Reason\":" << jsonString(coreExtendedQueriesDeferred ? "Vulkan 1.1+ core feature and property queries are collected in isolated validated probes." : "The device API version is below Vulkan 1.4.");
+            << ",\"vulkan14Reason\":" << jsonString(VK_API_VERSION_MINOR(apiVersion) >= 4
+                ? "Vulkan 1.4 core feature and property queries are collected in an isolated validated probe."
+                : "The device API version is below Vulkan 1.4.");
         out << ",\"queues\":[";
         for (uint32_t i = 0; i < queueCount; ++i) {
             if (i) out << ',';
@@ -2064,7 +2055,11 @@ std::string collect(jobject surfaceObject, JNIEnv* env, const char* driverMode, 
                 << ",\"compute\":" << jsonBool((q.queueFlags & 2u) != 0) << ",\"transfer\":" << jsonBool((q.queueFlags & 4u) != 0)
                 << ",\"sparse\":" << jsonBool((q.queueFlags & 8u) != 0)
                 << ",\"protected\":" << jsonBool((q.queueFlags & 0x10u) != 0)
+                << ",\"videoDecode\":" << jsonBool((q.queueFlags & 0x20u) != 0)
+                << ",\"videoEncode\":" << jsonBool((q.queueFlags & 0x40u) != 0)
                 << ",\"opticalFlow\":" << jsonBool((q.queueFlags & 0x100u) != 0)
+                << ",\"dataGraph\":" << jsonBool((q.queueFlags & 0x400u) != 0)
+                << ",\"unknownFlags\":" << (q.queueFlags & ~0x577u)
                 << ",\"minImageTransferGranularity\":" << jsonString(std::to_string(q.minImageTransferGranularity.width) + " × " + std::to_string(q.minImageTransferGranularity.height) + " × " + std::to_string(q.minImageTransferGranularity.depth)) << '}';
         }
         out << "] ,\"memory\":{\"heapCount\":" << memoryHeapCount << ",\"heaps\":[";
@@ -2082,40 +2077,16 @@ std::string collect(jobject surfaceObject, JNIEnv* env, const char* driverMode, 
         std::string safeSnapshot = safeDeviceSnapshot;
         publishProbeCheckpoint(checkpointPath, safeSnapshot);
         __android_log_print(ANDROID_LOG_INFO, "VulkanProbe", "base safe checkpoint published device=%u features=%zu limits=%zu queues=%u heaps=%u types=%u", deviceIndex, coreFeatureValues.size(), limitFields.size(), queueCount, memoryHeapCount, memoryTypeCount);
-        out << "]},\"formats\":[";
-        static constexpr int32_t formats[] = {
-            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
-            16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
-            32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
-            48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63,
-            64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79,
-            80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95,
-            96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111,
-            112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127,
-            128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143,
-            144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159,
-            160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175,
-            176, 177, 178, 179, 180, 181, 182, 183, 184
-        };
-        bool firstFormat = true;
-        for (int64_t format : formats) {
-            VkFormatProperties props{};
-            getFormatPropertiesPrimary(api, device, static_cast<VkFormat>(format), props);
-            const std::string name = formatName(format);
-            if (name.rfind("VK_FORMAT_" + std::to_string(format), 0) == 0) continue;
-            const bool supported = props.linearTilingFeatures != 0 || props.optimalTilingFeatures != 0 || props.bufferFeatures != 0;
-            if (!firstFormat) out << ',';
-            firstFormat = false;
-            out << "{\"name\":" << jsonString(name) << ",\"supported\":" << jsonBool(supported)
-                << ",\"linear\":" << props.linearTilingFeatures
-                << ",\"optimal\":" << props.optimalTilingFeatures << ",\"buffer\":" << props.bufferFeatures << '}';
-        }
-        out << "]";
+        out << "]},\"formats\":[]";
         {
-            std::string formatSnapshot = out.str();
-            formatSnapshot += ",\"surface\":{\"available\":false}},\"baseReportReady\":true}";
-            publishProbeCheckpoint(checkpointPath, formatSnapshot);
-            __android_log_print(ANDROID_LOG_INFO, "VulkanProbe", "base report ready checkpoint published after formats device=%u", deviceIndex);
+            std::string baseReadySnapshot = out.str();
+            baseReadySnapshot += ",\"surface\":{\"available\":false}}]";
+            publishProbeCheckpoint(checkpointPath, baseReadySnapshot);
+            __android_log_print(ANDROID_LOG_INFO, "VulkanProbe", "base core checkpoint published before optional surface enrichment device=%u", deviceIndex);
+        }
+        if (liveSurface != VK_NULL_HANDLE) {
+            api.destroySurfaceKHR(instance, liveSurface, nullptr);
+            liveSurface = VK_NULL_HANDLE;
         }
         out << ",\"surface\":{";
         if (liveSurface == VK_NULL_HANDLE) {
@@ -3372,7 +3343,7 @@ std::string collectVulkanAdvancedGroup(const char* driverMode, const char* drive
                     if (baseResult == VK_SUCCESS) {
                         if (!firstProp) out << ','; firstProp = false;
                         std::ostringstream value; value << "tiling=" << (tiling == VK_IMAGE_TILING_LINEAR ? "LINEAR" : "OPTIMAL") << ", extent=" << props.imageFormatProperties.maxExtent.width << " × " << props.imageFormatProperties.maxExtent.height << " × " << props.imageFormatProperties.maxExtent.depth << ", mipLevels=" << props.imageFormatProperties.maxMipLevels << ", arrayLayers=" << props.imageFormatProperties.maxArrayLayers << ", sampleCounts=0x" << std::hex << props.imageFormatProperties.sampleCounts << ", maxResourceSize=" << std::dec << props.imageFormatProperties.maxResourceSize;
-                        out << "{\"section\":\"Image Format Properties2\",\"name\":" << jsonString(formatName(fmt)) << ",\"value\":" << jsonString(value.str()) << '}';
+                        out << "{\"section\":\"Image Format Properties2\",\"name\":" << jsonString(formatName(fmt) + " · " + (tiling == VK_IMAGE_TILING_LINEAR ? std::string("LINEAR") : std::string("OPTIMAL"))) << ",\"value\":" << jsonString(value.str()) << '}';
                     }
                     if (baseResult == VK_SUCCESS) {
                         for (uint32_t handleIndex = 0; handleIndex < 2; ++handleIndex) {
@@ -3385,7 +3356,7 @@ std::string collectVulkanAdvancedGroup(const char* driverMode, const char* drive
                             if (r != VK_SUCCESS) continue;
                             if (!firstProp) out << ','; firstProp = false;
                             std::ostringstream value; value << "tiling=" << (tiling == VK_IMAGE_TILING_LINEAR ? "LINEAR" : "OPTIMAL") << ", extent=" << props.imageFormatProperties.maxExtent.width << " × " << props.imageFormatProperties.maxExtent.height << " × " << props.imageFormatProperties.maxExtent.depth << ", mipLevels=" << props.imageFormatProperties.maxMipLevels << ", arrayLayers=" << props.imageFormatProperties.maxArrayLayers << ", sampleCounts=0x" << std::hex << props.imageFormatProperties.sampleCounts << ", maxResourceSize=" << std::dec << props.imageFormatProperties.maxResourceSize << ", externalHandle=" << (handleIndex == 0 ? "OPAQUE_FD" : "ANDROID_HARDWARE_BUFFER") << ", externalMemoryFeatures=0x" << std::hex << extImageProps.externalMemoryProperties.externalMemoryFeatures << ", exportFromImported=0x" << extImageProps.externalMemoryProperties.exportFromImportedHandleTypes << ", compatibleHandles=0x" << extImageProps.externalMemoryProperties.compatibleHandleTypes;
-                            out << "{\"section\":\"Image Format Properties2\",\"name\":" << jsonString(formatName(fmt)) << ",\"value\":" << jsonString(value.str()) << '}';
+                            out << "{\"section\":\"Image Format Properties2\",\"name\":" << jsonString(formatName(fmt) + " · " + (tiling == VK_IMAGE_TILING_LINEAR ? std::string("LINEAR") : std::string("OPTIMAL")) + " · " + (handleIndex == 0 ? std::string("OPAQUE_FD") : std::string("ANDROID_HARDWARE_BUFFER"))) << ",\"value\":" << jsonString(value.str()) << '}';
                         }
                     }
                 }

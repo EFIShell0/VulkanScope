@@ -1,3 +1,42 @@
+# 0.21.14
+
+- Added deterministic core-coverage validation after base Vulkan probe parsing. Incomplete base datasets are rejected and the base probe is retried once before exposing the report.
+- Core coverage validation requires the Vulkan 1.0 feature set, queue families, memory heaps/types, and limits to be present before a base report is accepted. Device extension count is preserved as runtime data and is not treated as an unconditional non-zero requirement.
+
+# 0.21.12
+
+- Fixed base-report completion so core device extensions, Vulkan 1.0 features, limits, queues, and memory are finalized before the base result is returned.
+- Base collection no longer performs or waits for Android Surface/WSI work; surface inspection remains in the dedicated surface probe.
+- Preserved existing Vulkan query coverage and report fields while preventing early checkpoints from being mistaken for complete base results.
+
+# 0.21.11
+
+- Fixed the native release build failure caused by an unused `coreExtendedQueriesDeferred` variable under `-Werror`.
+- Preserved the Vulkan query/reporting changes from 0.21.10 without changing query coverage.
+- Corrected release metadata to versionCode 138.
+
+# 0.21.10
+
+- Hardened isolated Vulkan probe lifecycle: a timed-out or oversized probe result now attempts to stop and terminate only the dedicated `:vulkan_probe` process, preventing a stuck native call from lingering indefinitely.
+- Added a 64 MiB safety limit for a single native probe result before it is parsed into memory.
+- Moved base format enumeration out of the blocking base probe. The base report becomes ready before optional format enrichment, while the existing `format2` query path now populates the Formats model without reducing format coverage.
+- Preserved the full 0.21.6/0.21.7 Vulkan query catalog and generated coverage; no query group was removed.
+- Deduplicated extension-query feature entries by canonical feature name while preserving distinct property values.
+- Normalized HTML status classification so `NOT_APPLICABLE` is rendered as a distinct not-applicable state.
+- Updated stable AndroidX dependencies to Activity 1.13.0, Core KTX 1.17.0 and Lifecycle 2.9.4; Compose UI/Foundation/Animation remain on stable 1.11.4 and Material 3 on stable 1.4.0.
+- Removed a remaining production source-code comment to comply with PROJECT_RULES.md.
+- Bumped versionName to 0.21.10 and versionCode 137.
+
+## 0.21.7
+
+- Corrected the base format collection so only validated Vulkan format enums from the checked-in canonical format catalog are queried. No property or format coverage group was removed.
+- Preserved the complete 0.21.6 query coverage while separating parameterized image-format results by tiling and external-handle type in reports.
+- Corrected `VK_COLOR_SPACE_SRGB_NONLINEAR_KHR` classification to canonical sRGB instead of reporting it as unknown.
+- Corrected HTML instance-extension rendering so runtime extension names are rendered as exact extension strings rather than escaped HTML markup.
+- Added explicit queue video decode, video encode, data graph and unknown flag reporting while preserving the raw queue flag mask.
+- Distinguished detailed-property query-result count from unique property-name count in the Properties view and exported reports.
+- Bumped versionName to 0.21.7 and versionCode to 134.
+
 ## 0.21.6
 
 - Rebased the release on VulkanScope 0.20.7 query and report coverage; no Vulkan query group, property group or report path was removed or consolidated.

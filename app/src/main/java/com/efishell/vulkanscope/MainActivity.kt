@@ -1,9 +1,11 @@
 package com.efishell.vulkanscope
 
+import android.app.ActivityManager
 import android.graphics.Color
 import android.os.Bundle
 import android.content.res.Configuration
 import android.os.Build
+import android.os.Process
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -135,7 +137,7 @@ private data class FeatureEntry(val name: String, val supported: Boolean)
 private data class SurfaceFormatEntry(val format: String, val colorSpace: String, val classification: String, val description: String, val supported: Boolean = true)
 private data class FormatEntry(val name: String, val supported: Boolean, val linear: Long, val optimal: Long, val buffer: Long)
 private data class PropertyEntry(val section: String, val name: String, val value: String)
-private data class QueueEntry(val index: Int, val count: Int, val timestampBits: Int, val flags: Long, val graphics: Boolean, val compute: Boolean, val transfer: Boolean, val sparse: Boolean, val protected: Boolean, val opticalFlow: Boolean, val granularity: String, val videoCodecOperations: Long = 0L)
+private data class QueueEntry(val index: Int, val count: Int, val timestampBits: Int, val flags: Long, val graphics: Boolean, val compute: Boolean, val transfer: Boolean, val sparse: Boolean, val protected: Boolean, val videoDecode: Boolean, val videoEncode: Boolean, val opticalFlow: Boolean, val dataGraph: Boolean, val unknownFlags: Long, val granularity: String, val videoCodecOperations: Long = 0L)
 private data class MemoryHeapEntry(val index: Int, val size: Long, val flags: Long)
 private data class MemoryTypeEntry(val index: Int, val heap: Int, val flags: Long)
 private val ISOLATED_CORE_GROUPS = linkedMapOf(
@@ -693,16 +695,48 @@ class MainActivity : ComponentActivity() {
     }
 
     private suspend fun collectBaseReport(): VulkanReport {
-        val raw = runCatching { runProbe(null) }.getOrElse { e ->
-            Log.e("VulkanScope", "Vulkan base probe failed", e)
-            return VulkanReport("Unknown", emptyList(), emptyList(), emptyList(), "Vulkan base probe failed: ${e.message ?: "probe failed"}")
+        var lastFailure: String? = null
+        repeat(2) { attempt ->
+            val raw = runCatching { runProbe(null) }.getOrElse { e ->
+                Log.e("VulkanScope", "Vulkan base probe failed (attempt=${attempt + 1})", e)
+                lastFailure = e.message ?: "probe failed"
+                return@repeat
+            }
+            Log.i("VulkanScope", "Vulkan base probe result bytes=${raw.length} attempt=${attempt + 1}")
+            val parsed = runCatching { parseReport(raw) }.getOrElse { e ->
+                Log.e("VulkanScope", "Vulkan base JSON parse failed: length=${raw.length} attempt=${attempt + 1}", e)
+                lastFailure = e.message ?: "invalid probe result"
+                return@repeat
+            }
+            if (hasCompleteBaseCoverage(parsed)) return parsed
+            lastFailure = "Base probe returned an incomplete core Vulkan dataset."
+            Log.w(
+                "VulkanScope",
+                "Rejecting incomplete base report attempt=${attempt + 1}: " +
+                    parsed.devices.joinToString { d ->
+                        "${d.name}: features=${d.features.size}, queues=${d.queues.size}, heaps=${d.heaps.size}, memoryTypes=${d.memoryTypes.size}, limits=${d.limits.size}, extensions=${d.extensions.size}"
+                    }
+            )
         }
-        Log.i("VulkanScope", "Vulkan base probe result bytes=${raw.length}")
-        return runCatching { parseReport(raw) }.getOrElse { e ->
-            Log.e("VulkanScope", "Vulkan base JSON parse failed: length=${raw.length}", e)
-            VulkanReport("Unknown", emptyList(), emptyList(), emptyList(), "Vulkan base report parse failed: ${e.message ?: "invalid probe result"}")
-        }
+        return VulkanReport(
+            "Unknown",
+            emptyList(),
+            emptyList(),
+            emptyList(),
+            "Vulkan base report was incomplete after a retry: ${lastFailure ?: "incomplete core dataset"}"
+        )
     }
+
+    private fun hasCompleteBaseCoverage(report: VulkanReport): Boolean =
+        report.error == null &&
+            report.devices.isNotEmpty() &&
+            report.devices.all { device ->
+                device.features.size >= 55 &&
+                    device.queues.isNotEmpty() &&
+                    device.heaps.isNotEmpty() &&
+                    device.memoryTypes.isNotEmpty() &&
+                    device.limits.isNotEmpty()
+            }
 
     private suspend fun enrichReport(base: VulkanReport): VulkanReport = withContext(Dispatchers.IO) {
         var enriched = base.copy(devices = base.devices.map { device ->
@@ -790,7 +824,21 @@ class MainActivity : ComponentActivity() {
 
     private suspend fun runSurfaceProbe(surface: Surface): String = runServiceProbe("surface", surface, 25_000L)
 
+    private fun stopVulkanProbeProcess() {
+        runCatching { stopService(Intent(this@MainActivity, VulkanProbeService::class.java)) }
+        runCatching {
+            val activityManager = getSystemService(ActivityManager::class.java) ?: return
+            val expectedName = "${packageName}:vulkan_probe"
+            activityManager.runningAppProcesses.orEmpty()
+                .filter { it.uid == Process.myUid() && it.processName == expectedName }
+                .forEach { process -> Process.killProcess(process.pid) }
+        }.onFailure { error ->
+            Log.w("VulkanScope", "Unable to stop the isolated Vulkan probe process", error)
+        }
+    }
+
     private suspend fun runServiceProbe(group: String, surface: Surface?, timeoutMs: Long): String {
+        val maxProbeResultBytes = 64L * 1024L * 1024L
         val resultFile = File(cacheDir, "vulkan_probe_${java.util.UUID.randomUUID()}.json")
         val crashMarkerFile = File(resultFile.absolutePath + ".crash")
         resultFile.delete()
@@ -820,27 +868,39 @@ class MainActivity : ComponentActivity() {
             try {
                 withTimeout(timeoutMs) {
                     while (value == null) {
-                        if (resultFile.isFile && resultFile.length() > 0L) {
-                            val candidate = runCatching { resultFile.readText() }.getOrElse { error ->
-                                if (group == "base") {
-                                    "{\"status\":\"unavailable\",\"reason\":${JSONObject.quote(error.message ?: "Unable to read Vulkan probe result")},\"devices\":[]}"
+                        if (resultFile.isFile) {
+                            val resultLength = resultFile.length()
+                            if (resultLength > maxProbeResultBytes) {
+                                value = if (group == "base") {
+                                    "{\"status\":\"unavailable\",\"reason\":\"The Vulkan probe result exceeded the safety size limit.\",\"devices\":[]}"
                                 } else {
-                                    "{\"status\":\"unavailable\",\"group\":${JSONObject.quote(group)},\"reason\":${JSONObject.quote(error.message ?: "Unable to read Vulkan query result")},\"devices\":[]}"
+                                    "{\"status\":\"unavailable\",\"group\":${JSONObject.quote(group)},\"reason\":\"The Vulkan query result exceeded the safety size limit.\",\"devices\":[]}"
                                 }
+                                stopVulkanProbeProcess()
+                                continue
                             }
-                            if (group != "base") {
-                                value = candidate
-                            } else {
-                                val parsedCandidate = runCatching { JSONObject(candidate) }.getOrNull()
-                                if (parsedCandidate != null) {
-                                    partialCandidate = candidate
-                                    val complete = parsedCandidate.optBoolean("baseReportComplete", false)
-                                    val ready = parsedCandidate.optBoolean("baseReportReady", false)
-                                    val status = parsedCandidate.optString("status", "unavailable")
-                                    if (complete || ready || status == "unavailable" || crashMarkerFile.isFile) value = candidate
+                            if (resultLength > 0L) {
+                                val candidate = runCatching { resultFile.readText() }.getOrElse { error ->
+                                    if (group == "base") {
+                                        "{\"status\":\"unavailable\",\"reason\":${JSONObject.quote(error.message ?: "Unable to read Vulkan probe result")},\"devices\":[]}"
+                                    } else {
+                                        "{\"status\":\"unavailable\",\"group\":${JSONObject.quote(group)},\"reason\":${JSONObject.quote(error.message ?: "Unable to read Vulkan query result")},\"devices\":[]}"
+                                    }
+                                }
+                                if (group != "base") {
+                                    value = candidate
                                 } else {
-                                    Log.w("VulkanScope", "Ignoring invalid intermediate base probe checkpoint bytes=${candidate.length}")
-                                    if (crashMarkerFile.isFile && partialCandidate != null) value = partialCandidate
+                                    val parsedCandidate = runCatching { JSONObject(candidate) }.getOrNull()
+                                    if (parsedCandidate != null) {
+                                        partialCandidate = candidate
+                                        val complete = parsedCandidate.optBoolean("baseReportComplete", false)
+                                        val ready = parsedCandidate.optBoolean("baseReportReady", false)
+                                        val status = parsedCandidate.optString("status", "unavailable")
+                                        if (complete || ready || status == "unavailable" || crashMarkerFile.isFile) value = candidate
+                                    } else {
+                                        Log.w("VulkanScope", "Ignoring invalid intermediate base probe checkpoint bytes=${candidate.length}")
+                                        if (crashMarkerFile.isFile && partialCandidate != null) value = partialCandidate
+                                    }
                                 }
                             }
                         } else {
@@ -849,6 +909,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                stopVulkanProbeProcess()
                 value = partialCandidate ?: if (group == "base") {
                     "{\"status\":\"unavailable\",\"reason\":\"The isolated Vulkan probe did not complete within the timeout.\",\"devices\":[]}"
                 } else {
@@ -1039,6 +1100,28 @@ private fun mergeAdvancedQueryReport(base: VulkanReport, raw: String, group: Str
             core14Status[vendor to deviceId] = item.optString("status", "available") to item.optString("reason", "")
         }
     }
+    val formatEntriesByDevice: Map<Pair<Long, Long>, List<FormatEntry>> = if (group == "format2") {
+        val valuesByDevice = mutableMapOf<Pair<Long, Long>, List<FormatEntry>>()
+        for (i in 0 until resultDevices.length()) {
+            val item = resultDevices.optJSONObject(i) ?: continue
+            val vendor = item.optLong("vendorId", -1L)
+            val deviceId = item.optLong("deviceId", -1L)
+            val properties = item.optJSONArray("properties") ?: JSONArray()
+            val entries = (0 until properties.length()).mapNotNull { index ->
+                val prop = properties.optJSONObject(index) ?: return@mapNotNull null
+                val name = prop.optString("name")
+                val value = prop.optString("value")
+                val linear = Regex("(?:^|, )linear=0x([0-9a-fA-F]+)").find(value)?.groupValues?.getOrNull(1)?.toLongOrNull(16) ?: return@mapNotNull null
+                val optimal = Regex("(?:^|, )optimal=0x([0-9a-fA-F]+)").find(value)?.groupValues?.getOrNull(1)?.toLongOrNull(16) ?: return@mapNotNull null
+                val buffer = Regex("(?:^|, )buffer=0x([0-9a-fA-F]+)").find(value)?.groupValues?.getOrNull(1)?.toLongOrNull(16) ?: return@mapNotNull null
+                FormatEntry(name, linear != 0L || optimal != 0L || buffer != 0L, linear, optimal, buffer)
+            }
+            valuesByDevice[vendor to deviceId] = entries
+        }
+        valuesByDevice
+    } else {
+        emptyMap()
+    }
     val videoQueuesByDevice: List<Triple<Long, Long, Map<Int, Long>>> = if (group == "queue2") {
         val valuesByDevice = mutableListOf<Triple<Long, Long, Map<Int, Long>>>()
         for (i in 0 until resultDevices.length()) {
@@ -1061,7 +1144,16 @@ private fun mergeAdvancedQueryReport(base: VulkanReport, raw: String, group: Str
         val deviceId = device.deviceId.removePrefix("0x").toLongOrNull(16)
         val match = parsed.firstOrNull { it.first == device.vendorIdRaw && it.second == deviceId }
         val videoMatch = videoQueuesByDevice.firstOrNull { it.first == device.vendorIdRaw && it.second == deviceId }
+        val formatMatch = formatEntriesByDevice[device.vendorIdRaw to (deviceId ?: -1L)]
         val mergedQueues = if (videoMatch != null) device.queues.map { q -> q.copy(videoCodecOperations = videoMatch.third[q.index] ?: q.videoCodecOperations) } else device.queues
+        val mergedFormats = if (formatMatch != null) {
+            val byName = LinkedHashMap<String, FormatEntry>()
+            device.formats.forEach { byName[it.name] = it }
+            formatMatch.forEach { byName[it.name] = it }
+            byName.values.toList()
+        } else {
+            device.formats
+        }
         val mergedFeatures = if (match != null) device.features + match.third.first.filterNot { incoming -> device.features.any { it.name == incoming.name } } else device.features
         val mergedProperties = if (match != null) mergeQueryProperties(device.detailedProperties, match.third.second) else device.detailedProperties
         val statusProperty = if (status == "available" && match != null) {
@@ -1071,7 +1163,7 @@ private fun mergeAdvancedQueryReport(base: VulkanReport, raw: String, group: Str
         } else {
             PropertyEntry("Vulkan Query Status", "$label query", "Unavailable: ${reason.ifBlank { "the isolated query did not complete." }}")
         }
-        var merged = device.copy(features = mergedFeatures, detailedProperties = replaceQueryStatus(mergedProperties, "$label query", statusProperty.value), queues = mergedQueues)
+        var merged = device.copy(features = mergedFeatures, detailedProperties = replaceQueryStatus(mergedProperties, "$label query", statusProperty.value), queues = mergedQueues, formats = mergedFormats)
         if (group == "core14") {
             val coreStatus = core14Status[device.vendorIdRaw to (deviceId ?: -1L)]
             if (coreStatus != null) {
@@ -1118,10 +1210,13 @@ private fun mergeExtensionGroupReport(base: VulkanReport, raw: String, group: St
             val deviceId = device.deviceId.removePrefix("0x").toLongOrNull(16)
             val match = parsed.firstOrNull { it.first == device.vendorIdRaw && it.second == deviceId }
             when {
-                status == "available" && match != null -> device.copy(
-                    features = device.features + match.third.first,
-                    detailedProperties = mergeQueryProperties(device.detailedProperties, match.third.second)
-                )
+                status == "available" && match != null -> {
+                    val mergedFeatures = device.features + match.third.first.filterNot { incoming -> device.features.any { existing -> existing.name == incoming.name } }
+                    device.copy(
+                        features = mergedFeatures,
+                        detailedProperties = mergeQueryProperties(device.detailedProperties, match.third.second)
+                    )
+                }
                 status == "not_applicable" -> device.copy(
                     detailedProperties = replaceQueryStatus(device.detailedProperties, "$extensionName query", "Not applicable: the extension was not enumerated by the isolated probe.")
                 )
@@ -1172,7 +1267,9 @@ private fun parseReport(raw: String): VulkanReport {
         val queueArray = item.optJSONArray("queues") ?: JSONArray()
         for (j in 0 until queueArray.length()) {
             val q = queueArray.optJSONObject(j) ?: continue
-            queues += QueueEntry(q.optInt("index"), q.optInt("count"), q.optInt("timestampValidBits"), q.optLong("flags"), q.optBoolean("graphics"), q.optBoolean("compute"), q.optBoolean("transfer"), q.optBoolean("sparse"), q.optBoolean("protected"), q.optBoolean("opticalFlow"), q.optString("minImageTransferGranularity", "0 × 0 × 0"), q.optLong("videoCodecOperations"))
+            val queueFlags = q.optLong("flags")
+            val knownQueueFlags = 0x577L
+            queues += QueueEntry(q.optInt("index"), q.optInt("count"), q.optInt("timestampValidBits"), queueFlags, q.optBoolean("graphics"), q.optBoolean("compute"), q.optBoolean("transfer"), q.optBoolean("sparse"), q.optBoolean("protected"), q.optBoolean("videoDecode"), q.optBoolean("videoEncode"), q.optBoolean("opticalFlow"), q.optBoolean("dataGraph"), queueFlags and knownQueueFlags.inv(), q.optString("minImageTransferGranularity", "0 × 0 × 0"), q.optLong("videoCodecOperations"))
         }
         val heaps = mutableListOf<MemoryHeapEntry>()
         val memoryTypes = mutableListOf<MemoryTypeEntry>()
@@ -2060,7 +2157,10 @@ private fun PropertiesPage(device: DeviceReport?, onRequestQuery: (String) -> Un
                     item { SectionCard("Vulkan 1.4 status") { Text(message, color = ComposeColor(0xFFFFC857)) } }
                 }
             }
-            item { Text("${filtered.size} properties", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelMedium) }
+            item {
+                val uniqueNames = filtered.asSequence().map { it.name }.distinct().count()
+                Text("${filtered.size} query results · $uniqueNames unique property names", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelMedium)
+            }
             itemsIndexed(filtered, key = { index, property -> "${property.section}:${property.name}:$index" }) { _, property ->
                 Card(colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF111111)), shape = RoundedCornerShape(16.dp)) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -2672,11 +2772,11 @@ private fun reportToText(report: VulkanReport, display: DisplayReport, mode: Dri
         appendLine("API: ${d.apiVersion}"); appendLine("Driver version: ${d.driverVersionText}"); appendLine("Vendor: ${d.vendorId}"); appendLine("Device ID: ${d.deviceId}"); appendLine("Type: ${d.deviceType}"); appendLine("Extended query status: ${d.extendedQueryStatus}"); appendLine("Extended query reason: ${d.extendedQueryReason}"); appendLine("Vulkan 1.4 status: ${d.vulkan14Status}"); appendLine("Vulkan 1.4 reason: ${d.vulkan14Reason}")
         appendLine(); appendLine("DEVICE LAYERS"); d.deviceLayers.forEach { appendLine("${it.name} | spec ${it.specVersion} | implementation ${it.implementationVersion} | ${it.description}"); it.extensions.forEach { ext -> appendLine("  ${ext.name} | spec ${ext.specVersion}") } }; appendLine(); appendLine("DEVICE EXTENSIONS"); d.extensions.forEach { appendLine("${it.name} | ${it.scope} | spec ${it.specVersion}") }
         appendLine(); appendLine("FEATURES"); d.features.forEach { appendLine("${it.name} = ${it.supported}") }
-        appendLine(); appendLine("DETAILED PROPERTIES"); d.detailedProperties.forEach { appendLine("[${it.section}] ${it.name} = ${it.value}") }
+        appendLine(); appendLine("DETAILED QUERY RESULTS (${d.detailedProperties.size} results; ${d.detailedProperties.map { "${it.section} / ${it.name}" }.distinct().size} unique report fields)"); d.detailedProperties.forEach { appendLine("[${it.section}] ${it.name} = ${it.value}") }
         appendLine(); appendLine("LIMITS"); d.limits.forEach { appendLine("${it.first} = ${it.second}") }
         appendLine(); appendLine("MEMORY HEAPS"); d.heaps.forEach { appendLine("Heap ${it.index}: ${formatBytes(it.size)} | flags ${it.flags}") }
         appendLine(); appendLine("MEMORY TYPES"); d.memoryTypes.forEach { appendLine("Type ${it.index}: heap ${it.heap} | flags ${it.flags}") }
-        appendLine(); appendLine("QUEUES"); d.queues.forEach { appendLine("Family ${it.index}: count=${it.count}, timestampBits=${it.timestampBits}, flags=${it.flags}, graphics=${it.graphics}, compute=${it.compute}, transfer=${it.transfer}, sparse=${it.sparse}, protected=${it.protected}, opticalFlow=${it.opticalFlow}, granularity=${it.granularity}") }
+        appendLine(); appendLine("QUEUES"); d.queues.forEach { appendLine("Family ${it.index}: count=${it.count}, timestampBits=${it.timestampBits}, flags=${it.flags}, graphics=${it.graphics}, compute=${it.compute}, transfer=${it.transfer}, sparse=${it.sparse}, protected=${it.protected}, videoDecode=${it.videoDecode}, videoEncode=${it.videoEncode}, opticalFlow=${it.opticalFlow}, dataGraph=${it.dataGraph}, unknownFlags=0x${it.unknownFlags.toString(16).uppercase()}, granularity=${it.granularity}") }
         appendLine(); appendLine("FORMATS"); d.formats.forEach { appendLine("${it.name}: ${if (it.supported) "SUPPORTED" else "NOT SUPPORTED"}, linear=${it.linear}, optimal=${it.optimal}, buffer=${it.buffer}") }
         appendLine(); appendLine("SURFACE")
         appendLine("Available=${d.surfaceAvailable}, presentation=${d.surfacePresentationSupported}")
@@ -2704,7 +2804,7 @@ private fun reportToHtml(report: VulkanReport, display: DisplayReport, mode: Dri
     append("</div>")
 
     fun statusBadge(value: String): String {
-        val lower = value.lowercase()
+        val lower = value.trim().lowercase().replace('_', ' ')
         val cls = when {
             lower == "true" || lower == "yes" || lower == "supported" || lower == "available" -> "yes"
             lower == "false" || lower == "no" || lower == "not supported" || lower == "unsupported" -> "no"
@@ -2739,9 +2839,11 @@ private fun reportToHtml(report: VulkanReport, display: DisplayReport, mode: Dri
         "Validated groups" to htmlEscape(report.registryCoverage.validatedRuntimeQueryGroups.joinToString(", "))
     ))
 
-    table("Instance extensions", "<th>Name</th><th>Scope / spec</th>", report.instanceExtensions.map {
-        "<span class=\"code\">${htmlEscape(it.name)}</span>" to htmlEscape("${it.scope} / ${it.specVersion}")
-    })
+    append("<div class=\"section\"><h2>Instance extensions</h2><table><thead><tr><th>Name</th><th>Scope / spec</th></tr></thead><tbody>")
+    report.instanceExtensions.forEach { ext ->
+        append("<tr><td class=\"code\">${htmlEscape(ext.name)}</td><td>${htmlEscape("${ext.scope} / ${ext.specVersion}")}</td></tr>")
+    }
+    append("</tbody></table></div>")
 
     report.devices.forEach { d ->
         append("<div class=\"section\"><h2>Device: ${htmlEscape(d.name)}</h2>")
@@ -2757,10 +2859,10 @@ private fun reportToHtml(report: VulkanReport, display: DisplayReport, mode: Dri
         append("</tbody></table></div>")
         table("Device layers", "<th>Layer</th><th>Details</th>", d.deviceLayers.map { it.name to htmlEscape("spec ${it.specVersion}, implementation ${it.implementationVersion}; ${it.description}; extensions=${it.extensions.size}") })
         table("Features", "<th>Feature</th><th>Status</th>", d.features.map { htmlEscape(it.name) to statusBadge(if (it.supported) "SUPPORTED" else "NOT SUPPORTED") })
-        table("Detailed properties", "<th>Section / property</th><th>Value</th>", d.detailedProperties.map { "${it.section} / ${it.name}" to htmlEscape(it.value) })
+        table("Detailed query results (${d.detailedProperties.size} results; ${d.detailedProperties.map { "${it.section} / ${it.name}" }.distinct().size} unique report fields)", "<th>Section / property</th><th>Value</th>", d.detailedProperties.map { "${it.section} / ${it.name}" to htmlEscape(it.value) })
         table("Limits", "<th>Limit</th><th>Value</th>", d.limits.map { it.first to htmlEscape(it.second) })
         table("Memory", "<th>Entry</th><th>Value</th>", d.heaps.map { "Heap ${it.index}" to htmlEscape("${formatBytes(it.size)} | flags ${it.flags}") } + d.memoryTypes.map { "Type ${it.index}" to htmlEscape("heap ${it.heap} | flags ${it.flags}") })
-        table("Queues", "<th>Family</th><th>Details</th>", d.queues.map { "${it.index}" to htmlEscape("count=${it.count}, timestampBits=${it.timestampBits}, flags=${it.flags}, graphics=${it.graphics}, compute=${it.compute}, transfer=${it.transfer}, sparse=${it.sparse}, protected=${it.protected}, opticalFlow=${it.opticalFlow}, granularity=${it.granularity}") })
+        table("Queues", "<th>Family</th><th>Details</th>", d.queues.map { "${it.index}" to htmlEscape("count=${it.count}, timestampBits=${it.timestampBits}, flags=${it.flags}, graphics=${it.graphics}, compute=${it.compute}, transfer=${it.transfer}, sparse=${it.sparse}, protected=${it.protected}, videoDecode=${it.videoDecode}, videoEncode=${it.videoEncode}, opticalFlow=${it.opticalFlow}, dataGraph=${it.dataGraph}, unknownFlags=0x${it.unknownFlags.toString(16).uppercase()}, granularity=${it.granularity}") })
         table("Formats", "<th>Format</th><th>Status / feature masks</th>", d.formats.map { htmlEscape(it.name) to "${statusBadge(if (it.supported) "SUPPORTED" else "NOT SUPPORTED")} ${htmlEscape("linear=${it.linear}, optimal=${it.optimal}, buffer=${it.buffer}")}" })
         table("Surface formats / color spaces", "<th>Format / color space</th><th>Status / description</th>", d.surfaceFormats.map { "${it.format} / ${it.colorSpace}" to "${statusBadge(if (it.supported) "SUPPORTED" else "NOT SUPPORTED")} ${htmlEscape("${it.classification}; ${it.description}")}" })
         table("Present modes", "<th>Mode</th><th>Status</th>", d.presentModes.map { it to statusBadge("SUPPORTED") })
