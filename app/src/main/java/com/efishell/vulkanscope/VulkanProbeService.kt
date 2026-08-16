@@ -5,8 +5,6 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.view.Surface
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
@@ -31,17 +29,12 @@ class VulkanProbeService : Service() {
     private val worker: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "VulkanProbeWorker")
     }
-    private val stopHandler = Handler(Looper.getMainLooper())
-    @Volatile private var latestStartId = 0
-    private val delayedStop = Runnable { stopSelfResult(latestStartId) }
     private external fun collectVulkanData(surface: Surface?, driverMode: String, driverIcdPath: String?, driverBundlePath: String?, hookLibDir: String, resultPath: String): String
     private external fun collectVulkanSurfaceData(surface: Surface?, driverMode: String, driverIcdPath: String?, driverBundlePath: String?, hookLibDir: String, resultPath: String): String
     private external fun collectVulkanQueryData(group: String, driverMode: String, driverIcdPath: String?, driverBundlePath: String?, hookLibDir: String, resultPath: String): String
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val group = intent?.getStringExtra(EXTRA_QUERY_GROUP) ?: "base"
-        latestStartId = startId
-        stopHandler.removeCallbacks(delayedStop)
         val mode = intent?.getStringExtra(EXTRA_DRIVER_MODE) ?: "SYSTEM"
         val icd = intent?.getStringExtra(EXTRA_DRIVER_ICD)
         val bundle = intent?.getStringExtra(EXTRA_DRIVER_BUNDLE)
@@ -54,6 +47,7 @@ class VulkanProbeService : Service() {
         val cacheRoot = cacheDir.canonicalFile
         val requestedResult = runCatching { File(resultPath).canonicalFile }.getOrNull()
         if (requestedResult == null || !requestedResult.path.startsWith(cacheRoot.path + File.separator)) {
+            stopSelfResult(startId)
             return START_NOT_STICKY
         }
         val surface = if (Build.VERSION.SDK_INT >= 33) {
@@ -81,8 +75,7 @@ class VulkanProbeService : Service() {
                     "{\"status\":\"unavailable\",\"group\":${org.json.JSONObject.quote(group)},\"reason\":${org.json.JSONObject.quote(t.message ?: "Vulkan query failed")},\"devices\":[]}"
                 })
             } finally {
-                stopHandler.removeCallbacks(delayedStop)
-                stopHandler.postDelayed(delayedStop, 1500L)
+                stopSelfResult(startId)
             }
         }
         return START_NOT_STICKY
@@ -105,7 +98,6 @@ class VulkanProbeService : Service() {
     }
 
     override fun onDestroy() {
-        stopHandler.removeCallbacks(delayedStop)
         worker.shutdownNow()
         super.onDestroy()
     }

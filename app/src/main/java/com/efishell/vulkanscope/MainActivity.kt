@@ -22,12 +22,15 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -60,6 +63,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -90,7 +94,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -182,7 +188,24 @@ private val ISOLATED_EXTENSION_GROUPS = linkedMapOf(
     "dataGraphOpticalFlow" to "VK_ARM_data_graph_optical_flow",
     "pipelineCacheIncrementalMode" to "VK_SEC_pipeline_cache_incremental_mode",
     "extendedFlags" to "VK_KHR_extended_flags",
-    "shaderOcpMicroscalingTypes" to "VK_EXT_shader_ocp_microscaling_types"
+    "shaderOcpMicroscalingTypes" to "VK_EXT_shader_ocp_microscaling_types",
+    "descriptorBufferParity" to "VK_EXT_descriptor_buffer",
+    "accelerationStructureParity" to "VK_KHR_acceleration_structure",
+    "rayTracingPipelineParity" to "VK_KHR_ray_tracing_pipeline",
+    "rayQueryParity" to "VK_KHR_ray_query",
+    "meshShaderParity" to "VK_EXT_mesh_shader",
+    "graphicsPipelineLibraryParity" to "VK_EXT_graphics_pipeline_library",
+    "shaderObjectParity" to "VK_EXT_shader_object",
+    "hostImageCopyParity" to "VK_EXT_host_image_copy",
+    "extendedDynamicStateParity" to "VK_EXT_extended_dynamic_state",
+    "extendedDynamicState3Parity" to "VK_EXT_extended_dynamic_state3",
+    "fragmentShaderBarycentricParity" to "VK_KHR_fragment_shader_barycentric",
+    "fragmentShadingRateParity" to "VK_KHR_fragment_shading_rate",
+    "transformFeedbackParity" to "VK_EXT_transform_feedback",
+    "vertexAttributeDivisorParity" to "VK_EXT_vertex_attribute_divisor",
+    "inlineUniformBlockParity" to "VK_KHR_inline_uniform_block",
+    "privateDataParity" to "VK_EXT_private_data",
+    "synchronization2Parity" to "VK_KHR_synchronization2"
 )
 
 private data class DeviceReport(
@@ -247,6 +270,7 @@ private enum class DriverMode(val label: String) {
 }
 
 private enum class TurnipSupport { UNKNOWN, SUPPORTED, UNSUPPORTED }
+private enum class CollectionStatus { IDLE, COLLECTING, COMPLETED }
 
 class MainActivity : ComponentActivity() {
 
@@ -259,8 +283,13 @@ class MainActivity : ComponentActivity() {
     private var latestReport by mutableStateOf<VulkanReport?>(null)
     private var displayReportState by mutableStateOf<DisplayReport?>(null)
     private var reportLoading by mutableStateOf(true)
+    private var collectionStatus by mutableStateOf(CollectionStatus.IDLE)
     private var collectionInFlight = false
     private var collectionPending = false
+    private val pendingCollectionTasks = mutableSetOf<String>()
+    private var collectionGeneration = 0L
+    private var collectionCompletionJob: Job? = null
+    private val backgroundQueryGroups = (ISOLATED_CORE_GROUPS.keys + ISOLATED_ADVANCED_GROUPS.keys + ISOLATED_EXTENSION_GROUPS.keys).toSet()
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val requestedQueryGroups = Collections.synchronizedSet(mutableSetOf<String>())
 
@@ -289,6 +318,7 @@ class MainActivity : ComponentActivity() {
                 displayReport = displayReportState ?: DisplayReport("Unknown", "Unknown", false, "Not exposed", emptyList(), "Not exposed", "Not exposed", "Not exposed", emptyList()),
                 report = latestReport,
                 loading = reportLoading,
+                collectionStatus = collectionStatus,
                 surfaceReady = { surface ->
                     val changed = synchronized(surfaceLock) {
                         val different = currentSurface !== surface
@@ -463,31 +493,60 @@ class MainActivity : ComponentActivity() {
         turnipSupport = if (hasQualcommAdreno) TurnipSupport.SUPPORTED else TurnipSupport.UNSUPPORTED
     }
 
+    private fun beginCollectionTask(taskId: String) {
+        collectionCompletionJob?.cancel()
+        collectionCompletionJob = null
+        pendingCollectionTasks.add(taskId)
+        collectionStatus = CollectionStatus.COLLECTING
+    }
+
+    private fun completeCollectionTask(taskId: String) {
+        pendingCollectionTasks.remove(taskId)
+        if (pendingCollectionTasks.isEmpty() && !collectionInFlight) {
+            finishCollectionStatusSoon()
+        }
+    }
+
     private fun requestReportCollection() {
         if (isFinishing || isDestroyed) return
         if (collectionInFlight) {
             collectionPending = true
             return
         }
+        collectionGeneration += 1L
+        val generation = collectionGeneration
+        requestedQueryGroups.clear()
+        pendingCollectionTasks.clear()
+        pendingCollectionTasks.add("$generation:base")
+        pendingCollectionTasks.add("$generation:enrichment")
+        backgroundQueryGroups.forEach { pendingCollectionTasks.add("$generation:group:$it") }
         collectionInFlight = true
         reportLoading = true
+        collectionStatus = CollectionStatus.COLLECTING
         activityScope.launch {
-            val base = runCatching { collectReport() }.getOrElse { e ->
-                Log.e("VulkanScope", "Vulkan base orchestration failed", e)
-                VulkanReport("Unknown", emptyList(), emptyList(), emptyList(), "Vulkan base report unavailable: ${e.message ?: "probe failed"}")
-            }
-            latestReport = base
-            updateTurnipSupport(base)
-            reportLoading = false
-            val enriched = runCatching { enrichReport(base) }.getOrElse { e ->
-                Log.e("VulkanScope", "Vulkan advanced enrichment failed; preserving base report", e)
-                base
-            }
-            latestReport = enriched
-            collectionInFlight = false
-            if (collectionPending && !isFinishing && !isDestroyed) {
-                collectionPending = false
-                requestReportCollection()
+            try {
+                val base = runCatching { collectReport() }.getOrElse { e ->
+                    Log.e("VulkanScope", "Vulkan base orchestration failed", e)
+                    VulkanReport("Unknown", emptyList(), emptyList(), emptyList(), "Vulkan base report unavailable: ${e.message ?: "probe failed"}")
+                }
+                latestReport = base
+                updateTurnipSupport(base)
+                reportLoading = false
+                completeCollectionTask("$generation:base")
+                val enriched = runCatching { enrichReport(base) }.getOrElse { e ->
+                    Log.e("VulkanScope", "Vulkan advanced enrichment failed; preserving base report", e)
+                    base
+                }
+                latestReport = enriched
+                completeCollectionTask("$generation:enrichment")
+                startBackgroundInformationCollection(generation)
+            } finally {
+                collectionInFlight = false
+                if (pendingCollectionTasks.isEmpty()) finishCollectionStatusSoon()
+                if (collectionPending && !isFinishing && !isDestroyed && pendingCollectionTasks.isEmpty()) {
+                    collectionPending = false
+                    requestReportCollection()
+                }
             }
         }
     }
@@ -495,18 +554,80 @@ class MainActivity : ComponentActivity() {
     private fun requestSurfaceRefresh(surface: Surface) {
         if (isFinishing || isDestroyed) return
         if (collectionInFlight || latestReport == null) return
+        val taskId = "surface:${System.identityHashCode(surface)}:${System.nanoTime()}"
+        beginCollectionTask(taskId)
         activityScope.launch {
-            val base = latestReport ?: return@launch
-            runCatching {
-                val rawSurface = runSurfaceProbe(surface)
-                latestReport = mergeSurfaceProbeReport(base, rawSurface)
-            }.onFailure { e ->
-                Log.e("VulkanScope", "Surface refresh failed; preserving existing Vulkan report", e)
+            try {
+                val base = latestReport ?: return@launch
+                runCatching {
+                    val rawSurface = runSurfaceProbe(surface)
+                    latestReport = mergeSurfaceProbeReport(base, rawSurface)
+                }.onFailure { e ->
+                    Log.e("VulkanScope", "Surface refresh failed; preserving existing Vulkan report", e)
+                }
+            } finally {
+                completeCollectionTask(taskId)
+            }
+        }
+    }
+
+    private suspend fun startBackgroundInformationCollection(generation: Long = collectionGeneration) {
+        val report = latestReport
+        if (report == null || report.devices.isEmpty()) {
+            backgroundQueryGroups.forEach { completeCollectionTask("$generation:group:$it") }
+            return
+        }
+
+        val newGroups = backgroundQueryGroups.filter { requestedQueryGroups.add(it) }
+        backgroundQueryGroups.filterNot { newGroups.contains(it) }.forEach { completeCollectionTask("$generation:group:$it") }
+        kotlinx.coroutines.coroutineScope {
+            val jobs = newGroups.map { group ->
+                launch(Dispatchers.IO) {
+                    val taskId = "$generation:group:$group"
+                    try {
+                        val current = latestReport ?: return@launch
+                        val extensionName = ISOLATED_EXTENSION_GROUPS[group]
+                        if (extensionName != null && current.devices.none { device -> device.extensions.any { it.name == extensionName } }) return@launch
+                        val raw = runCatching { runIsolatedProbe(group) }.getOrElse { e ->
+                            Log.e("VulkanScope", "Vulkan background query failed: $group", e)
+                            ""
+                        }
+                        if (raw.isNotBlank()) {
+                            withContext(Dispatchers.Main.immediate) {
+                                val currentReport = latestReport ?: current
+                                latestReport = if (extensionName != null) {
+                                    mergeExtensionGroupReport(currentReport, raw, group, extensionName)
+                                } else {
+                                    val label = ISOLATED_ADVANCED_GROUPS[group] ?: ISOLATED_CORE_GROUPS[group] ?: group
+                                    mergeAdvancedQueryReport(currentReport, raw, group, label)
+                                }
+                            }
+                        }
+                    } finally {
+                        withContext(Dispatchers.Main.immediate) {
+                            completeCollectionTask(taskId)
+                        }
+                    }
+                }
+            }
+            jobs.forEach { it.join() }
+        }
+    }
+
+    private fun finishCollectionStatusSoon(delayMillis: Long = 2000L) {
+        if (collectionInFlight || pendingCollectionTasks.isNotEmpty()) return
+        collectionCompletionJob?.cancel()
+        collectionStatus = CollectionStatus.COMPLETED
+        collectionCompletionJob = activityScope.launch {
+            delay(delayMillis)
+            if (!collectionInFlight && pendingCollectionTasks.isEmpty()) {
+                collectionStatus = CollectionStatus.IDLE
             }
         }
     }
 
     private fun requestDriverModeChange(mode: DriverMode) {
+
         if (mode == DriverMode.TURNIP && turnipSupport != TurnipSupport.SUPPORTED) return
         if (mode == DriverMode.TURNIP && findInstalledTurnipLibrary() == null) {
             openDriverBundlePicker()
@@ -611,22 +732,31 @@ class MainActivity : ComponentActivity() {
     private fun requestQueryGroup(group: String) {
         if (latestReport?.devices.isNullOrEmpty()) return
         if (!requestedQueryGroups.add(group)) return
+        val taskId = "ad-hoc:$group:${System.nanoTime()}"
+        beginCollectionTask(taskId)
         activityScope.launch {
-            val current = latestReport ?: return@launch
-            val label = ISOLATED_ADVANCED_GROUPS[group] ?: ISOLATED_CORE_GROUPS[group]
-            val extensionName = ISOLATED_EXTENSION_GROUPS[group]
-            if (extensionName != null && current.devices.none { device -> device.extensions.any { it.name == extensionName } }) return@launch
-            val raw = runCatching { runIsolatedProbe(group) }.getOrElse { e ->
-                Log.e("VulkanScope", "Vulkan lazy query failed: $group", e)
-                ""
-            }
-            if (raw.isBlank()) return@launch
-            latestReport = if (extensionName != null) {
-                mergeExtensionGroupReport(latestReport ?: current, raw, group, extensionName)
-            } else if (label != null) {
-                mergeAdvancedQueryReport(latestReport ?: current, raw, group, label)
-            } else {
-                latestReport ?: current
+            try {
+                val current = latestReport ?: return@launch
+                val label = ISOLATED_ADVANCED_GROUPS[group] ?: ISOLATED_CORE_GROUPS[group]
+                val extensionName = ISOLATED_EXTENSION_GROUPS[group]
+                if (extensionName != null && current.devices.none { device -> device.extensions.any { it.name == extensionName } }) return@launch
+                val raw = runCatching { runIsolatedProbe(group) }.getOrElse { e ->
+                    Log.e("VulkanScope", "Vulkan lazy query failed: $group", e)
+                    ""
+                }
+                if (raw.isBlank()) return@launch
+                withContext(Dispatchers.Main.immediate) {
+                    val currentReport = latestReport ?: current
+                    latestReport = if (extensionName != null) {
+                        mergeExtensionGroupReport(currentReport, raw, group, extensionName)
+                    } else if (label != null) {
+                        mergeAdvancedQueryReport(currentReport, raw, group, label)
+                    } else {
+                        currentReport
+                    }
+                }
+            } finally {
+                completeCollectionTask(taskId)
             }
         }
     }
@@ -788,10 +918,17 @@ private fun mergeMetadataReport(base: VulkanReport, raw: String): VulkanReport {
     )
 }
 
+private fun mergeQueryProperties(existing: List<PropertyEntry>, incoming: List<PropertyEntry>): List<PropertyEntry> =
+    (existing + incoming).distinctBy { Triple(it.section, it.name, it.value) }
+
+private fun replaceQueryStatus(properties: List<PropertyEntry>, name: String, value: String): List<PropertyEntry> =
+    properties.filterNot { it.section == "Vulkan Query Status" && it.name == name } +
+        PropertyEntry("Vulkan Query Status", name, value)
+
 private fun mergeSurfaceProbeReport(base: VulkanReport, raw: String): VulkanReport {
     val root = runCatching { JSONObject(raw) }.getOrElse {
         return base.copy(devices = base.devices.map { device ->
-            device.copy(detailedProperties = device.detailedProperties + PropertyEntry("Vulkan Query Status", "Surface probe", "Unavailable: isolated surface probe returned invalid data."))
+            device.copy(detailedProperties = replaceQueryStatus(device.detailedProperties, "Surface probe", "Unavailable: isolated surface probe returned invalid data."))
         })
     }
     val status = root.optString("status", "unavailable")
@@ -816,7 +953,7 @@ private fun mergeSurfaceProbeReport(base: VulkanReport, raw: String): VulkanRepo
                 surfaceFormats = emptyList(),
                 presentModes = emptyList(),
                 presentationQueues = emptyList(),
-                detailedProperties = device.detailedProperties + PropertyEntry("Vulkan Query Status", "Surface probe", "Unavailable: $reason")
+                detailedProperties = replaceQueryStatus(device.detailedProperties, "Surface probe", "Unavailable: $reason")
             )
         } else {
             val surface = match.optJSONObject("surface")
@@ -852,7 +989,7 @@ private fun mergeSurfaceProbeReport(base: VulkanReport, raw: String): VulkanRepo
                 surfaceFormats = surfaceFormats,
                 presentModes = presentModes,
                 presentationQueues = presentationQueues,
-                detailedProperties = device.detailedProperties + PropertyEntry("Vulkan Query Status", "Surface probe", "Available")
+                detailedProperties = replaceQueryStatus(device.detailedProperties, "Surface probe", "Available")
             )
         }
     })
@@ -861,7 +998,7 @@ private fun mergeSurfaceProbeReport(base: VulkanReport, raw: String): VulkanRepo
 private fun mergeAdvancedQueryReport(base: VulkanReport, raw: String, group: String, label: String): VulkanReport {
     val root = runCatching { JSONObject(raw) }.getOrElse {
         return base.copy(devices = base.devices.map { device ->
-            device.copy(detailedProperties = device.detailedProperties + PropertyEntry("Vulkan Query Status", "$label query", "Unavailable: isolated query returned invalid data."))
+            device.copy(detailedProperties = replaceQueryStatus(device.detailedProperties, "$label query", "Unavailable: isolated query returned invalid data."))
         })
     }
     val status = root.optString("status", "unavailable")
@@ -914,7 +1051,7 @@ private fun mergeAdvancedQueryReport(base: VulkanReport, raw: String, group: Str
         val videoMatch = videoQueuesByDevice.firstOrNull { it.first == device.vendorIdRaw && it.second == deviceId }
         val mergedQueues = if (videoMatch != null) device.queues.map { q -> q.copy(videoCodecOperations = videoMatch.third[q.index] ?: q.videoCodecOperations) } else device.queues
         val mergedFeatures = if (match != null) device.features + match.third.first.filterNot { incoming -> device.features.any { it.name == incoming.name } } else device.features
-        val mergedProperties = if (match != null) device.detailedProperties + match.third.second else device.detailedProperties
+        val mergedProperties = if (match != null) mergeQueryProperties(device.detailedProperties, match.third.second) else device.detailedProperties
         val statusProperty = if (status == "available" && match != null) {
             PropertyEntry("Vulkan Query Status", "$label query", "Available")
         } else if (status == "not_applicable") {
@@ -922,7 +1059,7 @@ private fun mergeAdvancedQueryReport(base: VulkanReport, raw: String, group: Str
         } else {
             PropertyEntry("Vulkan Query Status", "$label query", "Unavailable: ${reason.ifBlank { "the isolated query did not complete." }}")
         }
-        var merged = device.copy(features = mergedFeatures, detailedProperties = mergedProperties + statusProperty, queues = mergedQueues)
+        var merged = device.copy(features = mergedFeatures, detailedProperties = replaceQueryStatus(mergedProperties, "$label query", statusProperty.value), queues = mergedQueues)
         if (group == "core14") {
             val coreStatus = core14Status[device.vendorIdRaw to (deviceId ?: -1L)]
             if (coreStatus != null) {
@@ -937,7 +1074,7 @@ private fun mergeExtensionGroupReport(base: VulkanReport, raw: String, group: St
     val root = runCatching { JSONObject(raw) }.getOrElse {
         return base.copy(devices = base.devices.map { device ->
             if (device.extensions.any { it.name == extensionName }) {
-                device.copy(detailedProperties = device.detailedProperties + PropertyEntry("Vulkan Query Status", "$extensionName query", "Unavailable: the isolated $group probe returned invalid data."))
+                device.copy(detailedProperties = replaceQueryStatus(device.detailedProperties, "$extensionName query", "Unavailable: the isolated $group probe returned invalid data."))
             } else device
         })
     }
@@ -971,13 +1108,13 @@ private fun mergeExtensionGroupReport(base: VulkanReport, raw: String, group: St
             when {
                 status == "available" && match != null -> device.copy(
                     features = device.features + match.third.first,
-                    detailedProperties = device.detailedProperties + match.third.second
+                    detailedProperties = mergeQueryProperties(device.detailedProperties, match.third.second)
                 )
                 status == "not_applicable" -> device.copy(
-                    detailedProperties = device.detailedProperties + PropertyEntry("Vulkan Query Status", "$extensionName query", "Not applicable: the extension was not enumerated by the isolated probe." )
+                    detailedProperties = replaceQueryStatus(device.detailedProperties, "$extensionName query", "Not applicable: the extension was not enumerated by the isolated probe.")
                 )
                 else -> device.copy(
-                    detailedProperties = device.detailedProperties + PropertyEntry("Vulkan Query Status", "$extensionName query", "Unavailable: ${reason.ifBlank { "the isolated extension query did not complete." }}")
+                    detailedProperties = replaceQueryStatus(device.detailedProperties, "$extensionName query", "Unavailable: ${reason.ifBlank { "the isolated extension query did not complete." }}")
                 )
             }
         }
@@ -1178,6 +1315,7 @@ private fun VulkanScopeApp(
     displayReport: DisplayReport,
     report: VulkanReport?,
     loading: Boolean,
+    collectionStatus: CollectionStatus,
     surfaceReady: (Surface) -> Unit,
     surfaceDestroyed: () -> Unit,
     driverMode: DriverMode,
@@ -1197,7 +1335,12 @@ private fun VulkanScopeApp(
         val isLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
         Scaffold(
             containerColor = ComposeColor.Black,
-            topBar = { AppHeader(page, onBack = { page = Page.Overview }, onSettings = { page = Page.Settings }, onInfo = { page = Page.Info }) },
+            topBar = {
+                Column {
+                    AppHeader(page, onBack = { page = Page.Overview }, onSettings = { page = Page.Settings }, onInfo = { page = Page.Info })
+                    CollectionStatusBanner(collectionStatus)
+                }
+            },
             bottomBar = {
                 if (!isLandscape) {
                     NavigationBar(containerColor = ComposeColor(0xFF0A0A0A), tonalElevation = 0.dp) {
@@ -2247,11 +2390,14 @@ private fun turnipSupportDescription(support: TurnipSupport): String = when (sup
 @Composable
 private fun SettingsPage(report: VulkanReport, display: DisplayReport, mode: DriverMode, turnipSupport: TurnipSupport, onModeChanged: (DriverMode) -> Unit, onInstallDriverBundle: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val exportStem = remember(report) { exportFileStem(report) }
     val textLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
-        if (uri != null) writeExport(context, uri, reportToText(report, display, mode), "text/plain")
+        if (uri == null) return@rememberLauncherForActivityResult
+        writeExport(context, uri, reportToText(report, display, mode), "text/plain")
     }
     val htmlLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/html")) { uri ->
-        if (uri != null) writeExport(context, uri, reportToHtml(report, display, mode), "text/html")
+        if (uri == null) return@rememberLauncherForActivityResult
+        writeExport(context, uri, reportToHtml(report, display, mode), "text/html")
     }
     val bundleDir = File(context.filesDir, "turnip")
     val bundleInstalled = bundleDir.exists() && bundleDir.walkTopDown().any { it.isFile && it.extension.equals("so", true) }
@@ -2274,8 +2420,8 @@ private fun SettingsPage(report: VulkanReport, display: DisplayReport, mode: Dri
         item { SectionCard("Export complete report") {
             Text("Export the complete currently collected VulkanScope report, including device properties, detailed Core 1.1/1.2/1.3/1.4 properties when available, features, memory, queues, formats, surface data, extensions, layers and Android/display information.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = { textLauncher.launch("VulkanScope-report.txt") }, modifier = Modifier.weight(1f)) { Text("Export TXT") }
-                Button(onClick = { htmlLauncher.launch("VulkanScope-report.html") }, modifier = Modifier.weight(1f)) { Text("Export HTML") }
+                Button(onClick = { textLauncher.launch("${exportStem}.txt") }, modifier = Modifier.weight(1f)) { Text("Export TXT") }
+                Button(onClick = { htmlLauncher.launch("${exportStem}.html") }, modifier = Modifier.weight(1f)) { Text("Export HTML") }
             }
         } }
         item { SectionCard("Important") {
@@ -2345,13 +2491,29 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
 }
 
 
+private fun exportFileStem(report: VulkanReport): String {
+    val gpuName = report.devices.firstOrNull()?.name?.trim().orEmpty().ifBlank { "Unknown-GPU" }
+    val safeGpu = gpuName.replace(Regex("[^A-Za-z0-9._-]+"), "_").trim('_').ifBlank { "Unknown-GPU" }
+    return "VulkanScope-${safeGpu}-report"
+}
+
 private fun writeExport(context: Context, uri: Uri, content: String, mime: String) {
-    runCatching { context.contentResolver.openOutputStream(uri)?.use { it.write(content.toByteArray(Charsets.UTF_8)) } }
+    val success = runCatching {
+        context.contentResolver.openOutputStream(uri)?.use { it.write(content.toByteArray(Charsets.UTF_8)) }
+            ?: throw IllegalStateException("Unable to open the selected destination")
+    }.isSuccess
+    val message = if (success) {
+        if (mime == "text/html") "HTML report saved successfully" else "TXT report saved successfully"
+    } else {
+        if (mime == "text/html") "HTML report could not be saved" else "TXT report could not be saved"
+    }
+    android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
 }
 
 private fun reportToText(report: VulkanReport, display: DisplayReport, mode: DriverMode): String = buildString {
     appendLine("VulkanScope report")
     appendLine("=================")
+    appendLine("GPU: ${report.devices.firstOrNull()?.name ?: "Unknown"}")
     appendLine("Driver mode: ${mode.label}")
     appendLine("Loader / instance API: ${report.loaderVersion}")
     appendLine("Display: ${display.resolution} @ ${display.refreshRate}")
@@ -2414,31 +2576,83 @@ private fun reportToText(report: VulkanReport, display: DisplayReport, mode: Dri
 private fun htmlEscape(value: String): String = value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
 
 private fun reportToHtml(report: VulkanReport, display: DisplayReport, mode: DriverMode): String = buildString {
-    append("<!doctype html><html><head><meta charset=\"utf-8\"><title>VulkanScope report</title><style>body{font-family:system-ui,sans-serif;background:#101010;color:#eee;margin:24px}h1,h2{color:#fff}table{border-collapse:collapse;width:100%;margin-bottom:24px}td,th{border:1px solid #444;padding:6px;text-align:left;vertical-align:top}th{background:#202020}.section{margin-top:28px}</style></head><body>")
-    append("<h1>VulkanScope report</h1><p><b>Driver mode:</b> ${htmlEscape(mode.label)}<br><b>Loader / instance API:</b> ${htmlEscape(report.loaderVersion)}<br><b>Display:</b> ${htmlEscape(display.resolution)} @ ${htmlEscape(display.refreshRate)}<br><b>HDR:</b> ${htmlEscape(display.hdrTypes.joinToString(", "))}</p>")
-    if (report.error != null) append("<p><b>Report error:</b> ${htmlEscape(report.error)}</p>")
-    fun table(title: String, headers: String, rows: List<Pair<String,String>>) { append("<div class=\"section\"><h2>${htmlEscape(title)}</h2><table><tr>$headers</tr>"); rows.forEach { append("<tr><td>${htmlEscape(it.first)}</td><td>${htmlEscape(it.second)}</td></tr>") }; append("</table></div>") }
-    table("Android / display", "<th>Property</th><th>Value</th>", listOf("Manufacturer" to Build.MANUFACTURER, "Model" to Build.MODEL, "Android" to Build.VERSION.RELEASE, "SDK" to Build.VERSION.SDK_INT.toString(), "ABIs" to Build.SUPPORTED_ABIS.joinToString(", "), "Resolution" to display.resolution, "Refresh rate" to display.refreshRate, "Wide gamut" to display.wideGamut.toString(), "Preferred wide gamut" to display.preferredWideGamut, "HDR types" to display.hdrTypes.joinToString(", "), "HDR min luminance" to display.minLuminance, "HDR max luminance" to display.maxLuminance, "HDR average luminance" to display.averageLuminance))
-    table("Vulkan Registry Coverage", "<th>Property</th><th>Value</th>", listOf("Baseline" to report.registryCoverage.baseline, "Mode" to report.registryCoverage.mode, "Implemented physical-device structs" to report.registryCoverage.implementedPhysicalDeviceStructCount.toString(), "Validated runtime query groups" to report.registryCoverage.validatedRuntimeQueryGroupCount.toString(), "Runtime extension tokens" to report.registryCoverage.runtimeExtensionTokenCount.toString(), "Catalog schema" to report.registryCoverage.catalogSchemaVersion.toString(), "Report schema" to report.registryCoverage.reportSchema, "Header baseline" to report.registryCoverage.headerBaseline, "Instance dependency candidates" to report.registryCoverage.instanceDependencyCandidateCount.toString(), "Validated groups" to report.registryCoverage.validatedRuntimeQueryGroups.joinToString(", ")))
-    table("Instance extensions", "<th>Name</th><th>Scope / spec</th>", report.instanceExtensions.map { it.name to "${it.scope} / ${it.specVersion}" })
-    table("Instance layers", "<th>Name</th><th>Details</th>", report.instanceLayers.map { it.name to "spec ${it.specVersion}, implementation ${it.implementationVersion}; ${it.description}" })
-    table("Vulkan Profiles catalog", "<th>Profile</th><th>Spec revision</th>", vulkanProfileCatalog())
-        report.devices.forEach { d ->
+    append("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>VulkanScope report</title>")
+    append("<style>body{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;background:#0a0a0b;color:#f4f4f5;margin:0;line-height:1.45}.wrap{max-width:1320px;margin:0 auto;padding:28px}.hero{background:linear-gradient(135deg,#1a1517,#0f1012);border:1px solid #2d2d31;border-radius:26px;padding:30px;box-shadow:0 16px 50px rgba(0,0,0,.28)}h1{margin:0 0 8px;font-size:36px}h2{margin:0 0 14px;font-size:22px}.muted{color:#a7a7ae}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:18px}.metric{background:#121214;border:1px solid #292a2e;border-radius:17px;padding:14px}.section{margin-top:24px;background:#111113;border:1px solid #292a2e;border-radius:22px;padding:18px;overflow:auto}.section h2{position:sticky;left:0}table{border-collapse:collapse;width:100%;min-width:660px}td,th{border-bottom:1px solid #28282c;padding:10px 8px;text-align:left;vertical-align:top}th{color:#cbcad0;font-weight:600}.badge{display:inline-block;border-radius:999px;padding:3px 9px;font-size:11px;font-weight:800;letter-spacing:.03em}.yes{background:#133b28;color:#74e2a6}.no{background:#49171c;color:#ff8f98}.neutral{background:#403713;color:#ffd76b}.unknown{background:#292a2f;color:#c6c6cc}.code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.small{font-size:13px}.subtle{color:#7f8088}</style></head><body><div class=\"wrap\">")
+    append("<div class=\"hero\"><h1>VulkanScope</h1><div class=\"muted\">Runtime Vulkan inspection report</div><div class=\"grid\">")
+    fun metric(label: String, value: String) { append("<div class=\"metric\"><div class=\"muted small\">${htmlEscape(label)}</div><strong>${htmlEscape(value)}</strong></div>") }
+    metric("GPU", report.devices.firstOrNull()?.name ?: "Unknown")
+    metric("Driver", mode.label)
+    metric("Loader / instance API", report.loaderVersion)
+    metric("Display", "${display.resolution} @ ${display.refreshRate}")
+    metric("HDR", display.hdrTypes.joinToString(", ").ifBlank { "Not exposed" })
+    append("</div>")
+    if (report.error != null) append("<p><span class=\"badge no\">ERROR</span> ${htmlEscape(report.error)}</p>")
+    append("</div>")
+
+    fun statusBadge(value: String): String {
+        val lower = value.lowercase()
+        val cls = when {
+            lower == "true" || lower == "yes" || lower == "supported" || lower == "available" -> "yes"
+            lower == "false" || lower == "no" || lower == "not supported" || lower == "unsupported" -> "no"
+            lower.contains("unavailable") || lower.contains("not applicable") -> "neutral"
+            lower.contains("unknown") -> "unknown"
+            else -> "unknown"
+        }
+        return "<span class=\"badge $cls\">${htmlEscape(value.uppercase())}</span>"
+    }
+
+    fun table(title: String, headers: String, rows: List<Pair<String, String>>) {
+        append("<div class=\"section\"><h2>${htmlEscape(title)}</h2><table><thead><tr>$headers</tr></thead><tbody>")
+        rows.forEach { append("<tr><td>${htmlEscape(it.first)}</td><td>${it.second}</td></tr>") }
+        append("</tbody></table></div>")
+    }
+
+    table("Android / display", "<th>Property</th><th>Value</th>", listOf(
+        "Manufacturer" to htmlEscape(Build.MANUFACTURER), "Model" to htmlEscape(Build.MODEL), "Android" to htmlEscape(Build.VERSION.RELEASE),
+        "SDK" to Build.VERSION.SDK_INT.toString(), "ABIs" to htmlEscape(Build.SUPPORTED_ABIS.joinToString(", ")), "Resolution" to htmlEscape(display.resolution),
+        "Refresh rate" to htmlEscape(display.refreshRate), "Wide gamut" to statusBadge(display.wideGamut.toString()),
+        "Preferred wide gamut" to htmlEscape(display.preferredWideGamut), "HDR types" to htmlEscape(display.hdrTypes.joinToString(", ").ifBlank { "Not exposed" }),
+        "HDR min luminance" to htmlEscape(display.minLuminance), "HDR max luminance" to htmlEscape(display.maxLuminance), "HDR average luminance" to htmlEscape(display.averageLuminance)
+    ))
+
+    table("Vulkan Registry Coverage", "<th>Property</th><th>Value</th>", listOf(
+        "Baseline" to htmlEscape(report.registryCoverage.baseline), "Mode" to htmlEscape(report.registryCoverage.mode),
+        "Implemented physical-device structs" to report.registryCoverage.implementedPhysicalDeviceStructCount.toString(),
+        "Validated runtime query groups" to report.registryCoverage.validatedRuntimeQueryGroupCount.toString(),
+        "Runtime extension tokens" to report.registryCoverage.runtimeExtensionTokenCount.toString(),
+        "Catalog schema" to report.registryCoverage.catalogSchemaVersion.toString(), "Report schema" to htmlEscape(report.registryCoverage.reportSchema),
+        "Header baseline" to htmlEscape(report.registryCoverage.headerBaseline), "Instance dependency candidates" to report.registryCoverage.instanceDependencyCandidateCount.toString(),
+        "Validated groups" to htmlEscape(report.registryCoverage.validatedRuntimeQueryGroups.joinToString(", "))
+    ))
+
+    table("Instance extensions", "<th>Name</th><th>Scope / spec</th>", report.instanceExtensions.map {
+        "<span class=\"code\">${htmlEscape(it.name)}</span>" to htmlEscape("${it.scope} / ${it.specVersion}")
+    })
+
+    report.devices.forEach { d ->
         append("<div class=\"section\"><h2>Device: ${htmlEscape(d.name)}</h2>")
-        table("Device layers", "<th>Layer</th><th>Details</th>", d.deviceLayers.map { it.name to "spec ${it.specVersion}, implementation ${it.implementationVersion}; ${it.description}; extensions=${it.extensions.size}" })
-        table("Device properties", "<th>Property</th><th>Value</th>", listOf("API" to d.apiVersion, "Driver version" to d.driverVersionText, "Vendor" to d.vendorId, "Device ID" to d.deviceId, "Type" to d.deviceType, "Extended query status" to d.extendedQueryStatus, "Extended query reason" to d.extendedQueryReason, "Vulkan 1.4 status" to d.vulkan14Status, "Vulkan 1.4 reason" to d.vulkan14Reason))
-        table("Profile evaluation", "<th>Profile</th><th>Status</th>", vulkanProfileRequirements().map { it.name to profileSummary(evaluateProfile(report, d, it)) })
-        table("Detailed properties", "<th>Property</th><th>Value</th>", d.detailedProperties.map { "[${it.section}] ${it.name}" to it.value })
-        table("Features", "<th>Feature</th><th>Supported</th>", d.features.map { it.name to it.supported.toString() })
-        table("Limits", "<th>Limit</th><th>Value</th>", d.limits)
-        table("Memory", "<th>Entry</th><th>Value</th>", d.heaps.map { "Heap ${it.index}" to "${formatBytes(it.size)} | flags ${it.flags}" } + d.memoryTypes.map { "Type ${it.index}" to "heap ${it.heap} | flags ${it.flags}" })
-        table("Queues", "<th>Family</th><th>Details</th>", d.queues.map { "${it.index}" to "count=${it.count}, timestampBits=${it.timestampBits}, flags=${it.flags}, graphics=${it.graphics}, compute=${it.compute}, transfer=${it.transfer}, sparse=${it.sparse}${if (it.videoCodecOperations != 0L) ", video=${videoCodecOperationsName(it.videoCodecOperations)}" else ""}" })
-        table("Formats", "<th>Format</th><th>Status / feature masks</th>", d.formats.map { it.name to "${if (it.supported) "SUPPORTED" else "NOT SUPPORTED"}; linear=${it.linear}, optimal=${it.optimal}, buffer=${it.buffer}" })
-        table("Surface formats / color spaces", "<th>Format / color space</th><th>Status / description</th>", d.surfaceFormats.map { "${it.format} / ${it.colorSpace}" to "${if (it.supported) "SUPPORTED" else "NOT SUPPORTED"} · ${it.classification}; ${it.description}" })
-        table("Present modes", "<th>Mode</th><th>Value</th>", d.presentModes.map { it to "supported" })
+        table("Device properties", "<th>Property</th><th>Value</th>", listOf(
+            "API" to htmlEscape(d.apiVersion), "Driver version" to htmlEscape(d.driverVersionText), "Vendor" to htmlEscape(d.vendorId),
+            "Device ID" to htmlEscape(d.deviceId), "Type" to htmlEscape(d.deviceType), "Extended query status" to statusBadge(d.extendedQueryStatus),
+            "Extended query reason" to htmlEscape(d.extendedQueryReason), "Vulkan 1.4 status" to statusBadge(d.vulkan14Status), "Vulkan 1.4 reason" to htmlEscape(d.vulkan14Reason)
+        ))
+        append("<div class=\"section\"><h2>Device extensions</h2><table><thead><tr><th>Extension</th><th>Scope</th><th>Spec version</th><th>Status</th></tr></thead><tbody>")
+        d.extensions.forEach { ext ->
+            append("<tr><td class=\"code\">${htmlEscape(ext.name)}</td><td>${htmlEscape(ext.scope)}</td><td>${ext.specVersion}</td><td>${statusBadge(if (ext.supported) "SUPPORTED" else "NOT SUPPORTED")}</td></tr>")
+        }
+        append("</tbody></table></div>")
+        table("Device layers", "<th>Layer</th><th>Details</th>", d.deviceLayers.map { it.name to htmlEscape("spec ${it.specVersion}, implementation ${it.implementationVersion}; ${it.description}; extensions=${it.extensions.size}") })
+        table("Features", "<th>Feature</th><th>Status</th>", d.features.map { htmlEscape(it.name) to statusBadge(if (it.supported) "SUPPORTED" else "NOT SUPPORTED") })
+        table("Detailed properties", "<th>Section / property</th><th>Value</th>", d.detailedProperties.map { "${it.section} / ${it.name}" to htmlEscape(it.value) })
+        table("Limits", "<th>Limit</th><th>Value</th>", d.limits.map { it.first to htmlEscape(it.second) })
+        table("Memory", "<th>Entry</th><th>Value</th>", d.heaps.map { "Heap ${it.index}" to htmlEscape("${formatBytes(it.size)} | flags ${it.flags}") } + d.memoryTypes.map { "Type ${it.index}" to htmlEscape("heap ${it.heap} | flags ${it.flags}") })
+        table("Queues", "<th>Family</th><th>Details</th>", d.queues.map { "${it.index}" to htmlEscape("count=${it.count}, timestampBits=${it.timestampBits}, flags=${it.flags}, graphics=${it.graphics}, compute=${it.compute}, transfer=${it.transfer}, sparse=${it.sparse}, protected=${it.protected}, opticalFlow=${it.opticalFlow}, granularity=${it.granularity}") })
+        table("Formats", "<th>Format</th><th>Status / feature masks</th>", d.formats.map { htmlEscape(it.name) to "${statusBadge(if (it.supported) "SUPPORTED" else "NOT SUPPORTED")} ${htmlEscape("linear=${it.linear}, optimal=${it.optimal}, buffer=${it.buffer}")}" })
+        table("Surface formats / color spaces", "<th>Format / color space</th><th>Status / description</th>", d.surfaceFormats.map { "${it.format} / ${it.colorSpace}" to "${statusBadge(if (it.supported) "SUPPORTED" else "NOT SUPPORTED")} ${htmlEscape("${it.classification}; ${it.description}")}" })
+        table("Present modes", "<th>Mode</th><th>Status</th>", d.presentModes.map { it to statusBadge("SUPPORTED") })
         append("</div>")
     }
-    append("</body></html>")
+    append("</div></body></html>")
 }
 
 private enum class SupportFilter { ALL, SUPPORTED, UNSUPPORTED }
@@ -2569,6 +2783,63 @@ private fun VendorLogo(vendorId: Long?, modifier: Modifier) {
             modifier = Modifier.fillMaxSize().padding(8.dp),
             contentScale = ContentScale.Fit
         )
+    }
+}
+
+@Composable
+private fun CollectionStatusBanner(status: CollectionStatus) {
+    AnimatedVisibility(
+        visible = status != CollectionStatus.IDLE,
+        enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(260)) + expandVertically(animationSpec = androidx.compose.animation.core.tween(260)),
+        exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(420)) + shrinkVertically(animationSpec = androidx.compose.animation.core.tween(420))
+    ) {
+        val collecting = status == CollectionStatus.COLLECTING
+        Surface(modifier = Modifier.fillMaxWidth(), color = ComposeColor(0xFF111111), tonalElevation = 0.dp) {
+            Column(Modifier.fillMaxWidth()) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    if (collecting) {
+                        AssistChip(onClick = {}, enabled = false, label = { Text("Bilgiler alınıyor…") })
+                        Text(
+                            "VulkanScope tüm Vulkan bilgilerini arka planda topluyor.",
+                            color = ComposeColor(0xFF9E9E9E),
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                    } else {
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = ComposeColor(0xFF163D24),
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text("✓", color = ComposeColor(0xFF55D98A), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                            }
+                        }
+                        Text(
+                            "Tamamlandı",
+                            color = ComposeColor(0xFF55D98A),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            "Vulkan bilgileri güncellendi.",
+                            color = ComposeColor(0xFF9E9E9E),
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+                if (collecting) LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+        }
     }
 }
 

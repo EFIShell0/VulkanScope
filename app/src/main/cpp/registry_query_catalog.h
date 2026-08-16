@@ -9,10 +9,10 @@ inline constexpr const char* kMode = "offline registry-driven validated runtime 
 inline constexpr const char* kHeaderBaseline = "Vulkan 1.4.357 / official header baseline";
 inline constexpr const char* kReportSchema = "4";
 inline constexpr std::size_t kCatalogSchemaVersion = 6;
-inline constexpr std::size_t kImplementedPhysicalDeviceStructCount = 77;
-inline constexpr std::size_t kValidatedRuntimeQueryGroupCount = 57;
+inline constexpr std::size_t kImplementedPhysicalDeviceStructCount = 107;
+inline constexpr std::size_t kValidatedRuntimeQueryGroupCount = 74;
 inline constexpr std::size_t kRuntimeExtensionTokenCount = 266;
-inline constexpr std::array<const char*, 77> kImplementedPhysicalDeviceStructs = {
+inline constexpr std::array<const char*, 107> kImplementedPhysicalDeviceStructs = {
     "VkPhysicalDeviceComputeOccupancyPriorityFeaturesNV",
     "VkPhysicalDeviceCooperativeMatrixConversionFeaturesQCOM",
     "VkPhysicalDeviceCooperativeMatrixDecodeVectorFeaturesNV",
@@ -90,8 +90,38 @@ inline constexpr std::array<const char*, 77> kImplementedPhysicalDeviceStructs =
     "VkPhysicalDeviceVulkan12Properties",
     "VkPhysicalDeviceVulkan13Properties",
     "VkPhysicalDeviceVulkan14Properties",
+    "VkPhysicalDeviceDescriptorBufferFeaturesEXT",
+    "VkPhysicalDeviceDescriptorBufferPropertiesEXT",
+    "VkPhysicalDeviceAccelerationStructureFeaturesKHR",
+    "VkPhysicalDeviceAccelerationStructurePropertiesKHR",
+    "VkPhysicalDeviceRayTracingPipelineFeaturesKHR",
+    "VkPhysicalDeviceRayTracingPipelinePropertiesKHR",
+    "VkPhysicalDeviceRayQueryFeaturesKHR",
+    "VkPhysicalDeviceMeshShaderFeaturesEXT",
+    "VkPhysicalDeviceMeshShaderPropertiesEXT",
+    "VkPhysicalDeviceGraphicsPipelineLibraryFeaturesEXT",
+    "VkPhysicalDeviceGraphicsPipelineLibraryPropertiesEXT",
+    "VkPhysicalDeviceShaderObjectFeaturesEXT",
+    "VkPhysicalDeviceShaderObjectPropertiesEXT",
+    "VkPhysicalDeviceHostImageCopyFeatures",
+    "VkPhysicalDeviceHostImageCopyProperties",
+    "VkPhysicalDeviceExtendedDynamicStateFeaturesEXT",
+    "VkPhysicalDeviceExtendedDynamicState3FeaturesEXT",
+    "VkPhysicalDeviceExtendedDynamicState3PropertiesEXT",
+    "VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR",
+    "VkPhysicalDeviceFragmentShaderBarycentricPropertiesKHR",
+    "VkPhysicalDeviceFragmentShadingRateFeaturesKHR",
+    "VkPhysicalDeviceFragmentShadingRatePropertiesKHR",
+    "VkPhysicalDeviceTransformFeedbackFeaturesEXT",
+    "VkPhysicalDeviceTransformFeedbackPropertiesEXT",
+    "VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT",
+    "VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT",
+    "VkPhysicalDeviceInlineUniformBlockFeatures",
+    "VkPhysicalDeviceInlineUniformBlockProperties",
+    "VkPhysicalDevicePrivateDataFeatures",
+    "VkPhysicalDeviceSynchronization2Features",
 };
-inline constexpr std::array<const char*, 57> kValidatedRuntimeQueryGroups = {
+inline constexpr std::array<const char*, 74> kValidatedRuntimeQueryGroups = {
     "astc3D",
     "computeOccupancyPriority",
     "cooperativeMatrix",
@@ -149,6 +179,23 @@ inline constexpr std::array<const char*, 57> kValidatedRuntimeQueryGroups = {
     "videoEncodeFeedback2",
     "vulkan14",
     "videoCapabilities",
+    "descriptorBufferParity",
+    "accelerationStructureParity",
+    "rayTracingPipelineParity",
+    "rayQueryParity",
+    "meshShaderParity",
+    "graphicsPipelineLibraryParity",
+    "shaderObjectParity",
+    "hostImageCopyParity",
+    "extendedDynamicStateParity",
+    "extendedDynamicState3Parity",
+    "fragmentShaderBarycentricParity",
+    "fragmentShadingRateParity",
+    "transformFeedbackParity",
+    "vertexAttributeDivisorParity",
+    "inlineUniformBlockParity",
+    "privateDataParity",
+    "synchronization2Parity",
 };
 struct QueryDescriptor {
     const char* group;
@@ -158,7 +205,7 @@ struct QueryDescriptor {
     const char* queryKind;
 };
 
-inline constexpr std::array<QueryDescriptor, 57> kValidatedQueryDescriptors = {{
+inline constexpr std::array<QueryDescriptor, 74> kValidatedQueryDescriptors = {{
     {"astc3D", "device-extension", "VK_EXT_texture_compression_astc_3d", 0, "feature+property"},
     {"computeOccupancyPriority", "device-extension", "VK_NV_compute_occupancy_priority", 0, "feature+property"},
     {"cooperativeMatrix", "device-extension", "VK_KHR_cooperative_matrix", 0, "feature+property"},
@@ -216,6 +263,23 @@ inline constexpr std::array<QueryDescriptor, 57> kValidatedQueryDescriptors = {{
     {"videoEncodeFeedback2", "device-extension", "VK_KHR_video_encode_feedback2", 0, "feature+property"},
     {"videoCapabilities", "advanced", "", 0, "video-profile+capabilities+formats"},
     {"vulkan14", "core", "", 4, "feature+property"},
+    {"descriptorBufferParity", "device-extension", "VK_EXT_descriptor_buffer", 0, "feature+property"},
+    {"accelerationStructureParity", "device-extension", "VK_KHR_acceleration_structure", 0, "feature+property"},
+    {"rayTracingPipelineParity", "device-extension", "VK_KHR_ray_tracing_pipeline", 0, "feature+property"},
+    {"rayQueryParity", "device-extension", "VK_KHR_ray_query", 0, "feature-only"},
+    {"meshShaderParity", "device-extension", "VK_EXT_mesh_shader", 0, "feature+property"},
+    {"graphicsPipelineLibraryParity", "device-extension", "VK_EXT_graphics_pipeline_library", 0, "feature+property"},
+    {"shaderObjectParity", "device-extension", "VK_EXT_shader_object", 0, "feature+property"},
+    {"hostImageCopyParity", "device-extension", "VK_EXT_host_image_copy", 0, "feature+property"},
+    {"extendedDynamicStateParity", "device-extension", "VK_EXT_extended_dynamic_state", 0, "feature-only"},
+    {"extendedDynamicState3Parity", "device-extension", "VK_EXT_extended_dynamic_state3", 0, "feature+property"},
+    {"fragmentShaderBarycentricParity", "device-extension", "VK_KHR_fragment_shader_barycentric", 0, "feature+property"},
+    {"fragmentShadingRateParity", "device-extension", "VK_KHR_fragment_shading_rate", 0, "feature+property"},
+    {"transformFeedbackParity", "device-extension", "VK_EXT_transform_feedback", 0, "feature+property"},
+    {"vertexAttributeDivisorParity", "device-extension", "VK_EXT_vertex_attribute_divisor", 0, "feature+property"},
+    {"inlineUniformBlockParity", "device-extension", "VK_KHR_inline_uniform_block", 0, "feature+property"},
+    {"privateDataParity", "device-extension", "VK_EXT_private_data", 0, "feature-only"},
+    {"synchronization2Parity", "device-extension", "VK_KHR_synchronization2", 0, "feature-only"},
 }};
 
 constexpr const QueryDescriptor* findQueryDescriptor(const char* group) {

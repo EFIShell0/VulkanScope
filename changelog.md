@@ -1,3 +1,92 @@
+## 0.20.7
+
+- Fixed repeated Vulkan query-status entries accumulating in Properties & Limits after Android Surface recreation.
+- Deduplicated merged property records while preserving distinct Vulkan values and the full query coverage.
+- TXT and HTML exports now include the detected GPU name in the report and use a GPU-aware filename.
+- Added success/failure toast feedback after TXT and HTML export attempts.
+
+# VulkanScope Changelog
+
+## 0.20.6 — 2026-08-16
+
+- Fixed the full initial collection-session lifecycle: the completion banner is no longer allowed to finish when the base report and enrichment finish while background query groups are still running.
+- Background core, advanced and runtime extension query jobs are now structurally awaited as part of the same collection session, so the session remains active until every scheduled group has completed or been resolved as not applicable.
+- Removed the premature generation-wide pending-task cleanup that was clearing unfinished background work immediately after scheduling it.
+- Preserved the existing green completion check, 2-second completion window and soft fade/shrink exit animation.
+- Preserved ad-hoc page queries, surface refreshes, Turnip/custom-driver paths, all Vulkan query groups, extension-specific feature/property coverage, TXT/HTML reporting and all existing UI sections.
+- No Vulkan feature, property, limit, extension, format, queue, memory, surface or report path was removed.
+- Bumped versionName to 0.20.6 and versionCode to 123.
+
+## 0.20.5 — 2026-08-16
+
+- Reworked collection completion tracking around explicit pending task identifiers and collection generations.
+- Fixed VulkanProbeService multi-intent shutdown so queued background Vulkan query requests are not terminated by an earlier start request. Each service request now uses its own startId with stopSelfResult, allowing the final queued query to keep the service alive until all scheduled probes finish.
+- The collection banner now remains active until the complete initial native report, enrichment, and every scheduled background Vulkan query group has actually finished or been resolved as not applicable.
+- Ad-hoc page queries and surface refreshes participate in the same completion state without prematurely hiding the banner.
+- Completion is shown as a green check for 2 seconds, then exits with the existing soft animation.
+- No Vulkan query group, extension, property, feature, limit, format, queue, memory, surface, or report path was removed.
+- Version 0.20.5 / versionCode 122.
+
+## 0.20.4 — Complete collection-session status
+
+- Collection status is now tracked by the number of active Vulkan information jobs rather than only by the initial base report.
+- The status remains active while core 1.1–1.4, advanced, extension-specific, metadata, surface, and other scheduled background Vulkan queries are still running.
+- Completion is published only after the active query-job count reaches zero, preventing the status from disappearing while Properties & Limits or other sections are still being populated.
+- A newly scheduled lazy query re-opens the same collection status instead of being treated as already complete.
+- “Tamamlandı” remains visible for 2 seconds, then leaves with the existing soft fade/shrink transition.
+- No existing Vulkan query group, feature, property, extension, export format, or UI section was removed.
+- Bumped versionName to 0.20.4 and versionCode to 121.
+
+## 0.20.3 — Unified information collection status
+
+- Collection status now covers the full Vulkan information gathering lifecycle instead of only the initial Overview/base report.
+- Core, advanced and runtime extension-specific background query groups are scheduled as part of the initial inspection so later Properties, Features, Formats, Memory, Queues and Extensions data is represented by the same collection state.
+- Unsupported optional extension query groups are treated as completed without being reported as supported.
+- The collection banner remains visible while background information is still being collected, regardless of the currently selected page.
+- Completion is shown with a green checkmark and a soft fade/shrink transition before the banner disappears.
+- No existing Vulkan query coverage or UI section was removed.
+
+# 0.20.2
+
+- Fixed the Vulkan `VK_EXT_transform_feedback` feature query to match the canonical `VkPhysicalDeviceTransformFeedbackFeaturesEXT` structure: `transformFeedback` and `geometryStreams` are queried and reported, with no invented `geometryStreamDecoration` member.
+- Preserved all existing extension-specific feature/property, core Vulkan, surface, format, video, profile, TXT and HTML reporting paths.
+- Removed obsolete standalone changelog files from older releases; release history remains in this canonical changelog.
+- Bumped versionName to 0.20.2 and versionCode to 120.
+
+# 0.20.1
+
+- Fixed Android native compilation of the CapsViewer parity layer against the canonical Vulkan-Headers 1.4.357 baseline.
+- Removed duplicate promoted alias switch cases without reducing runtime capability coverage.
+- Excluded non-Android QNX and OHOS structure paths from the Android compilation unit; these remain unavailable rather than guessed.
+- Preserved all existing Vulkan core, extension, surface, format, feature, property, TXT and HTML reporting paths.
+- Hardened release verification to reject invalid platform-specific parity types and duplicate VkStructureType alias cases.
+
+# 0.20.0
+
+## Reporting and UI
+- Extension-specific feature and property data from the expanded CapsViewer-parity query layer remains surfaced through the existing Features and Properties views once the corresponding runtime query completes.
+- TXT export continues to include all currently collected runtime features and detailed properties, including newly added extension-specific fields.
+- HTML export was redesigned with a responsive dark report layout, clearer section hierarchy, runtime extension details, and colored status badges for supported, not supported, unavailable, unknown, and not-applicable states.
+- Device extension scope and specVersion are included in HTML export without lossy extension-name normalization.
+- While base inspection and lazy detail queries are still running, the Material 3 Expressive UI shows a compact "Bilgiler alınıyor…" status with progress indication. Completion briefly shows "Tamamlandı" before the status disappears.
+- Surface refresh and page-triggered lazy Vulkan queries also use the same non-blocking status treatment without blocking the UI thread.
+
+0.19.10
+- Added CapsViewer 4.12 vendor-specific feature/property parity coverage for every physical-device structure referenced by its dedicated extension readers that was not already covered by VulkanScope's validated 1.4.357 registry/core query paths.
+- Added 259 additional parity physical-device structures across EXT, KHR, NV, AMD/AMDX, ARM, QCOM, HUAWEI, VALVE, ANDROID, MESA, INTEL, IMG, MSFT, NVX, SEC, OHOS and QNX families where applicable to the 4.12 source reference.
+- Added field-level serialization for all newly covered parity structures; unsupported pointer fields remain explicitly unavailable and non-scalar/nested values use a raw-byte representation rather than guessed semantics.
+- Preserved Vulkan 1.1-1.4 core ownership for promoted capabilities so extension aliases are not double-counted.
+- Preserved exact runtime extension enumeration, extension specVersion, lazy optional query architecture, Turnip/custom-driver support, Surface/HDR/format/video/profile paths, and no-feature-removal policy.
+- No database changes.
+- Bumped versionName to 0.19.10 and versionCode to 117.
+
+0.19.9
+- Expanded validated extension-specific physical-device feature/property querying for major CapsViewer 4.12 parity gaps: descriptor buffer, acceleration structures, ray tracing pipeline/query, mesh shader, graphics pipeline library, shader object, host image copy, extended dynamic state, fragment shader barycentric, fragment shading rate, transform feedback, vertex attribute divisor, inline uniform block, private data and synchronization2.
+- Preserved exact runtime extension enumeration, extension specVersion values, Vulkan 1.1-1.4 core queries, Surface/HDR/format/video/profile paths, Turnip/custom-driver support, and lazy probe architecture.
+- Added isolated parity query groups without making registry-only extension names appear runtime-supported.
+- Increased validated runtime query groups from 57 to 74 and tracked 107 physical-device structures in the checked-in coverage catalog.
+- No database changes and no existing capability/query group was removed.
+
 0.19.8
 - Fixed duplicate Jetpack Compose lazy-list keys in the Formats, Features, and Physical-device Properties screens. Duplicate Vulkan property names are now safely keyed without dropping or merging entries.
 

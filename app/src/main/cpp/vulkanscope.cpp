@@ -1208,8 +1208,34 @@ template <typename T> void generatedEmitArray(std::vector<GeneratedField>& dst, 
 }
 
 
+template <typename T> void generatedEmitAuto(std::vector<GeneratedField>& dst, const char* section, const char* name, T&& value) {
+    using U = std::remove_reference_t<T>;
+    using D = std::decay_t<T>;
+    if constexpr (std::is_pointer_v<U>) {
+        generatedEmitString(dst, section, name, std::string("unavailable; pointer field"));
+    } else if constexpr (std::is_array_v<U>) {
+        using E = std::remove_extent_t<U>;
+        if constexpr (std::is_same_v<std::remove_cv_t<E>, char>) {
+            generatedEmitString(dst, section, name, value, sizeof(value));
+        } else {
+            generatedEmitHexTyped(dst, section, name, "raw", reinterpret_cast<const uint8_t*>(&value), sizeof(value));
+        }
+    } else if constexpr (std::is_same_v<D, VkBool32>) {
+        generatedEmitBool(dst, section, name, value);
+    } else if constexpr (std::is_integral_v<D> || std::is_enum_v<D>) {
+        generatedEmitNumeric(dst, section, name, value);
+    } else if constexpr (std::is_floating_point_v<D>) {
+        generatedEmitString(dst, section, name, std::to_string(value));
+    } else {
+        generatedEmitHexTyped(dst, section, name, "raw", reinterpret_cast<const uint8_t*>(&value), sizeof(value));
+    }
+}
+
+
 #include <extension_field_coverage_generated.inc>
+#include <extension_field_coverage_parity.inc>
 #include <runtime_extension_pnext_generated.inc>
+#include <runtime_extension_pnext_parity.inc>
 
 struct GeneratedPNextHeader {
     uint32_t sType;
@@ -1227,6 +1253,7 @@ static void captureGeneratedPNextFields(std::vector<GeneratedField>& dst, const 
         visited[visitedCount++] = current;
         const auto* node = reinterpret_cast<const GeneratedPNextHeader*>(current);
         appendGeneratedStructFields(dst, node->sType, const_cast<void*>(current));
+        appendParityStructFields(dst, node->sType, const_cast<void*>(current));
         current = node->pNext;
     }
 }
@@ -2327,11 +2354,163 @@ std::string collectVulkanExtensionGroup(const char* driverMode, const char* driv
             const std::string section = extensionName[0] ? (std::string("Extension · ") + extensionName) : "Advanced Query";
             propertyEntries.push_back({section, propertyName, value});
         };
+        if (std::strcmp(extensionName, "VK_EXT_descriptor_buffer") == 0 || std::strcmp(group, "descriptorBuffer") == 0) {
+            VkPhysicalDeviceDescriptorBufferFeaturesEXT f{};
+            f.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_FEATURES_EXT;
+            VkPhysicalDeviceFeatures2 q{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f, {}};
+            api.queryFeatures2(devices[i], &q);
+            addFeature("descriptorBuffer", f.descriptorBuffer);
+            addFeature("descriptorBufferCaptureReplay", f.descriptorBufferCaptureReplay);
+            addFeature("descriptorBufferImageLayoutIgnored", f.descriptorBufferImageLayoutIgnored);
+            addFeature("descriptorBufferPushDescriptors", f.descriptorBufferPushDescriptors);
+        } else if (std::strcmp(extensionName, "VK_KHR_acceleration_structure") == 0) {
+            VkPhysicalDeviceAccelerationStructureFeaturesKHR f{};
+            f.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+            VkPhysicalDeviceFeatures2 q{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f, {}};
+            api.queryFeatures2(devices[i], &q);
+            addFeature("accelerationStructure", f.accelerationStructure);
+            addFeature("accelerationStructureCaptureReplay", f.accelerationStructureCaptureReplay);
+            addFeature("accelerationStructureIndirectBuild", f.accelerationStructureIndirectBuild);
+            addFeature("accelerationStructureHostCommands", f.accelerationStructureHostCommands);
+            addFeature("descriptorBindingAccelerationStructureUpdateAfterBind", f.descriptorBindingAccelerationStructureUpdateAfterBind);
+        } else if (std::strcmp(extensionName, "VK_KHR_ray_tracing_pipeline") == 0) {
+            VkPhysicalDeviceRayTracingPipelineFeaturesKHR f{};
+            f.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
+            VkPhysicalDeviceFeatures2 q{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f, {}};
+            api.queryFeatures2(devices[i], &q);
+            addFeature("rayTracingPipeline", f.rayTracingPipeline);
+            addFeature("rayTracingPipelineShaderGroupHandleCaptureReplay", f.rayTracingPipelineShaderGroupHandleCaptureReplay);
+            addFeature("rayTracingPipelineShaderGroupHandleCaptureReplayMixed", f.rayTracingPipelineShaderGroupHandleCaptureReplayMixed);
+            addFeature("rayTracingPipelineTraceRaysIndirect", f.rayTracingPipelineTraceRaysIndirect);
+        } else if (std::strcmp(extensionName, "VK_KHR_ray_query") == 0) {
+            VkPhysicalDeviceRayQueryFeaturesKHR f{};
+            f.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
+            VkPhysicalDeviceFeatures2 q{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f, {}};
+            api.queryFeatures2(devices[i], &q);
+            addFeature("rayQuery", f.rayQuery);
+        } else if (std::strcmp(extensionName, "VK_EXT_mesh_shader") == 0) {
+            VkPhysicalDeviceMeshShaderFeaturesEXT f{};
+            f.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT;
+            VkPhysicalDeviceFeatures2 q{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f, {}};
+            api.queryFeatures2(devices[i], &q);
+            addFeature("taskShader", f.taskShader);
+            addFeature("meshShader", f.meshShader);
+            addFeature("multiviewMeshShader", f.multiviewMeshShader);
+            addFeature("primitiveFragmentShadingRateMeshShader", f.primitiveFragmentShadingRateMeshShader);
+            addFeature("meshShaderQueries", f.meshShaderQueries);
+        } else if (std::strcmp(extensionName, "VK_EXT_graphics_pipeline_library") == 0) {
+            VkPhysicalDeviceGraphicsPipelineLibraryFeaturesEXT f{};
+            f.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_GRAPHICS_PIPELINE_LIBRARY_FEATURES_EXT;
+            VkPhysicalDeviceFeatures2 q{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f, {}};
+            api.queryFeatures2(devices[i], &q);
+            addFeature("graphicsPipelineLibrary", f.graphicsPipelineLibrary);
+        } else if (std::strcmp(extensionName, "VK_EXT_shader_object") == 0) {
+            VkPhysicalDeviceShaderObjectFeaturesEXT f{};
+            f.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_OBJECT_FEATURES_EXT;
+            VkPhysicalDeviceFeatures2 q{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f, {}};
+            api.queryFeatures2(devices[i], &q);
+            addFeature("shaderObject", f.shaderObject);
+        } else if (std::strcmp(extensionName, "VK_EXT_host_image_copy") == 0) {
+            VkPhysicalDeviceHostImageCopyFeatures f{};
+            f.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_IMAGE_COPY_FEATURES;
+            VkPhysicalDeviceFeatures2 q{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f, {}};
+            api.queryFeatures2(devices[i], &q);
+            addFeature("hostImageCopy", f.hostImageCopy);
+        } else if (std::strcmp(extensionName, "VK_EXT_extended_dynamic_state") == 0) {
+            VkPhysicalDeviceExtendedDynamicStateFeaturesEXT f{};
+            f.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT;
+            VkPhysicalDeviceFeatures2 q{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f, {}};
+            api.queryFeatures2(devices[i], &q);
+            addFeature("extendedDynamicState", f.extendedDynamicState);
+        } else if (std::strcmp(extensionName, "VK_EXT_extended_dynamic_state3") == 0) {
+            VkPhysicalDeviceExtendedDynamicState3FeaturesEXT f{};
+            f.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT;
+            VkPhysicalDeviceFeatures2 q{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f, {}};
+            api.queryFeatures2(devices[i], &q);
+            addFeature("extendedDynamicState3TessellationDomainOrigin", f.extendedDynamicState3TessellationDomainOrigin);
+            addFeature("extendedDynamicState3DepthClampEnable", f.extendedDynamicState3DepthClampEnable);
+            addFeature("extendedDynamicState3PolygonMode", f.extendedDynamicState3PolygonMode);
+            addFeature("extendedDynamicState3RasterizationSamples", f.extendedDynamicState3RasterizationSamples);
+            addFeature("extendedDynamicState3SampleMask", f.extendedDynamicState3SampleMask);
+            addFeature("extendedDynamicState3AlphaToCoverageEnable", f.extendedDynamicState3AlphaToCoverageEnable);
+            addFeature("extendedDynamicState3AlphaToOneEnable", f.extendedDynamicState3AlphaToOneEnable);
+            addFeature("extendedDynamicState3LogicOpEnable", f.extendedDynamicState3LogicOpEnable);
+            addFeature("extendedDynamicState3ColorBlendEnable", f.extendedDynamicState3ColorBlendEnable);
+            addFeature("extendedDynamicState3ColorBlendEquation", f.extendedDynamicState3ColorBlendEquation);
+            addFeature("extendedDynamicState3ColorWriteMask", f.extendedDynamicState3ColorWriteMask);
+            addFeature("extendedDynamicState3RasterizationStream", f.extendedDynamicState3RasterizationStream);
+            addFeature("extendedDynamicState3ConservativeRasterizationMode", f.extendedDynamicState3ConservativeRasterizationMode);
+            addFeature("extendedDynamicState3ExtraPrimitiveOverestimationSize", f.extendedDynamicState3ExtraPrimitiveOverestimationSize);
+            addFeature("extendedDynamicState3DepthClipEnable", f.extendedDynamicState3DepthClipEnable);
+            addFeature("extendedDynamicState3SampleLocationsEnable", f.extendedDynamicState3SampleLocationsEnable);
+            addFeature("extendedDynamicState3ColorBlendAdvanced", f.extendedDynamicState3ColorBlendAdvanced);
+            addFeature("extendedDynamicState3ProvokingVertexMode", f.extendedDynamicState3ProvokingVertexMode);
+            addFeature("extendedDynamicState3LineRasterizationMode", f.extendedDynamicState3LineRasterizationMode);
+            addFeature("extendedDynamicState3LineStippleEnable", f.extendedDynamicState3LineStippleEnable);
+            addFeature("extendedDynamicState3DepthClipNegativeOneToOne", f.extendedDynamicState3DepthClipNegativeOneToOne);
+            addFeature("extendedDynamicState3ViewportWScalingEnable", f.extendedDynamicState3ViewportWScalingEnable);
+            addFeature("extendedDynamicState3ViewportSwizzle", f.extendedDynamicState3ViewportSwizzle);
+            addFeature("extendedDynamicState3CoverageToColorEnable", f.extendedDynamicState3CoverageToColorEnable);
+            addFeature("extendedDynamicState3CoverageToColorLocation", f.extendedDynamicState3CoverageToColorLocation);
+            addFeature("extendedDynamicState3CoverageModulationMode", f.extendedDynamicState3CoverageModulationMode);
+            addFeature("extendedDynamicState3CoverageModulationTableEnable", f.extendedDynamicState3CoverageModulationTableEnable);
+            addFeature("extendedDynamicState3CoverageModulationTable", f.extendedDynamicState3CoverageModulationTable);
+            addFeature("extendedDynamicState3CoverageReductionMode", f.extendedDynamicState3CoverageReductionMode);
+            addFeature("extendedDynamicState3RepresentativeFragmentTestEnable", f.extendedDynamicState3RepresentativeFragmentTestEnable);
+            addFeature("extendedDynamicState3ShadingRateImageEnable", f.extendedDynamicState3ShadingRateImageEnable);
+        } else if (std::strcmp(extensionName, "VK_KHR_fragment_shader_barycentric") == 0) {
+            VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR f{};
+            f.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR;
+            VkPhysicalDeviceFeatures2 q{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f, {}};
+            api.queryFeatures2(devices[i], &q);
+            addFeature("fragmentShaderBarycentric", f.fragmentShaderBarycentric);
+        } else if (std::strcmp(extensionName, "VK_KHR_fragment_shading_rate") == 0) {
+            VkPhysicalDeviceFragmentShadingRateFeaturesKHR f{};
+            f.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR;
+            VkPhysicalDeviceFeatures2 q{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f, {}};
+            api.queryFeatures2(devices[i], &q);
+            addFeature("pipelineFragmentShadingRate", f.pipelineFragmentShadingRate);
+            addFeature("primitiveFragmentShadingRate", f.primitiveFragmentShadingRate);
+            addFeature("attachmentFragmentShadingRate", f.attachmentFragmentShadingRate);
+        } else if (std::strcmp(extensionName, "VK_EXT_transform_feedback") == 0) {
+            VkPhysicalDeviceTransformFeedbackFeaturesEXT f{};
+            f.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT;
+            VkPhysicalDeviceFeatures2 q{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f, {}};
+            api.queryFeatures2(devices[i], &q);
+            addFeature("transformFeedback", f.transformFeedback);
+            addFeature("geometryStreams", f.geometryStreams);
+        } else if (std::strcmp(extensionName, "VK_EXT_vertex_attribute_divisor") == 0) {
+            VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT f{};
+            f.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_EXT;
+            VkPhysicalDeviceFeatures2 q{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f, {}};
+            api.queryFeatures2(devices[i], &q);
+            addFeature("vertexAttributeInstanceRateDivisor", f.vertexAttributeInstanceRateDivisor);
+            addFeature("vertexAttributeInstanceRateZeroDivisor", f.vertexAttributeInstanceRateZeroDivisor);
+        } else if (std::strcmp(extensionName, "VK_KHR_inline_uniform_block") == 0) {
+            VkPhysicalDeviceInlineUniformBlockFeatures f{};
+            f.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_FEATURES;
+            VkPhysicalDeviceFeatures2 q{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f, {}};
+            api.queryFeatures2(devices[i], &q);
+            addFeature("inlineUniformBlock", f.inlineUniformBlock);
+            addFeature("descriptorBindingInlineUniformBlockUpdateAfterBind", f.descriptorBindingInlineUniformBlockUpdateAfterBind);
+        } else if (std::strcmp(extensionName, "VK_EXT_private_data") == 0) {
+            VkPhysicalDevicePrivateDataFeatures f{};
+            f.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRIVATE_DATA_FEATURES;
+            VkPhysicalDeviceFeatures2 q{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f, {}};
+            api.queryFeatures2(devices[i], &q);
+            addFeature("privateData", f.privateData);
+        } else if (std::strcmp(extensionName, "VK_KHR_synchronization2") == 0) {
+            VkPhysicalDeviceSynchronization2Features f{};
+            f.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES;
+            VkPhysicalDeviceFeatures2 q{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f, {}};
+            api.queryFeatures2(devices[i], &q);
+            addFeature("synchronization2", f.synchronization2);
+        }
         api.captureGeneratedFields = true;
         api.generatedFields.clear();
         api.generatedFields.reserve(1024);
         RuntimePNextStorage runtimePNext;
-        const size_t runtimePNextAdded = appendAllGeneratedExtensionPNext(extensionName, devExts, runtimePNext);
+        const size_t runtimePNextAdded = appendAllGeneratedExtensionPNext(extensionName, devExts, runtimePNext) + appendParityExtensionPNext(extensionName, devExts, runtimePNext);
         VkPhysicalDeviceFeatures2 generatedFeatures{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, runtimePNext.featureHead, {}};
         VkPhysicalDeviceProperties2 generatedProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, runtimePNext.propertyHead, {}};
         if (runtimePNext.featureHead && api.getPhysicalDeviceFeatures2) api.queryFeatures2(devices[i], &generatedFeatures);
