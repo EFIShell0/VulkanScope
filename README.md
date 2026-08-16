@@ -2,7 +2,7 @@
 
 VulkanScope is an offline Android Vulkan, Surface, Display and HDR inspection tool.
 
-**Current version: 0.20.4**
+**Current version: 0.21.6**
 
 ## UI
 
@@ -36,6 +36,8 @@ The native collector queries the installed Android Vulkan loader and physical de
 The Surface page reports exact format and color-space pairs, present modes, surface capabilities and queue-family presentation support. The Display & HDR page separately reports Android display HDR types, luminance, wide-color capability, preferred wide-gamut color space and display modes.
 
 The Extensions page lists runtime-enumerated instance and device extensions with exact Vulkan names, scope and specVersion and provides case-insensitive search.
+
+NOTE: Programs may not work properly on VMs like BlueStacks.
 
 ## Branding
 
