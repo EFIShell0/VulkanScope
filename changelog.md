@@ -1,3 +1,35 @@
+# VulkanScope 0.22.7
+
+- Added the missing `VK_KHR_ray_query` isolated feature-query group without removing or changing existing Vulkan query coverage.
+- User-facing TXT, HTML and in-app detailed property labels no longer expose the internal `CapsViewer 4.12 parity` prefix; parity coverage remains intact internally.
+- Styled the HTML GitHub link to match the report visual system and avoid the browser-default link appearance.
+- Preserved the 0.22.5 horizontal logo, application/device ABI metadata, developer metadata and all existing functionality.
+- Bumped versionName to 0.22.7 and versionCode to 150.
+
+# VulkanScope 0.22.5
+
+- Replaced the top-left `VulkanScope` text title with a horizontal lockup made directly from the existing application logo artwork.
+- Preserved the existing Vulkan wordmark and SCOPE lettering geometry; the original horizontal divider is rotated vertically between them.
+- Sized the horizontal logo to fit the existing Material 3 top app bar without changing page-title behavior or navigation.
+- Preserved all existing functionality, query coverage, SAF/download behavior, Android TV D-pad support and report/export behavior.
+- Added the approved horizontal VulkanScope logo to standalone HTML exports by embedding the same app artwork used in the top app bar.
+- Added separate application ABI and supported device ABI fields to TXT and HTML exports; the application ABI is derived from the installed native library directory.
+- Added developer metadata to TXT and HTML exports: Semih Boran, EFI Shell, and GitHub account `https://github.com/EFIShell0`.
+- Kept the existing report data model and Vulkan query/report coverage unchanged.
+- Bumped versionName to 0.22.5 and versionCode to 148.
+
+# 0.22.0
+
+- Fixed device-extension enumeration state handling so an enumeration failure is no longer serialized as an empty extension list.
+- Distinguishes `available`, `unavailable`, and `incomplete` device-extension enumeration states.
+- Preserves the exact runtime extension names and reported `specVersion` values when enumeration succeeds.
+- Records the native Vulkan result/reason when device-extension enumeration cannot be completed.
+- Updated TXT and HTML reports to expose device-extension enumeration status and reason separately from the extension list.
+- Prevented the Extensions screen from treating a failed device-extension enumeration as evidence that registry-listed extensions are not enumerated.
+- Isolated extension-specific queries no longer treat an unavailable/incomplete extension enumeration as proof that an extension is unsupported.
+- Preserved the existing Vulkan query coverage, SAF export behavior, Android TV D-pad support, ABI support, and all existing application features.
+- Bumped versionName to 0.22.0 and versionCode to 143.
+
 # 0.21.14
 
 - Added deterministic core-coverage validation after base Vulkan probe parsing. Incomplete base datasets are rejected and the base probe is retried once before exposing the report.
@@ -551,3 +583,8 @@ Expanded validated Vulkan extension-specific feature coverage and completed all 
 - Restored the intact Surface probe and all existing feature/property/versioned query output.
 - Hardened only the base probe's prerequisite physical-device queries with stable core entry points; no query group or GUI field was removed.
 - Fixed the source corruption introduced in 0.18.22.
+
+## 0.22.7
+- Completed `VK_KHR_ray_query` isolated feature-query aliases so all catalog forms resolve to the runtime feature query.
+- Removed `CapsViewer 4.12 parity ·` from user-visible feature and property labels in TXT/HTML report parsing while retaining internal parity metadata in source/catalog files.
+- Preserved existing Vulkan query coverage and report schemas.

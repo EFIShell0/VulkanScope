@@ -10,6 +10,7 @@ import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.util.Log
+import android.util.Base64
 import android.hardware.display.DisplayManager
 import android.content.Intent
 import android.content.Context
@@ -233,6 +234,8 @@ private data class DeviceReport(
     val deviceType: String,
     val deviceLayers: List<LayerEntry>,
     val extensions: List<ExtensionEntry>,
+    val deviceExtensionStatus: String = "unknown",
+    val deviceExtensionReason: String = "",
     val features: List<FeatureEntry>,
     val queues: List<QueueEntry>,
     val heaps: List<MemoryHeapEntry>,
@@ -991,6 +994,9 @@ private fun mergeMetadataReport(base: VulkanReport, raw: String): VulkanReport {
     )
 }
 
+private fun sanitizeReportLabel(value: String): String = value.removePrefix("CapsViewer 4.12 parity · ")
+private fun sanitizeReportSection(section: String): String = sanitizeReportLabel(section)
+
 private fun mergeQueryProperties(existing: List<PropertyEntry>, incoming: List<PropertyEntry>): List<PropertyEntry> =
     (existing + incoming).distinctBy { Triple(it.section, it.name, it.value) }
 
@@ -1087,13 +1093,13 @@ private fun mergeAdvancedQueryReport(base: VulkanReport, raw: String, group: Str
         val featureArray = item.optJSONArray("features") ?: JSONArray()
         for (j in 0 until featureArray.length()) {
             val feature = featureArray.optJSONObject(j) ?: continue
-            features += FeatureEntry(feature.optString("name"), feature.optBoolean("supported"))
+            features += FeatureEntry(sanitizeReportLabel(feature.optString("name")), feature.optBoolean("supported"))
         }
         val properties = mutableListOf<PropertyEntry>()
         val pa = item.optJSONArray("properties") ?: JSONArray()
         for (j in 0 until pa.length()) {
             val prop = pa.optJSONObject(j) ?: continue
-            properties += PropertyEntry(prop.optString("section"), prop.optString("name"), prop.optString("value"))
+            properties += PropertyEntry(sanitizeReportSection(prop.optString("section")), prop.optString("name"), prop.optString("value"))
         }
         parsed += Triple(vendor, deviceId, features to properties)
         if (group == "core14") {
@@ -1194,13 +1200,13 @@ private fun mergeExtensionGroupReport(base: VulkanReport, raw: String, group: St
         val featureArray = item.optJSONArray("features") ?: JSONArray()
         for (j in 0 until featureArray.length()) {
             val f = featureArray.optJSONObject(j) ?: continue
-            features += FeatureEntry(f.optString("name"), f.optBoolean("supported"))
+            features += FeatureEntry(sanitizeReportLabel(f.optString("name")), f.optBoolean("supported"))
         }
         val properties = mutableListOf<PropertyEntry>()
         val propertyArray = item.optJSONArray("properties") ?: JSONArray()
         for (j in 0 until propertyArray.length()) {
             val prop = propertyArray.optJSONObject(j) ?: continue
-            properties += PropertyEntry(prop.optString("section"), prop.optString("name"), prop.optString("value"))
+            properties += PropertyEntry(sanitizeReportSection(prop.optString("section")), prop.optString("name"), prop.optString("value"))
         }
         parsed += Triple(vendor, deviceId, features to properties)
     }
@@ -1212,9 +1218,10 @@ private fun mergeExtensionGroupReport(base: VulkanReport, raw: String, group: St
             when {
                 status == "available" && match != null -> {
                     val mergedFeatures = device.features + match.third.first.filterNot { incoming -> device.features.any { existing -> existing.name == incoming.name } }
+                    val mergedProperties = mergeQueryProperties(device.detailedProperties, match.third.second)
                     device.copy(
                         features = mergedFeatures,
-                        detailedProperties = mergeQueryProperties(device.detailedProperties, match.third.second)
+                        detailedProperties = replaceQueryStatus(mergedProperties, "$extensionName query", "Available")
                     )
                 }
                 status == "not_applicable" -> device.copy(
@@ -1256,12 +1263,12 @@ private fun parseReport(raw: String): VulkanReport {
         val featureArray = item.optJSONArray("features") ?: JSONArray()
         for (j in 0 until featureArray.length()) {
             val feature = featureArray.optJSONObject(j) ?: continue
-            features += FeatureEntry(feature.optString("name"), feature.optBoolean("supported"))
+            features += FeatureEntry(sanitizeReportLabel(feature.optString("name")), feature.optBoolean("supported"))
         }
         val versionedFeatureArray = item.optJSONArray("versionedFeatures") ?: JSONArray()
         for (j in 0 until versionedFeatureArray.length()) {
             val feature = versionedFeatureArray.optJSONObject(j) ?: continue
-            features += FeatureEntry(feature.optString("name"), feature.optBoolean("supported"))
+            features += FeatureEntry(sanitizeReportLabel(feature.optString("name")), feature.optBoolean("supported"))
         }
         val queues = mutableListOf<QueueEntry>()
         val queueArray = item.optJSONArray("queues") ?: JSONArray()
@@ -1304,7 +1311,7 @@ private fun parseReport(raw: String): VulkanReport {
         val detailedPropertyArray = item.optJSONArray("detailedProperties") ?: JSONArray()
         for (j in 0 until detailedPropertyArray.length()) {
             val prop = detailedPropertyArray.optJSONObject(j) ?: continue
-            detailedProperties += PropertyEntry(prop.optString("section"), prop.optString("name"), prop.optString("value"))
+            detailedProperties += PropertyEntry(sanitizeReportSection(prop.optString("section")), prop.optString("name"), prop.optString("value"))
         }
         val surface = item.optJSONObject("surface")
         val surfaceAvailable = surface?.optBoolean("available") == true
@@ -1343,6 +1350,8 @@ private fun parseReport(raw: String): VulkanReport {
             deviceTypeName(item.optInt("deviceType")),
             deviceLayers,
             extensions,
+            item.optString("deviceExtensionStatus", "unknown"),
+            item.optString("deviceExtensionReason", "Device-extension enumeration status was not reported by the native collector."),
             features,
             queues,
             heaps,
@@ -1856,7 +1865,12 @@ private fun AppHeader(page: Page, onBack: () -> Unit, onSettings: () -> Unit, on
         },
         title = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("VulkanScope", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Image(
+                    painter = painterResource(R.drawable.vulkanscope_logo_horizontal),
+                    contentDescription = "VulkanScope",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.width(148.dp).height(28.dp)
+                )
                 Text(page.title, style = MaterialTheme.typography.labelMedium, color = ComposeColor(0xFF9E9E9E), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         },
@@ -2527,11 +2541,11 @@ private fun SettingsPage(report: VulkanReport, display: DisplayReport, mode: Dri
     }
     val textLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        writeExport(context, uri, reportToText(report, display, mode), "text/plain")
+        writeExport(context, uri, reportToText(context, report, display, mode), "text/plain")
     }
     val htmlLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/html")) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        writeExport(context, uri, reportToHtml(report, display, mode), "text/html")
+        writeExport(context, uri, reportToHtml(context, report, display, mode), "text/html")
     }
     fun exportDocument(filename: String, content: String, mime: String, launcher: ActivityResultLauncher<String>) {
         exportWithSafOrDownloads(context, filename, content, mime, launcher) { payload ->
@@ -2564,8 +2578,8 @@ private fun SettingsPage(report: VulkanReport, display: DisplayReport, mode: Dri
         item { SectionCard("Export complete report") {
             Text("Export the complete currently collected VulkanScope report, including device properties, detailed Core 1.1/1.2/1.3/1.4 properties when available, features, memory, queues, formats, surface data, extensions, layers and Android/display information.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = { exportDocument("${exportStem}.txt", reportToText(report, display, mode), "text/plain", textLauncher) }, modifier = Modifier.weight(1f)) { Text("Export TXT") }
-                Button(onClick = { exportDocument("${exportStem}.html", reportToHtml(report, display, mode), "text/html", htmlLauncher) }, modifier = Modifier.weight(1f)) { Text("Export HTML") }
+                Button(onClick = { exportDocument("${exportStem}.txt", reportToText(context, report, display, mode), "text/plain", textLauncher) }, modifier = Modifier.weight(1f)) { Text("Export TXT") }
+                Button(onClick = { exportDocument("${exportStem}.html", reportToHtml(context, report, display, mode), "text/html", htmlLauncher) }, modifier = Modifier.weight(1f)) { Text("Export HTML") }
             }
         } }
         item { SectionCard("Important") {
@@ -2597,7 +2611,9 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
             .sortedWith(compareBy<ExtensionEntry> { it.name }.thenBy { it.scope }.thenBy { it.specVersion })
     }
     val supportedNames = remember(supported) { supported.map { it.name }.toSet() }
-    val catalog = remember(supportedNames) { KNOWN_VULKAN_EXTENSIONS.filterNot { it in supportedNames }.sorted() }
+    val catalog = remember(supportedNames, device?.deviceExtensionStatus) {
+        if (device == null || device.deviceExtensionStatus == "available") KNOWN_VULKAN_EXTENSIONS.filterNot { it in supportedNames }.sorted() else emptyList()
+    }
     val filteredSupported = remember(query, supported, filter) {
         if (filter == "Not enumerated") emptyList() else supported.filter { query.isBlank() || it.name.contains(query, true) || it.scope.contains(query, true) }
     }
@@ -2608,6 +2624,9 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         item {
             Text("Runtime-enumerated extensions are shown exactly as reported. Registry references are never labeled unsupported.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
+            if (device != null && device.deviceExtensionStatus != "available") {
+                Text("Device extension enumeration: ${device.deviceExtensionStatus.uppercase()}${if (device.deviceExtensionReason.isBlank()) "" else " — ${device.deviceExtensionReason}"}", color = ComposeColor(0xFFFFD76B), style = MaterialTheme.typography.bodySmall)
+            }
             OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true, placeholder = { Text("Search Vulkan extension names") })
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("All", "Supported", "Not enumerated").forEach { value -> FilterChip(selected = filter == value, onClick = { filter = value }, label = { Text(value) }) }
@@ -2724,9 +2743,26 @@ private fun writeExport(context: Context, uri: Uri, content: String, mime: Strin
     android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
 }
 
-private fun reportToText(report: VulkanReport, display: DisplayReport, mode: DriverMode): String = buildString {
+private fun reportToText(context: Context, report: VulkanReport, display: DisplayReport, mode: DriverMode): String = buildString {
+    val packageInfo = runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull()
+    val appVersionName = packageInfo?.versionName ?: "Unknown"
+    val appVersionCode = if (packageInfo != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        packageInfo.longVersionCode.toString()
+    } else {
+        @Suppress("DEPRECATION") packageInfo?.versionCode?.toString() ?: "Unknown"
+    }
+    val applicationAbi = detectInstalledAbi(context)
+    val supportedDeviceAbis = Build.SUPPORTED_ABIS.joinToString(", ")
     appendLine("VulkanScope report")
     appendLine("=================")
+    appendLine("Application: VulkanScope")
+    appendLine("Application version: $appVersionName")
+    appendLine("Application version code: $appVersionCode")
+    appendLine("Application package: ${context.packageName}")
+    appendLine("Application ABI: $applicationAbi")
+    appendLine("Developer: Semih Boran")
+    appendLine("Nickname: EFI Shell")
+    appendLine("GitHub: https://github.com/EFIShell0")
     appendLine("GPU: ${report.devices.firstOrNull()?.name ?: "Unknown"}")
     appendLine("Driver mode: ${mode.label}")
     appendLine("Loader / instance API: ${report.loaderVersion}")
@@ -2740,7 +2776,7 @@ private fun reportToText(report: VulkanReport, display: DisplayReport, mode: Dri
     appendLine("Brand=${Build.BRAND}, Product=${Build.PRODUCT}, Device=${Build.DEVICE}, Board=${Build.BOARD}, Hardware=${Build.HARDWARE}")
     appendLine("Build ID=${Build.ID}, Incremental=${Build.VERSION.INCREMENTAL}")
     appendLine("Fingerprint=${Build.FINGERPRINT}")
-    appendLine("ABIs: ${Build.SUPPORTED_ABIS.joinToString(", ")}")
+    appendLine("Supported device ABIs: $supportedDeviceAbis")
     if (report.error != null) appendLine("Report error: ${report.error}")
     appendLine()
     appendLine("VULKAN REGISTRY COVERAGE")
@@ -2769,7 +2805,7 @@ private fun reportToText(report: VulkanReport, display: DisplayReport, mode: Dri
     vulkanProfileCatalog().forEach { appendLine("${it.first} | ${it.second}") }
         report.devices.forEachIndexed { index, d ->
         appendLine(); appendLine("DEVICE #${index + 1}: ${d.name}")
-        appendLine("API: ${d.apiVersion}"); appendLine("Driver version: ${d.driverVersionText}"); appendLine("Vendor: ${d.vendorId}"); appendLine("Device ID: ${d.deviceId}"); appendLine("Type: ${d.deviceType}"); appendLine("Extended query status: ${d.extendedQueryStatus}"); appendLine("Extended query reason: ${d.extendedQueryReason}"); appendLine("Vulkan 1.4 status: ${d.vulkan14Status}"); appendLine("Vulkan 1.4 reason: ${d.vulkan14Reason}")
+        appendLine("API: ${d.apiVersion}"); appendLine("Driver version: ${d.driverVersionText}"); appendLine("Vendor: ${d.vendorId}"); appendLine("Device ID: ${d.deviceId}"); appendLine("Type: ${d.deviceType}"); appendLine("Extended query status: ${d.extendedQueryStatus}"); appendLine("Extended query reason: ${d.extendedQueryReason}"); appendLine("Vulkan 1.4 status: ${d.vulkan14Status}"); appendLine("Vulkan 1.4 reason: ${d.vulkan14Reason}"); appendLine("Device extension enumeration status: ${d.deviceExtensionStatus}"); appendLine("Device extension enumeration reason: ${d.deviceExtensionReason}")
         appendLine(); appendLine("DEVICE LAYERS"); d.deviceLayers.forEach { appendLine("${it.name} | spec ${it.specVersion} | implementation ${it.implementationVersion} | ${it.description}"); it.extensions.forEach { ext -> appendLine("  ${ext.name} | spec ${ext.specVersion}") } }; appendLine(); appendLine("DEVICE EXTENSIONS"); d.extensions.forEach { appendLine("${it.name} | ${it.scope} | spec ${it.specVersion}") }
         appendLine(); appendLine("FEATURES"); d.features.forEach { appendLine("${it.name} = ${it.supported}") }
         appendLine(); appendLine("DETAILED QUERY RESULTS (${d.detailedProperties.size} results; ${d.detailedProperties.map { "${it.section} / ${it.name}" }.distinct().size} unique report fields)"); d.detailedProperties.forEach { appendLine("[${it.section}] ${it.name} = ${it.value}") }
@@ -2789,10 +2825,30 @@ private fun reportToText(report: VulkanReport, display: DisplayReport, mode: Dri
 
 private fun htmlEscape(value: String): String = value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
 
-private fun reportToHtml(report: VulkanReport, display: DisplayReport, mode: DriverMode): String = buildString {
+private fun reportToHtml(context: Context, report: VulkanReport, display: DisplayReport, mode: DriverMode): String = buildString {
+    val packageInfo = runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull()
+    val appVersionName = packageInfo?.versionName ?: "Unknown"
+    val appVersionCode = if (packageInfo != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        packageInfo.longVersionCode.toString()
+    } else {
+        @Suppress("DEPRECATION") packageInfo?.versionCode?.toString() ?: "Unknown"
+    }
+    val applicationAbi = detectInstalledAbi(context)
+    val supportedDeviceAbis = Build.SUPPORTED_ABIS.joinToString(", ")
+    val logoData = runCatching {
+        context.resources.openRawResource(R.drawable.vulkanscope_logo_horizontal).use { input ->
+            Base64.encodeToString(input.readBytes(), Base64.NO_WRAP)
+        }
+    }.getOrNull()
     append("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>VulkanScope report</title>")
-    append("<style>body{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;background:#0a0a0b;color:#f4f4f5;margin:0;line-height:1.45}.wrap{max-width:1320px;margin:0 auto;padding:28px}.hero{background:linear-gradient(135deg,#1a1517,#0f1012);border:1px solid #2d2d31;border-radius:26px;padding:30px;box-shadow:0 16px 50px rgba(0,0,0,.28)}h1{margin:0 0 8px;font-size:36px}h2{margin:0 0 14px;font-size:22px}.muted{color:#a7a7ae}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:18px}.metric{background:#121214;border:1px solid #292a2e;border-radius:17px;padding:14px}.section{margin-top:24px;background:#111113;border:1px solid #292a2e;border-radius:22px;padding:18px;overflow:auto}.section h2{position:sticky;left:0}table{border-collapse:collapse;width:100%;min-width:660px}td,th{border-bottom:1px solid #28282c;padding:10px 8px;text-align:left;vertical-align:top}th{color:#cbcad0;font-weight:600}.badge{display:inline-block;border-radius:999px;padding:3px 9px;font-size:11px;font-weight:800;letter-spacing:.03em}.yes{background:#133b28;color:#74e2a6}.no{background:#49171c;color:#ff8f98}.neutral{background:#403713;color:#ffd76b}.unknown{background:#292a2f;color:#c6c6cc}.code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.small{font-size:13px}.subtle{color:#7f8088}</style></head><body><div class=\"wrap\">")
-    append("<div class=\"hero\"><h1>VulkanScope</h1><div class=\"muted\">Runtime Vulkan inspection report</div><div class=\"grid\">")
+    append("<style>body{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;background:#0a0a0b;color:#f4f4f5;margin:0;line-height:1.45}.wrap{max-width:1320px;margin:0 auto;padding:28px}.hero{background:linear-gradient(135deg,#1a1517,#0f1012);border:1px solid #2d2d31;border-radius:26px;padding:30px;box-shadow:0 16px 50px rgba(0,0,0,.28)}h1{margin:0 0 8px;font-size:36px}h2{margin:0 0 14px;font-size:22px}.muted{color:#a7a7ae}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:18px}.metric{background:#121214;border:1px solid #292a2e;border-radius:17px;padding:14px}.section{margin-top:24px;background:#111113;border:1px solid #292a2e;border-radius:22px;padding:18px;overflow:auto}.section h2{position:sticky;left:0}table{border-collapse:collapse;width:100%;min-width:660px}td,th{border-bottom:1px solid #28282c;padding:10px 8px;text-align:left;vertical-align:top}th{color:#cbcad0;font-weight:600}.badge{display:inline-block;border-radius:999px;padding:3px 9px;font-size:11px;font-weight:800;letter-spacing:.03em}.yes{background:#133b28;color:#74e2a6}.no{background:#49171c;color:#ff8f98}.neutral{background:#403713;color:#ffd76b}.unknown{background:#292a2f;color:#c6c6cc}.code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.small{font-size:13px}.subtle{color:#7f8088}.github-link{color:#7f94d8;text-decoration:none;font-weight:600}.github-link:hover{color:#ff6b74;text-decoration:underline}.github-link:visited{color:#7f94d8}</style></head><body><div class=\"wrap\">")
+    append("<div class=\"hero\">")
+    if (logoData != null) {
+        append("<div style=\"display:flex;align-items:center;justify-content:flex-start;margin-bottom:14px;\"><img src=\"data:image/png;base64,$logoData\" alt=\"VulkanScope\" style=\"display:block;width:min(522px,100%);height:auto;max-height:76px;object-fit:contain;object-position:left center;\"></div>")
+    } else {
+        append("<h1>VulkanScope</h1>")
+    }
+    append("<div class=\"muted\">Runtime Vulkan inspection report</div><div class=\"grid\">")
     fun metric(label: String, value: String) { append("<div class=\"metric\"><div class=\"muted small\">${htmlEscape(label)}</div><strong>${htmlEscape(value)}</strong></div>") }
     metric("GPU", report.devices.firstOrNull()?.name ?: "Unknown")
     metric("Driver", mode.label)
@@ -2821,9 +2877,20 @@ private fun reportToHtml(report: VulkanReport, display: DisplayReport, mode: Dri
         append("</tbody></table></div>")
     }
 
+    table("Application", "<th>Property</th><th>Value</th>", listOf(
+        "Version" to htmlEscape(appVersionName),
+        "Version code" to htmlEscape(appVersionCode),
+        "Package" to htmlEscape(context.packageName),
+        "Application ABI" to htmlEscape(applicationAbi),
+        "Supported device ABIs" to htmlEscape(supportedDeviceAbis),
+        "Developer" to "Semih Boran",
+        "Nickname" to "EFI Shell",
+        "GitHub" to "<a class=\"github-link\" href=\"https://github.com/EFIShell0\" rel=\"noopener noreferrer\">github.com/EFIShell0</a>"
+    ))
+
     table("Android / display", "<th>Property</th><th>Value</th>", listOf(
         "Manufacturer" to htmlEscape(Build.MANUFACTURER), "Model" to htmlEscape(Build.MODEL), "Android" to htmlEscape(Build.VERSION.RELEASE),
-        "SDK" to Build.VERSION.SDK_INT.toString(), "ABIs" to htmlEscape(Build.SUPPORTED_ABIS.joinToString(", ")), "Resolution" to htmlEscape(display.resolution),
+        "SDK" to Build.VERSION.SDK_INT.toString(), "Resolution" to htmlEscape(display.resolution),
         "Refresh rate" to htmlEscape(display.refreshRate), "Wide gamut" to statusBadge(display.wideGamut.toString()),
         "Preferred wide gamut" to htmlEscape(display.preferredWideGamut), "HDR types" to htmlEscape(display.hdrTypes.joinToString(", ").ifBlank { "Not exposed" }),
         "HDR min luminance" to htmlEscape(display.minLuminance), "HDR max luminance" to htmlEscape(display.maxLuminance), "HDR average luminance" to htmlEscape(display.averageLuminance)
@@ -2850,7 +2917,7 @@ private fun reportToHtml(report: VulkanReport, display: DisplayReport, mode: Dri
         table("Device properties", "<th>Property</th><th>Value</th>", listOf(
             "API" to htmlEscape(d.apiVersion), "Driver version" to htmlEscape(d.driverVersionText), "Vendor" to htmlEscape(d.vendorId),
             "Device ID" to htmlEscape(d.deviceId), "Type" to htmlEscape(d.deviceType), "Extended query status" to statusBadge(d.extendedQueryStatus),
-            "Extended query reason" to htmlEscape(d.extendedQueryReason), "Vulkan 1.4 status" to statusBadge(d.vulkan14Status), "Vulkan 1.4 reason" to htmlEscape(d.vulkan14Reason)
+            "Extended query reason" to htmlEscape(d.extendedQueryReason), "Device extension enumeration status" to statusBadge(d.deviceExtensionStatus), "Device extension enumeration reason" to htmlEscape(d.deviceExtensionReason), "Vulkan 1.4 status" to statusBadge(d.vulkan14Status), "Vulkan 1.4 reason" to htmlEscape(d.vulkan14Reason)
         ))
         append("<div class=\"section\"><h2>Device extensions</h2><table><thead><tr><th>Extension</th><th>Scope</th><th>Spec version</th><th>Status</th></tr></thead><tbody>")
         d.extensions.forEach { ext ->

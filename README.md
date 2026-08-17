@@ -2,7 +2,7 @@
 
 VulkanScope is an offline Android Vulkan, Surface, Display and HDR inspection tool.
 
-**Current version: 0.21.6**
+**Current version: 0.22.7**
 
 ## UI
 
@@ -15,27 +15,25 @@ The native collector queries the installed Android Vulkan loader and physical de
 # Screenshots
 
 <p align="center">
-  <img src="screenshots/1.jpeg" width="200">
-  <img src="screenshots/2.jpeg" width="200">
-  <img src="screenshots/3.jpeg" width="200">
+  <img src="screenshots/1.jpg" width="200">
+  <img src="screenshots/2.jpg" width="200">
+  <img src="screenshots/3.jpg" width="200">
 </p>
 
 <p align="center">
-  <img src="screenshots/4.jpeg" width="200">
-  <img src="screenshots/5.jpeg" width="200">
+  <img src="screenshots/4.jpg" width="200">
+  <img src="screenshots/5.jpg" width="200">
+  <img src="screenshots/6.jpg" width="200">
 </p>
 
 <p align="center">
-  <img src="screenshots/6.png" width="500">
-  <img src="screenshots/html.png" width="500">
+  <img src="screenshots/7.png" width="500">
 </p>
 
 
 The Surface page reports exact format and color-space pairs, present modes, surface capabilities and queue-family presentation support. The Display & HDR page separately reports Android display HDR types, luminance, wide-color capability, preferred wide-gamut color space and display modes.
 
 The Extensions page lists runtime-enumerated instance and device extensions with exact Vulkan names, scope and specVersion and provides case-insensitive search.
-
-NOTE: Programs may not work properly on VMs like BlueStacks.
 
 ## Branding
 
@@ -51,9 +49,12 @@ x86 is intentionally excluded.
 
 ## Reporting and export
 
+Exports include application metadata (version, version code, package, ABI), developer name/nickname and GitHub account information. HTML exports embed the same approved horizontal VulkanScope logo used by the application so reports remain self-contained.
+
+
 TXT and HTML exports include the currently collected runtime Vulkan features, detailed physical-device properties, limits, memory, queues, formats, surface data, layers and exact runtime extension names/specVersion values. HTML reports use colored status badges for supported, not supported, unavailable and unknown states. Extension-specific parity fields are surfaced through the same Features and Properties views when their corresponding runtime query completes.
 
-VulkanScope may continue collecting optional Vulkan details after the main report is visible. During that time the UI shows a Material 3 Expressive "Bilgiler alınıyor…" status and briefly shows "Tamamlandı" when the current collection pass finishes.
+VulkanScope may continue collecting optional Vulkan details after the main report is visible. During that time the UI shows a Material 3 Expressive "Collecting information…" status and briefly shows "Completed" when the current collection pass finishes.
 
 ## Security and privacy
 
