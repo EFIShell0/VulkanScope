@@ -15,19 +15,19 @@ The native collector queries the installed Android Vulkan loader and physical de
 # Screenshots
 
 <p align="center">
-  <img src="screenshots/1.jpg" width="200">
-  <img src="screenshots/2.jpg" width="200">
-  <img src="screenshots/3.jpg" width="200">
+  <img src="screenshots/0.22.7-1.jpg" width="200">
+  <img src="screenshots/0.22.7-2.jpg" width="200">
+  <img src="screenshots/0.22.7-3.jpg" width="200">
 </p>
 
 <p align="center">
-  <img src="screenshots/4.jpg" width="200">
-  <img src="screenshots/5.jpg" width="200">
-  <img src="screenshots/6.jpg" width="200">
+  <img src="screenshots/0.22.7-4.jpg" width="200">
+  <img src="screenshots/0.22.7-5.jpg" width="200">
+  <img src="screenshots/0.22.7-6.jpg" width="200">
 </p>
 
 <p align="center">
-  <img src="screenshots/7.png" width="500">
+  <img src="screenshots/0.22.7-7.png" width="500">
 </p>
 
 
