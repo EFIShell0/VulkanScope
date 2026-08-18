@@ -1,11 +1,11 @@
 {
-  "baseline": "Vulkan 1.4.357",
+  "baseline": "Vulkan 1.4.360",
   "catalogSchemaVersion": 6,
   "engine": "offline registry-driven validated query catalog",
-  "headerBaseline": "Vulkan 1.4.357 / official header baseline",
-  "implementedPhysicalDeviceStructCount": 107,
-  "notes": "Validated native query groups are executed in isolated probes; registry structures without a validated native path remain unavailable. Video capability and format profile queries are isolated and registry-referenced at build time.",
+  "headerBaseline": "Vulkan 1.4.360 / official header baseline",
+  "implementedPhysicalDeviceStructCount": 109,
+  "notes": "Validated native query coverage includes Vulkan 1.4.358 VK_EXT_image_tiling_control and Vulkan 1.4.359 VK_EXT_cooperative_matrix_maintenance1; Vulkan 1.4.360 introduced no additional extension. Unknown registry structures without a validated native path remain unavailable.",
   "reportSchema": "4",
-  "runtimeExtensionTokenCount": 266,
-  "validatedRuntimeQueryGroupCount": 74
+  "runtimeExtensionTokenCount": 268,
+  "validatedRuntimeQueryGroupCount": 104
 }

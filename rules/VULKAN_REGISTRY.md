@@ -1,6 +1,6 @@
 # Vulkan registry baseline
 
-VulkanScope 0.11.0 uses Vulkan 1.4.357 semantics as the validated baseline. The Khronos Vulkan registry and specification are the authoritative sources for names, `VkStructureType` semantics, extension dependencies and promoted core behavior.
+VulkanScope 0.11.0 uses Vulkan 1.4.360 semantics as the validated baseline. The Khronos Vulkan registry and specification are the authoritative sources for names, `VkStructureType` semantics, extension dependencies and promoted core behavior.
 
 The application enumerates instance and device extensions from the active implementation exactly as returned. Dependency-aware instance extension enabling is restricted to runtime-enumerated candidates.
 

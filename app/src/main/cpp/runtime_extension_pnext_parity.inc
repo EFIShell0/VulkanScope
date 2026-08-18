@@ -1029,7 +1029,151 @@ static size_t appendParityExtensionPNext(const char* selectedExtension, const st
         storage.add<VkPhysicalDeviceZeroInitializeDeviceMemoryFeaturesEXT>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ZERO_INITIALIZE_DEVICE_MEMORY_FEATURES_EXT, true, false);
         ++added;
     }
+    if (std::strcmp(selectedExtension, "VK_EXT_sampler_filter_minmax") == 0) {
+        storage.add<VkPhysicalDeviceSamplerFilterMinmaxProperties>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_FILTER_MINMAX_PROPERTIES, false, true);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_EXT_inline_uniform_block") == 0) {
+        storage.add<VkPhysicalDeviceInlineUniformBlockProperties>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_PROPERTIES, false, true);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_EXT_descriptor_indexing") == 0) {
+        storage.add<VkPhysicalDeviceDescriptorIndexingProperties>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES, false, true);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_multiview") == 0) {
+        storage.add<VkPhysicalDeviceMultiviewProperties>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_PROPERTIES, false, true);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_maintenance2") == 0) {
+        storage.add<VkPhysicalDevicePointClippingProperties>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_POINT_CLIPPING_PROPERTIES, false, true);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_shader_float_controls") == 0) {
+        storage.add<VkPhysicalDeviceFloatControlsProperties>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FLOAT_CONTROLS_PROPERTIES, false, true);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_depth_stencil_resolve") == 0) {
+        storage.add<VkPhysicalDeviceDepthStencilResolveProperties>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_STENCIL_RESOLVE_PROPERTIES, false, true);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_shader_integer_dot_product") == 0) {
+        storage.add<VkPhysicalDeviceShaderIntegerDotProductProperties>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_INTEGER_DOT_PRODUCT_PROPERTIES, false, true);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_maintenance4") == 0) {
+        storage.add<VkPhysicalDeviceMaintenance4Properties>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_PROPERTIES, false, true);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_EXT_inline_uniform_block") == 0) {
+        storage.add<VkPhysicalDeviceInlineUniformBlockFeatures>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_EXT_descriptor_indexing") == 0) {
+        storage.add<VkPhysicalDeviceDescriptorIndexingFeatures>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_EXT_subgroup_size_control") == 0) {
+        storage.add<VkPhysicalDeviceSubgroupSizeControlFeatures>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_EXT_host_query_reset") == 0) {
+        storage.add<VkPhysicalDeviceHostQueryResetFeatures>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_EXT_shader_demote_to_helper_invocation") == 0) {
+        storage.add<VkPhysicalDeviceShaderDemoteToHelperInvocationFeatures>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DEMOTE_TO_HELPER_INVOCATION_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_EXT_private_data") == 0) {
+        storage.add<VkPhysicalDevicePrivateDataFeatures>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRIVATE_DATA_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_EXT_pipeline_creation_cache_control") == 0) {
+        storage.add<VkPhysicalDevicePipelineCreationCacheControlFeatures>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_CREATION_CACHE_CONTROL_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_dynamic_rendering") == 0) {
+        storage.add<VkPhysicalDeviceDynamicRenderingFeatures>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_multiview") == 0) {
+        storage.add<VkPhysicalDeviceMultiviewFeatures>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_shader_float16_int8") == 0) {
+        storage.add<VkPhysicalDeviceShaderFloat16Int8Features>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_16bit_storage") == 0) {
+        storage.add<VkPhysicalDevice16BitStorageFeatures>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_imageless_framebuffer") == 0) {
+        storage.add<VkPhysicalDeviceImagelessFramebufferFeatures>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGELESS_FRAMEBUFFER_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_variable_pointers") == 0) {
+        storage.add<VkPhysicalDeviceVariablePointersFeatures>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VARIABLE_POINTERS_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_sampler_ycbcr_conversion") == 0) {
+        storage.add<VkPhysicalDeviceSamplerYcbcrConversionFeatures>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_YCBCR_CONVERSION_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_shader_subgroup_extended_types") == 0) {
+        storage.add<VkPhysicalDeviceShaderSubgroupExtendedTypesFeatures>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_EXTENDED_TYPES_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_8bit_storage") == 0) {
+        storage.add<VkPhysicalDevice8BitStorageFeatures>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_shader_atomic_int64") == 0) {
+        storage.add<VkPhysicalDeviceShaderAtomicInt64Features>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_timeline_semaphore") == 0) {
+        storage.add<VkPhysicalDeviceTimelineSemaphoreFeatures>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_vulkan_memory_model") == 0) {
+        storage.add<VkPhysicalDeviceVulkanMemoryModelFeatures>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_MEMORY_MODEL_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_shader_terminate_invocation") == 0) {
+        storage.add<VkPhysicalDeviceShaderTerminateInvocationFeatures>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_TERMINATE_INVOCATION_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_separate_depth_stencil_layouts") == 0) {
+        storage.add<VkPhysicalDeviceSeparateDepthStencilLayoutsFeatures>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SEPARATE_DEPTH_STENCIL_LAYOUTS_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_uniform_buffer_standard_layout") == 0) {
+        storage.add<VkPhysicalDeviceUniformBufferStandardLayoutFeatures>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFORM_BUFFER_STANDARD_LAYOUT_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_buffer_device_address") == 0) {
+        storage.add<VkPhysicalDeviceBufferDeviceAddressFeatures>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_shader_integer_dot_product") == 0) {
+        storage.add<VkPhysicalDeviceShaderIntegerDotProductFeatures>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_INTEGER_DOT_PRODUCT_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_synchronization2") == 0) {
+        storage.add<VkPhysicalDeviceSynchronization2Features>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_zero_initialize_workgroup_memory") == 0) {
+        storage.add<VkPhysicalDeviceZeroInitializeWorkgroupMemoryFeatures>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ZERO_INITIALIZE_WORKGROUP_MEMORY_FEATURES, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_KHR_maintenance4") == 0) {
+        storage.add<VkPhysicalDeviceMaintenance4Features>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES, true, false);
+        ++added;
+    }
     return added;
 }
 
-static constexpr uint32_t kCapsViewerParityStructCount = 259;
+static constexpr uint32_t kCapsViewerParityStructCount = 295;

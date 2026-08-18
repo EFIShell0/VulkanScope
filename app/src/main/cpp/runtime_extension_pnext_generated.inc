@@ -421,6 +421,14 @@ static size_t appendAllGeneratedExtensionPNext(const char* selectedExtension, co
         storage.add<VkPhysicalDevicePresentMeteringFeaturesNV>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_METERING_FEATURES_NV, true, false);
         ++added;
     }
+    if (std::strcmp(selectedExtension, "VK_EXT_image_tiling_control") == 0) {
+        storage.add<VkPhysicalDeviceImageTilingControlFeaturesEXT>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_TILING_CONTROL_FEATURES_EXT, true, false);
+        ++added;
+    }
+    if (std::strcmp(selectedExtension, "VK_EXT_cooperative_matrix_maintenance1") == 0) {
+        storage.add<VkPhysicalDeviceCooperativeMatrixMaintenance1FeaturesEXT>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_MAINTENANCE_1_FEATURES_EXT, true, false);
+        ++added;
+    }
     return added;
 }
-static constexpr uint32_t kGeneratedRuntimePNextTypeCount = 100;
+static constexpr uint32_t kGeneratedRuntimePNextTypeCount = 102;

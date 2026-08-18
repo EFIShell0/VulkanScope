@@ -972,7 +972,23 @@ static void appendGeneratedStructFields(std::vector<GeneratedField>& dst, uint32
     generatedEmitBool(dst, section, "presentMetering", value.presentMetering);
             break;
         }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_TILING_CONTROL_FEATURES_EXT: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceImageTilingControlFeaturesEXT*>(ptr);
+            const char* section = "Generated · VkPhysicalDeviceImageTilingControlFeaturesEXT";
+            generatedEmitBool(dst, section, "imageTilingControl", value.imageTilingControl);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_MAINTENANCE_1_FEATURES_EXT: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceCooperativeMatrixMaintenance1FeaturesEXT*>(ptr);
+            const char* section = "Generated · VkPhysicalDeviceCooperativeMatrixMaintenance1FeaturesEXT";
+            generatedEmitBool(dst, section, "cooperativeMatrixProperties2", value.cooperativeMatrixProperties2);
+            generatedEmitBool(dst, section, "cooperativeMatrixReductions", value.cooperativeMatrixReductions);
+            generatedEmitBool(dst, section, "cooperativeMatrixConversions", value.cooperativeMatrixConversions);
+            generatedEmitBool(dst, section, "cooperativeMatrixPerElementOperations", value.cooperativeMatrixPerElementOperations);
+            generatedEmitBool(dst, section, "cooperativeMatrixGetCoordinate", value.cooperativeMatrixGetCoordinate);
+            break;
+        }
         default: break;
     }
 }
-static constexpr uint32_t kGeneratedPhysicalDeviceStructSerializerCount = 113;
+static constexpr uint32_t kGeneratedPhysicalDeviceStructSerializerCount = 115;

@@ -4,15 +4,15 @@
 #include <cstdint>
 #include <cstring>
 namespace vulkanscope_registry {
-inline constexpr const char* kBaseline = "Vulkan 1.4.357";
+inline constexpr const char* kBaseline = "Vulkan 1.4.360";
 inline constexpr const char* kMode = "offline registry-driven validated runtime query catalog";
-inline constexpr const char* kHeaderBaseline = "Vulkan 1.4.357 / official header baseline";
+inline constexpr const char* kHeaderBaseline = "Vulkan 1.4.360 compile headers; validated query catalog Vulkan 1.4.360";
 inline constexpr const char* kReportSchema = "4";
 inline constexpr std::size_t kCatalogSchemaVersion = 6;
-inline constexpr std::size_t kImplementedPhysicalDeviceStructCount = 107;
-inline constexpr std::size_t kValidatedRuntimeQueryGroupCount = 74;
-inline constexpr std::size_t kRuntimeExtensionTokenCount = 266;
-inline constexpr std::array<const char*, 107> kImplementedPhysicalDeviceStructs = {
+inline constexpr std::size_t kImplementedPhysicalDeviceStructCount = 109;
+inline constexpr std::size_t kValidatedRuntimeQueryGroupCount = 104;
+inline constexpr std::size_t kRuntimeExtensionTokenCount = 268;
+inline constexpr std::array<const char*, 109> kImplementedPhysicalDeviceStructs = {
     "VkPhysicalDeviceComputeOccupancyPriorityFeaturesNV",
     "VkPhysicalDeviceCooperativeMatrixConversionFeaturesQCOM",
     "VkPhysicalDeviceCooperativeMatrixDecodeVectorFeaturesNV",
@@ -38,6 +38,8 @@ inline constexpr std::array<const char*, 107> kImplementedPhysicalDeviceStructs 
     "VkPhysicalDeviceGroupProperties",
     "VkPhysicalDeviceImageFormatInfo2",
     "VkPhysicalDeviceImageProcessing3FeaturesQCOM",
+    "VkPhysicalDeviceImageTilingControlFeaturesEXT",
+    "VkPhysicalDeviceCooperativeMatrixMaintenance1FeaturesEXT",
     "VkPhysicalDeviceInternallySynchronizedQueuesFeaturesKHR",
     "VkPhysicalDeviceLimits",
     "VkPhysicalDeviceMaintenance10FeaturesKHR",
@@ -121,7 +123,7 @@ inline constexpr std::array<const char*, 107> kImplementedPhysicalDeviceStructs 
     "VkPhysicalDevicePrivateDataFeatures",
     "VkPhysicalDeviceSynchronization2Features",
 };
-inline constexpr std::array<const char*, 74> kValidatedRuntimeQueryGroups = {
+inline constexpr std::array<const char*, 104> kValidatedRuntimeQueryGroups = {
     "astc3D",
     "computeOccupancyPriority",
     "cooperativeMatrix",
@@ -146,6 +148,8 @@ inline constexpr std::array<const char*, 74> kValidatedRuntimeQueryGroups = {
     "groups",
     "imageFormat2",
     "imageProcessing3",
+    "imageTilingControl",
+    "cooperativeMatrixMaintenance1",
     "internallySynchronizedQueues",
     "maintenance10",
     "maintenance11",
@@ -196,6 +200,34 @@ inline constexpr std::array<const char*, 74> kValidatedRuntimeQueryGroups = {
     "inlineUniformBlockParity",
     "privateDataParity",
     "synchronization2Parity",
+    "caps412SamplerFilterMinmax",
+    "caps412DescriptorIndexing",
+    "caps412Multiview",
+    "caps412Maintenance2",
+    "caps412ShaderFloatControls",
+    "caps412DepthStencilResolve",
+    "caps412ShaderIntegerDotProduct",
+    "caps412Maintenance4",
+    "caps412SubgroupSizeControl",
+    "caps412HostQueryReset",
+    "caps412ShaderDemoteToHelperInvocation",
+    "caps412PipelineCreationCacheControl",
+    "caps412DynamicRendering",
+    "caps412ShaderFloat16Int8",
+    "caps41216bitStorage",
+    "caps412ImagelessFramebuffer",
+    "caps412VariablePointers",
+    "caps412SamplerYcbcrConversion",
+    "caps412ShaderSubgroupExtendedTypes",
+    "caps4128bitStorage",
+    "caps412ShaderAtomicInt64",
+    "caps412TimelineSemaphore",
+    "caps412VulkanMemoryModel",
+    "caps412ShaderTerminateInvocation",
+    "caps412SeparateDepthStencilLayouts",
+    "caps412UniformBufferStandardLayout",
+    "caps412BufferDeviceAddress",
+    "caps412ZeroInitializeWorkgroupMemory",
 };
 struct QueryDescriptor {
     const char* group;
@@ -205,7 +237,7 @@ struct QueryDescriptor {
     const char* queryKind;
 };
 
-inline constexpr std::array<QueryDescriptor, 74> kValidatedQueryDescriptors = {{
+inline constexpr std::array<QueryDescriptor, 104> kValidatedQueryDescriptors = {{
     {"astc3D", "device-extension", "VK_EXT_texture_compression_astc_3d", 0, "feature+property"},
     {"computeOccupancyPriority", "device-extension", "VK_NV_compute_occupancy_priority", 0, "feature+property"},
     {"cooperativeMatrix", "device-extension", "VK_KHR_cooperative_matrix", 0, "feature+property"},
@@ -230,6 +262,8 @@ inline constexpr std::array<QueryDescriptor, 74> kValidatedQueryDescriptors = {{
     {"groups", "advanced", "", 0, "physical-device-query"},
     {"imageFormat2", "advanced", "", 0, "physical-device-query"},
     {"imageProcessing3", "device-extension", "VK_QCOM_image_processing3", 0, "feature+property"},
+    {"imageTilingControl", "device-extension", "VK_EXT_image_tiling_control", 0, "feature-only"},
+    {"cooperativeMatrixMaintenance1", "device-extension", "VK_EXT_cooperative_matrix_maintenance1", 0, "feature+physical-device-query"},
     {"internallySynchronizedQueues", "device-extension", "VK_KHR_internally_synchronized_queues", 0, "feature+property"},
     {"maintenance10", "device-extension", "VK_KHR_maintenance10", 0, "feature+property"},
     {"maintenance11", "device-extension", "VK_KHR_maintenance11", 0, "feature-only"},
@@ -277,9 +311,37 @@ inline constexpr std::array<QueryDescriptor, 74> kValidatedQueryDescriptors = {{
     {"fragmentShadingRateParity", "device-extension", "VK_KHR_fragment_shading_rate", 0, "feature+property"},
     {"transformFeedbackParity", "device-extension", "VK_EXT_transform_feedback", 0, "feature+property"},
     {"vertexAttributeDivisorParity", "device-extension", "VK_EXT_vertex_attribute_divisor", 0, "feature+property"},
-    {"inlineUniformBlockParity", "device-extension", "VK_KHR_inline_uniform_block", 0, "feature+property"},
+    {"inlineUniformBlockParity", "device-extension", "VK_EXT_inline_uniform_block", 0, "feature+property"},
     {"privateDataParity", "device-extension", "VK_EXT_private_data", 0, "feature-only"},
     {"synchronization2Parity", "device-extension", "VK_KHR_synchronization2", 0, "feature-only"},
+    {"caps412SamplerFilterMinmax", "device-extension", "VK_EXT_sampler_filter_minmax", 0, "feature+property"},
+    {"caps412DescriptorIndexing", "device-extension", "VK_EXT_descriptor_indexing", 0, "feature+property"},
+    {"caps412Multiview", "device-extension", "VK_KHR_multiview", 0, "feature+property"},
+    {"caps412Maintenance2", "device-extension", "VK_KHR_maintenance2", 0, "feature+property"},
+    {"caps412ShaderFloatControls", "device-extension", "VK_KHR_shader_float_controls", 0, "feature+property"},
+    {"caps412DepthStencilResolve", "device-extension", "VK_KHR_depth_stencil_resolve", 0, "feature+property"},
+    {"caps412ShaderIntegerDotProduct", "device-extension", "VK_KHR_shader_integer_dot_product", 0, "feature+property"},
+    {"caps412Maintenance4", "device-extension", "VK_KHR_maintenance4", 0, "feature+property"},
+    {"caps412SubgroupSizeControl", "device-extension", "VK_EXT_subgroup_size_control", 0, "feature+property"},
+    {"caps412HostQueryReset", "device-extension", "VK_EXT_host_query_reset", 0, "feature+property"},
+    {"caps412ShaderDemoteToHelperInvocation", "device-extension", "VK_EXT_shader_demote_to_helper_invocation", 0, "feature+property"},
+    {"caps412PipelineCreationCacheControl", "device-extension", "VK_EXT_pipeline_creation_cache_control", 0, "feature+property"},
+    {"caps412DynamicRendering", "device-extension", "VK_KHR_dynamic_rendering", 0, "feature+property"},
+    {"caps412ShaderFloat16Int8", "device-extension", "VK_KHR_shader_float16_int8", 0, "feature+property"},
+    {"caps41216bitStorage", "device-extension", "VK_KHR_16bit_storage", 0, "feature+property"},
+    {"caps412ImagelessFramebuffer", "device-extension", "VK_KHR_imageless_framebuffer", 0, "feature+property"},
+    {"caps412VariablePointers", "device-extension", "VK_KHR_variable_pointers", 0, "feature+property"},
+    {"caps412SamplerYcbcrConversion", "device-extension", "VK_KHR_sampler_ycbcr_conversion", 0, "feature+property"},
+    {"caps412ShaderSubgroupExtendedTypes", "device-extension", "VK_KHR_shader_subgroup_extended_types", 0, "feature+property"},
+    {"caps4128bitStorage", "device-extension", "VK_KHR_8bit_storage", 0, "feature+property"},
+    {"caps412ShaderAtomicInt64", "device-extension", "VK_KHR_shader_atomic_int64", 0, "feature+property"},
+    {"caps412TimelineSemaphore", "device-extension", "VK_KHR_timeline_semaphore", 0, "feature+property"},
+    {"caps412VulkanMemoryModel", "device-extension", "VK_KHR_vulkan_memory_model", 0, "feature+property"},
+    {"caps412ShaderTerminateInvocation", "device-extension", "VK_KHR_shader_terminate_invocation", 0, "feature+property"},
+    {"caps412SeparateDepthStencilLayouts", "device-extension", "VK_KHR_separate_depth_stencil_layouts", 0, "feature+property"},
+    {"caps412UniformBufferStandardLayout", "device-extension", "VK_KHR_uniform_buffer_standard_layout", 0, "feature+property"},
+    {"caps412BufferDeviceAddress", "device-extension", "VK_KHR_buffer_device_address", 0, "feature+property"},
+    {"caps412ZeroInitializeWorkgroupMemory", "device-extension", "VK_KHR_zero_initialize_workgroup_memory", 0, "feature+property"},
 }};
 
 constexpr const QueryDescriptor* findQueryDescriptor(const char* group) {

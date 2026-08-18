@@ -19,10 +19,23 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
+import android.provider.Settings
+import androidx.core.content.FileProvider
 import java.io.File
 import java.io.FileOutputStream
+import java.io.ByteArrayOutputStream
+import java.net.Inet6Address
+import java.net.InetAddress
 import java.util.zip.ZipInputStream
 import java.util.Collections
+import java.util.concurrent.TimeUnit
+import okhttp3.Dns
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.ResponseBody
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -218,9 +231,37 @@ private val ISOLATED_EXTENSION_GROUPS = linkedMapOf(
     "fragmentShadingRateParity" to "VK_KHR_fragment_shading_rate",
     "transformFeedbackParity" to "VK_EXT_transform_feedback",
     "vertexAttributeDivisorParity" to "VK_EXT_vertex_attribute_divisor",
-    "inlineUniformBlockParity" to "VK_KHR_inline_uniform_block",
+    "inlineUniformBlockParity" to "VK_EXT_inline_uniform_block",
     "privateDataParity" to "VK_EXT_private_data",
-    "synchronization2Parity" to "VK_KHR_synchronization2"
+    "synchronization2Parity" to "VK_KHR_synchronization2",
+    "caps412SamplerFilterMinmax" to "VK_EXT_sampler_filter_minmax",
+    "caps412DescriptorIndexing" to "VK_EXT_descriptor_indexing",
+    "caps412Multiview" to "VK_KHR_multiview",
+    "caps412Maintenance2" to "VK_KHR_maintenance2",
+    "caps412ShaderFloatControls" to "VK_KHR_shader_float_controls",
+    "caps412DepthStencilResolve" to "VK_KHR_depth_stencil_resolve",
+    "caps412ShaderIntegerDotProduct" to "VK_KHR_shader_integer_dot_product",
+    "caps412Maintenance4" to "VK_KHR_maintenance4",
+    "caps412SubgroupSizeControl" to "VK_EXT_subgroup_size_control",
+    "caps412HostQueryReset" to "VK_EXT_host_query_reset",
+    "caps412ShaderDemoteToHelperInvocation" to "VK_EXT_shader_demote_to_helper_invocation",
+    "caps412PipelineCreationCacheControl" to "VK_EXT_pipeline_creation_cache_control",
+    "caps412DynamicRendering" to "VK_KHR_dynamic_rendering",
+    "caps412ShaderFloat16Int8" to "VK_KHR_shader_float16_int8",
+    "caps41216bitStorage" to "VK_KHR_16bit_storage",
+    "caps412ImagelessFramebuffer" to "VK_KHR_imageless_framebuffer",
+    "caps412VariablePointers" to "VK_KHR_variable_pointers",
+    "caps412SamplerYcbcrConversion" to "VK_KHR_sampler_ycbcr_conversion",
+    "caps412ShaderSubgroupExtendedTypes" to "VK_KHR_shader_subgroup_extended_types",
+    "caps4128bitStorage" to "VK_KHR_8bit_storage",
+    "caps412ShaderAtomicInt64" to "VK_KHR_shader_atomic_int64",
+    "caps412TimelineSemaphore" to "VK_KHR_timeline_semaphore",
+    "caps412VulkanMemoryModel" to "VK_KHR_vulkan_memory_model",
+    "caps412ShaderTerminateInvocation" to "VK_KHR_shader_terminate_invocation",
+    "caps412SeparateDepthStencilLayouts" to "VK_KHR_separate_depth_stencil_layouts",
+    "caps412UniformBufferStandardLayout" to "VK_KHR_uniform_buffer_standard_layout",
+    "caps412BufferDeviceAddress" to "VK_KHR_buffer_device_address",
+    "caps412ZeroInitializeWorkgroupMemory" to "VK_KHR_zero_initialize_workgroup_memory"
 )
 
 private data class DeviceReport(
@@ -288,6 +329,53 @@ private enum class DriverMode(val label: String) {
 
 private enum class TurnipSupport { UNKNOWN, SUPPORTED, UNSUPPORTED }
 private enum class CollectionStatus { IDLE, COLLECTING, COMPLETED }
+private data class AppUpdate(val version: String, val assetName: String, val downloadUrl: String)
+private const val OFFICIAL_DATABASE_API_ENDPOINT = "https://vulkanscope-database-api.vulkanscope.workers.dev"
+private sealed interface UpdateStatus {
+    data object Hidden : UpdateStatus
+    data object Checking : UpdateStatus
+    data object UpToDate : UpdateStatus
+    data class Available(val update: AppUpdate) : UpdateStatus
+    data class Downloading(val update: AppUpdate) : UpdateStatus
+    data class Failed(val message: String) : UpdateStatus
+}
+
+private val ipv6FirstDns = Dns { hostname ->
+    Dns.SYSTEM.lookup(hostname).sortedWith(compareBy<InetAddress> { if (it is Inet6Address) 0 else 1 })
+}
+
+private val ipv6PreferredHttpClient = OkHttpClient.Builder()
+    .dns(ipv6FirstDns)
+    .fastFallback(true)
+    .connectTimeout(15, TimeUnit.SECONDS)
+    .readTimeout(20, TimeUnit.SECONDS)
+    .followRedirects(true)
+    .followSslRedirects(true)
+    .build()
+
+private val ipv6PreferredDownloadClient = ipv6PreferredHttpClient.newBuilder()
+    .connectTimeout(15, TimeUnit.SECONDS)
+    .readTimeout(30, TimeUnit.SECONDS)
+    .build()
+
+private fun readResponseTextLimited(body: ResponseBody, maxBytes: Int): String {
+    require(maxBytes > 0)
+    val declared = body.contentLength()
+    if (declared > maxBytes) error("Response exceeds the safety limit.")
+    val output = ByteArrayOutputStream(minOf(maxBytes, 64 * 1024))
+    body.byteStream().use { input ->
+        val buffer = ByteArray(8192)
+        var total = 0
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            total += count
+            if (total > maxBytes) error("Response exceeds the safety limit.")
+            output.write(buffer, 0, count)
+        }
+    }
+    return output.toString(Charsets.UTF_8.name())
+}
 
 class MainActivity : ComponentActivity() {
 
@@ -301,18 +389,26 @@ class MainActivity : ComponentActivity() {
     private var displayReportState by mutableStateOf<DisplayReport?>(null)
     private var reportLoading by mutableStateOf(true)
     private var collectionStatus by mutableStateOf(CollectionStatus.IDLE)
+    private var updateStatus by mutableStateOf<UpdateStatus>(UpdateStatus.Hidden)
+    private var pendingUpdateApk: File? = null
+    private var updateCheckJob: Job? = null
     private var collectionInFlight = false
     private var collectionPending = false
     private val pendingCollectionTasks = mutableSetOf<String>()
     private var collectionGeneration = 0L
     private var collectionCompletionJob: Job? = null
-    private val backgroundQueryGroups = (ISOLATED_CORE_GROUPS.keys + ISOLATED_ADVANCED_GROUPS.keys + ISOLATED_EXTENSION_GROUPS.keys).toSet()
+    private val backgroundQueryGroups = (ISOLATED_CORE_GROUPS.keys + ISOLATED_ADVANCED_GROUPS.keys).toSet()
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val requestedQueryGroups = Collections.synchronizedSet(mutableSetOf<String>())
 
     override fun onResume() {
         super.onResume()
         displayReportState = displayReport()
+        val pending = pendingUpdateApk
+        if (pending != null && pending.exists() && (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls())) {
+            pendingUpdateApk = null
+            launchPackageInstaller(pending)
+        }
     }
 
     override fun onDestroy() {
@@ -336,6 +432,9 @@ class MainActivity : ComponentActivity() {
                 report = latestReport,
                 loading = reportLoading,
                 collectionStatus = collectionStatus,
+                updateStatus = updateStatus,
+                onInstallUpdate = { update -> downloadAndInstallUpdate(update) },
+                onCheckForUpdates = { checkForApplicationUpdate(showProgress = true) },
                 surfaceReady = { surface ->
                     val changed = synchronized(surfaceLock) {
                         val different = currentSurface !== surface
@@ -361,6 +460,7 @@ class MainActivity : ComponentActivity() {
                 onRequestQuery = { group -> requestQueryGroup(group) }
             )
         }
+        activityScope.launch { checkForApplicationUpdate(showProgress = false) }
     }
 
     private val driverPickerLauncher = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
@@ -484,12 +584,16 @@ class MainActivity : ComponentActivity() {
     private fun findTurnipIcd(): String? {
         if (driverMode != DriverMode.TURNIP) return null
         val root = File(filesDir, "turnip")
-        val json = root.walkTopDown().firstOrNull { it.isFile && it.extension.equals("json", true) }
-        val declared = json?.let { runCatching { JSONObject(it.readText()).optString("libraryName") }.getOrNull() }.orEmpty()
-        if (declared.isNotBlank()) {
-            root.walkTopDown().firstOrNull { it.isFile && it.name == declared }?.let { return it.absolutePath }
-        }
-        return root.walkTopDown().firstOrNull { it.isFile && it.extension.equals("so", true) }?.absolutePath
+        val metadata = root.walkTopDown().firstOrNull { it.isFile && it.name.equals("meta.json", true) } ?: return null
+        if (metadata.length() !in 1..(1024L * 1024L)) return null
+        val declared = runCatching { JSONObject(metadata.readText()).optString("libraryName") }.getOrNull().orEmpty()
+        if (declared.isBlank() || declared.contains('/') || declared.contains('\\') || !declared.endsWith(".so", true)) return null
+        val library = root.walkTopDown().firstOrNull { it.isFile && it.name == declared } ?: return null
+        val canonicalRoot = runCatching { root.canonicalFile }.getOrNull() ?: return null
+        val canonicalLibrary = runCatching { library.canonicalFile }.getOrNull() ?: return null
+        val rootPrefix = canonicalRoot.path.trimEnd(File.separatorChar) + File.separator
+        if (!canonicalLibrary.path.startsWith(rootPrefix)) return null
+        return canonicalLibrary.absolutePath
     }
 
     private fun isTurnipPlatformEligible(): Boolean =
@@ -595,39 +699,56 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        val newGroups = backgroundQueryGroups.filter { requestedQueryGroups.add(it) }
-        backgroundQueryGroups.filterNot { newGroups.contains(it) }.forEach { completeCollectionTask("$generation:group:$it") }
-        kotlinx.coroutines.coroutineScope {
-            val jobs = newGroups.map { group ->
-                launch(Dispatchers.IO) {
-                    val taskId = "$generation:group:$group"
-                    try {
-                        val current = latestReport ?: return@launch
-                        val extensionName = ISOLATED_EXTENSION_GROUPS[group]
-                        if (extensionName != null && current.devices.none { device -> device.extensions.any { it.name == extensionName } }) return@launch
-                        val raw = runCatching { runIsolatedProbe(group) }.getOrElse { e ->
-                            Log.e("VulkanScope", "Vulkan background query failed: $group", e)
-                            ""
+        val enumeratedDeviceExtensions = report.devices
+            .flatMap { device -> device.extensions.map { it.name } }
+            .toSet()
+        val exhaustiveExtensionGroups = CAPSVIEWER_412_PHYSICAL_DEVICE_QUERY_EXTENSIONS
+            .asSequence()
+            .filter { it in enumeratedDeviceExtensions }
+            .sorted()
+            .map { "ext::$it" }
+            .toList()
+        val allGroups = backgroundQueryGroups.toList() + exhaustiveExtensionGroups
+        exhaustiveExtensionGroups.forEach { pendingCollectionTasks.add("$generation:group:$it") }
+        val newGroups = allGroups.filter { requestedQueryGroups.add(it) }
+        allGroups.filterNot { newGroups.contains(it) }.forEach { completeCollectionTask("$generation:group:$it") }
+        for (group in newGroups) {
+            val taskId = "$generation:group:$group"
+            try {
+                val current = latestReport ?: break
+                val extensionName = if (group.startsWith("ext::")) group.removePrefix("ext::") else ISOLATED_EXTENSION_GROUPS[group]
+                val raw = runCatching { runIsolatedProbe(group) }.getOrElse { e ->
+                    Log.e("VulkanScope", "Vulkan background query failed: $group", e)
+                    ""
+                }
+                withContext(Dispatchers.Main.immediate) {
+                    val currentReport = latestReport ?: current
+                    latestReport = if (extensionName != null) {
+                        if (raw.isBlank()) {
+                            currentReport.copy(devices = currentReport.devices.map { device ->
+                                if (device.extensions.any { it.name == extensionName }) {
+                                    device.copy(detailedProperties = replaceQueryStatus(device.detailedProperties, "$extensionName query", "Unavailable: the isolated extension query returned no data."))
+                                } else device
+                            })
+                        } else {
+                            mergeExtensionGroupReport(currentReport, raw, group, extensionName)
                         }
-                        if (raw.isNotBlank()) {
-                            withContext(Dispatchers.Main.immediate) {
-                                val currentReport = latestReport ?: current
-                                latestReport = if (extensionName != null) {
-                                    mergeExtensionGroupReport(currentReport, raw, group, extensionName)
-                                } else {
-                                    val label = ISOLATED_ADVANCED_GROUPS[group] ?: ISOLATED_CORE_GROUPS[group] ?: group
-                                    mergeAdvancedQueryReport(currentReport, raw, group, label)
-                                }
-                            }
-                        }
-                    } finally {
-                        withContext(Dispatchers.Main.immediate) {
-                            completeCollectionTask(taskId)
+                    } else {
+                        val label = ISOLATED_ADVANCED_GROUPS[group] ?: ISOLATED_CORE_GROUPS[group] ?: group
+                        if (raw.isBlank()) {
+                            currentReport.copy(devices = currentReport.devices.map { device ->
+                                device.copy(detailedProperties = replaceQueryStatus(device.detailedProperties, "$label query", "Unavailable: the isolated query returned no data."))
+                            })
+                        } else {
+                            mergeAdvancedQueryReport(currentReport, raw, group, label)
                         }
                     }
                 }
+            } finally {
+                withContext(Dispatchers.Main.immediate) {
+                    completeCollectionTask(taskId)
+                }
             }
-            jobs.forEach { it.join() }
         }
     }
 
@@ -641,6 +762,180 @@ class MainActivity : ComponentActivity() {
                 collectionStatus = CollectionStatus.IDLE
             }
         }
+    }
+
+    private fun checkForApplicationUpdate(showProgress: Boolean) {
+        if (updateCheckJob?.isActive == true || updateStatus is UpdateStatus.Downloading) return
+        updateCheckJob = activityScope.launch {
+            if (showProgress) updateStatus = UpdateStatus.Checking
+            val result = withContext(Dispatchers.IO) { fetchLatestCompatibleUpdateResult() }
+            updateStatus = when (result) {
+                is UpdateCheckResult.Available -> UpdateStatus.Available(result.update)
+                UpdateCheckResult.UpToDate -> if (showProgress) UpdateStatus.UpToDate else UpdateStatus.Hidden
+                is UpdateCheckResult.Failed -> if (showProgress) UpdateStatus.Failed(result.message) else UpdateStatus.Hidden
+            }
+            if (updateStatus !is UpdateStatus.Hidden && updateStatus !is UpdateStatus.Downloading) {
+                val displayDurationMillis = if (updateStatus is UpdateStatus.UpToDate) 8_000L else 10_000L
+                delay(displayDurationMillis)
+                if (updateStatus !is UpdateStatus.Downloading) updateStatus = UpdateStatus.Hidden
+            }
+        }
+    }
+
+    private sealed interface UpdateCheckResult {
+        data class Available(val update: AppUpdate) : UpdateCheckResult
+        data object UpToDate : UpdateCheckResult
+        data class Failed(val message: String) : UpdateCheckResult
+    }
+
+    private fun fetchLatestCompatibleUpdateResult(): UpdateCheckResult {
+        return try {
+            val update = fetchLatestCompatibleUpdate()
+            if (update != null) UpdateCheckResult.Available(update) else UpdateCheckResult.UpToDate
+        } catch (error: Exception) {
+            UpdateCheckResult.Failed(error.message ?: "Update check failed.")
+        }
+    }
+
+    private fun fetchLatestCompatibleUpdate(): AppUpdate? {
+        val request = Request.Builder()
+            .url("https://api.github.com/repos/EFIShell0/VulkanScope/releases/latest")
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "VulkanScope/${installedVersionName()}")
+            .get()
+            .build()
+        return ipv6PreferredHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) error("Update check failed (HTTP ${response.code}).")
+                val body = readResponseTextLimited(response.body, 1024 * 1024)
+                val json = JSONObject(body)
+                val latest = json.optString("tag_name").trim().removePrefix("v")
+                if (!isNewerVersion(latest, installedVersionName())) return null
+                val abi = detectInstalledAbi(this)
+                val assets = json.optJSONArray("assets") ?: return null
+                val apkAssets = (0 until assets.length()).mapNotNull { assets.optJSONObject(it) }.filter { it.optString("name").endsWith(".apk", true) }
+                val abiTokens = when (abi) {
+                    "arm64-v8a" -> listOf("arm64-v8a", "arm64_v8a", "arm64")
+                    "armeabi-v7a" -> listOf("armeabi-v7a", "armeabi_v7a", "armv7")
+                    "x86_64" -> listOf("x86_64", "x86-64")
+                    else -> listOf(abi.lowercase())
+                }
+                val exact = apkAssets.firstOrNull { asset -> abiTokens.any { asset.optString("name").lowercase().contains(it) } }
+                val universal = apkAssets.firstOrNull { it.optString("name").lowercase().contains("universal") }
+                val selected = exact ?: universal ?: error("A newer VulkanScope release exists, but it has no APK compatible with the installed ABI ($abi).")
+                val url = selected.optString("browser_download_url")
+                if (!url.startsWith("https://github.com/EFIShell0/VulkanScope/releases/download/")) error("The release APK URL is not an official VulkanScope GitHub release asset.")
+                AppUpdate(latest, selected.optString("name"), url)
+            }
+    }
+
+    private fun installedVersionName(): String = runCatching {
+        packageManager.getPackageInfo(packageName, 0).versionName ?: "0.0.0"
+    }.getOrDefault("0.0.0")
+
+    private fun isNewerVersion(candidate: String, current: String): Boolean {
+        fun parts(value: String) = value.substringBefore('-').split('.').map { it.toIntOrNull() ?: 0 }
+        val a = parts(candidate)
+        val b = parts(current)
+        repeat(maxOf(a.size, b.size)) { i ->
+            val av = a.getOrElse(i) { 0 }
+            val bv = b.getOrElse(i) { 0 }
+            if (av != bv) return av > bv
+        }
+        return false
+    }
+
+    private fun downloadAndInstallUpdate(update: AppUpdate) {
+        if (updateStatus is UpdateStatus.Downloading) return
+        updateStatus = UpdateStatus.Downloading(update)
+        activityScope.launch {
+            val result = withContext(Dispatchers.IO) { downloadUpdateApk(update) }
+            result.onSuccess { apk ->
+                updateStatus = UpdateStatus.Hidden
+                requestPackageInstall(apk)
+            }.onFailure { error ->
+                updateStatus = UpdateStatus.Failed(error.message ?: "Update download failed.")
+                delay(10_000)
+                if (updateStatus is UpdateStatus.Failed) updateStatus = UpdateStatus.Hidden
+            }
+        }
+    }
+
+    private fun downloadUpdateApk(update: AppUpdate): Result<File> = runCatching {
+        val safeAssetName = update.assetName.substringAfterLast('/').substringAfterLast('\\').takeIf { it.endsWith(".apk", true) && it.length in 5..160 } ?: error("The release asset has an invalid APK filename.")
+        val updateDir = File(cacheDir, "updates").apply { mkdirs() }
+        val target = File(updateDir, safeAssetName)
+        if (target.parentFile?.canonicalFile != updateDir.canonicalFile) error("The release asset path is invalid.")
+        val temp = File(target.parentFile, "${target.name}.part")
+        val request = Request.Builder().url(update.downloadUrl).header("User-Agent", "VulkanScope/${installedVersionName()}").get().build()
+        try {
+            ipv6PreferredDownloadClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) error("Update download failed (HTTP ${response.code}).")
+                val body = response.body
+                val length = body.contentLength()
+                if (length > 256L * 1024L * 1024L) error("Update package exceeds the safety limit.")
+                body.byteStream().use { input ->
+                    FileOutputStream(temp).use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        var total = 0L
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            total += count
+                            if (total > 256L * 1024L * 1024L) error("Update package exceeds the safety limit.")
+                            output.write(buffer, 0, count)
+                        }
+                        output.fd.sync()
+                    }
+                }
+            }
+            if (!temp.renameTo(target)) { temp.copyTo(target, overwrite = true); temp.delete() }
+            val archiveFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) PackageManager.GET_SIGNING_CERTIFICATES else PackageManager.GET_SIGNATURES
+            val archive = packageManager.getPackageArchiveInfo(target.absolutePath, archiveFlags) ?: error("Downloaded file is not a valid Android package.")
+            if (archive.packageName != packageName) error("Downloaded package identity does not match VulkanScope.")
+            val installed = packageManager.getPackageInfo(packageName, archiveFlags)
+            if (!packageSigningCertificatesMatch(installed, archive)) error("Downloaded package signing certificate does not match the installed VulkanScope build.")
+            val archiveVersionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) archive.longVersionCode else archive.versionCode.toLong()
+            val installedVersionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) installed.longVersionCode else installed.versionCode.toLong()
+            if (archiveVersionCode <= installedVersionCode) error("Downloaded package versionCode is not newer than the installed VulkanScope build.")
+            val archiveVersion = archive.versionName ?: error("Downloaded package has no version metadata.")
+            if (!isNewerVersion(archiveVersion, installedVersionName())) error("Downloaded package versionName is not newer than the installed VulkanScope version.")
+            target
+        } finally {
+            if (temp.exists()) temp.delete()
+        }
+    }
+
+    private fun packageSigningCertificatesMatch(installed: android.content.pm.PackageInfo, archive: android.content.pm.PackageInfo): Boolean {
+        fun certificates(info: android.content.pm.PackageInfo): Set<String> {
+            val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val signingInfo = info.signingInfo ?: return emptySet()
+                if (signingInfo.hasMultipleSigners()) signingInfo.apkContentsSigners else signingInfo.signingCertificateHistory
+            } else {
+                @Suppress("DEPRECATION")
+                info.signatures ?: emptyArray()
+            }
+            return signatures.map { Base64.encodeToString(it.toByteArray(), Base64.NO_WRAP) }.toSet()
+        }
+        val installedCertificates = certificates(installed)
+        val archiveCertificates = certificates(archive)
+        return installedCertificates.isNotEmpty() && archiveCertificates.isNotEmpty() && installedCertificates.intersect(archiveCertificates).isNotEmpty()
+    }
+
+    private fun requestPackageInstall(apk: File) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+            pendingUpdateApk = apk
+            startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+            return
+        }
+        launchPackageInstaller(apk)
+    }
+
+    private fun launchPackageInstaller(apk: File) {
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apk)
+        startActivity(Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        })
     }
 
     private fun requestDriverModeChange(mode: DriverMode) {
@@ -673,7 +968,11 @@ class MainActivity : ComponentActivity() {
             ?: return DisplayReport("Unknown", "Unknown", false, "Not exposed", emptyList(), "Not exposed", "Not exposed", "Not exposed", emptyList())
         val mode = display.mode
         val hdr = display.hdrCapabilities
-        val hdrTypes = if (android.os.Build.VERSION.SDK_INT >= 34) mode.supportedHdrTypes else hdr.supportedHdrTypes
+        val hdrTypes = if (android.os.Build.VERSION.SDK_INT >= 34) {
+            mode.supportedHdrTypes
+        } else {
+            hdr?.supportedHdrTypes ?: intArrayOf()
+        }
         val hdrNames = hdrTypes.map { hdrTypeName(it) }
         val modes = display.supportedModes.map { "${it.physicalWidth} × ${it.physicalHeight} · ${formatHz(it.refreshRate)}" }.distinct().sorted()
         val wideGamut = android.os.Build.VERSION.SDK_INT >= 26 && display.isWideColorGamut
@@ -684,9 +983,9 @@ class MainActivity : ComponentActivity() {
             wideGamut,
             preferred,
             hdrNames,
-            formatLuminance(hdr.desiredMinLuminance),
-            formatLuminance(hdr.desiredMaxLuminance),
-            formatLuminance(hdr.desiredMaxAverageLuminance),
+            hdr?.let { formatLuminance(it.desiredMinLuminance) } ?: "Not exposed",
+            hdr?.let { formatLuminance(it.desiredMaxLuminance) } ?: "Not exposed",
+            hdr?.let { formatLuminance(it.desiredMaxAverageLuminance) } ?: "Not exposed",
             modes
         )
     }
@@ -787,7 +1086,7 @@ class MainActivity : ComponentActivity() {
             try {
                 val current = latestReport ?: return@launch
                 val label = ISOLATED_ADVANCED_GROUPS[group] ?: ISOLATED_CORE_GROUPS[group]
-                val extensionName = ISOLATED_EXTENSION_GROUPS[group]
+                val extensionName = if (group.startsWith("ext::")) group.removePrefix("ext::") else ISOLATED_EXTENSION_GROUPS[group]
                 if (extensionName != null && current.devices.none { device -> device.extensions.any { it.name == extensionName } }) return@launch
                 val raw = runCatching { runIsolatedProbe(group) }.getOrElse { e ->
                     Log.e("VulkanScope", "Vulkan lazy query failed: $group", e)
@@ -817,7 +1116,15 @@ class MainActivity : ComponentActivity() {
             Page.Memory -> listOf("memory2", "external", "sparse")
             Page.Queues -> listOf("queue2", "videoCapabilities")
             Page.Properties -> listOf("core11", "core12", "core13", "tools", "groups")
-            Page.Extensions -> ISOLATED_EXTENSION_GROUPS.keys.toList()
+            Page.Extensions -> latestReport?.devices
+                ?.flatMap { device -> device.extensions.map { it.name } }
+                ?.toSet()
+                ?.asSequence()
+                ?.filter { it in CAPSVIEWER_412_PHYSICAL_DEVICE_QUERY_EXTENSIONS }
+                ?.sorted()
+                ?.map { "ext::$it" }
+                ?.toList()
+                ?: emptyList()
             else -> emptyList()
         }
         groups.forEach(::requestQueryGroup)
@@ -1044,7 +1351,10 @@ private fun mergeSurfaceProbeReport(base: VulkanReport, raw: String): VulkanRepo
             }
             val capabilities = mutableListOf<Pair<String, String>>()
             listOf("minImageCount", "maxImageCount", "currentExtent", "minExtent", "maxExtent", "maxImageArrayLayers", "supportedTransforms", "currentTransform", "supportedCompositeAlpha", "supportedUsageFlags", "capabilityResult").forEach { key ->
-                if (surface?.has(key) == true) capabilities += key to surface.optString(key)
+                if (surface?.has(key) == true) {
+                    val rawValue = surface.optString(key)
+                    capabilities += key to canonicalSurfaceCapabilityValue(key, rawValue)
+                }
             }
             val presentModes = mutableListOf<String>()
             val presentArray = surface?.optJSONArray("presentModes") ?: JSONArray()
@@ -1434,6 +1744,9 @@ private fun VulkanScopeApp(
     report: VulkanReport?,
     loading: Boolean,
     collectionStatus: CollectionStatus,
+    updateStatus: UpdateStatus,
+    onInstallUpdate: (AppUpdate) -> Unit,
+    onCheckForUpdates: () -> Unit,
     surfaceReady: (Surface) -> Unit,
     surfaceDestroyed: () -> Unit,
     driverMode: DriverMode,
@@ -1457,6 +1770,7 @@ private fun VulkanScopeApp(
                 Column {
                     AppHeader(page, onBack = { page = Page.Overview }, onSettings = { page = Page.Settings }, onInfo = { page = Page.Info })
                     CollectionStatusBanner(collectionStatus)
+                    UpdateStatusBanner(updateStatus, onInstallUpdate)
                 }
             },
             bottomBar = {
@@ -1516,7 +1830,19 @@ private fun VulkanScopeApp(
                                 },
                                 label = "pageTransition"
                             ) { targetPage ->
-                                PageContent(targetPage, current, displayReport, driverMode, turnipSupport, onDriverModeChanged, onInstallDriverBundle, onNavigate = { page = it }, onRequestQuery = onRequestQuery)
+                                PageContent(
+                                    page = targetPage,
+                                    report = current,
+                                    display = displayReport,
+                                    driverMode = driverMode,
+                                    turnipSupport = turnipSupport,
+                                    onDriverModeChanged = onDriverModeChanged,
+                                    onInstallDriverBundle = onInstallDriverBundle,
+                                    onCheckForUpdates = onCheckForUpdates,
+                                    collectionStatus = collectionStatus,
+                                    onNavigate = { page = it },
+                                    onRequestQuery = onRequestQuery
+                                )
                             }
                         }
                     }
@@ -1554,7 +1880,7 @@ private fun SurfaceProbe(
 
 
 @Composable
-private fun PageContent(page: Page, report: VulkanReport, display: DisplayReport, driverMode: DriverMode, turnipSupport: TurnipSupport, onDriverModeChanged: (DriverMode) -> Unit, onInstallDriverBundle: () -> Unit, onNavigate: (Page) -> Unit, onRequestQuery: (String) -> Unit) {
+private fun PageContent(page: Page, report: VulkanReport, display: DisplayReport, driverMode: DriverMode, turnipSupport: TurnipSupport, onDriverModeChanged: (DriverMode) -> Unit, onInstallDriverBundle: () -> Unit, onCheckForUpdates: () -> Unit, collectionStatus: CollectionStatus, onNavigate: (Page) -> Unit, onRequestQuery: (String) -> Unit) {
     val device = report.devices.firstOrNull()
     when (page) {
         Page.Overview -> OverviewPage(report, device, display, driverMode, onNavigate)
@@ -1568,7 +1894,7 @@ private fun PageContent(page: Page, report: VulkanReport, display: DisplayReport
         Page.Properties -> PropertiesPage(device, onRequestQuery)
         Page.Extensions -> ExtensionsPage(report, device)
         Page.Profiles -> ProfilesPage(report, device)
-        Page.Settings -> SettingsPage(report, display, driverMode, turnipSupport, onDriverModeChanged, onInstallDriverBundle)
+        Page.Settings -> SettingsPage(report, display, driverMode, turnipSupport, onDriverModeChanged, onInstallDriverBundle, onCheckForUpdates, collectionStatus)
         Page.Info -> InfoPage(report.registryCoverage)
     }
 }
@@ -2218,45 +2544,115 @@ private fun rawBitsSuffix(bits: Long, known: Set<Long>): String {
     return if (remaining != 0L) " | UNKNOWN_BITS=0x${remaining.toString(16).uppercase()}" else ""
 }
 
-private fun memoryHeapFlags(bits: Long): String = buildList {
-    if ((bits and 0x1L) != 0L) add("DEVICE_LOCAL")
-    if ((bits and 0x2L) != 0L) add("MULTI_INSTANCE")
-}.joinToString(" | ").ifBlank { "NONE" } + rawBitsSuffix(bits, setOf(0x1L, 0x2L))
+private fun memoryHeapFlags(bits: Long): String = canonicalFlagNames(bits, listOf(
+    0x1L to "VK_MEMORY_HEAP_DEVICE_LOCAL_BIT",
+    0x2L to "VK_MEMORY_HEAP_MULTI_INSTANCE_BIT",
+    0x8L to "VK_MEMORY_HEAP_TILE_MEMORY_BIT_QCOM"
+))
 
-private fun memoryTypeFlags(bits: Long): String = buildList {
-    if ((bits and 0x1L) != 0L) add("DEVICE_LOCAL")
-    if ((bits and 0x2L) != 0L) add("HOST_VISIBLE")
-    if ((bits and 0x4L) != 0L) add("HOST_COHERENT")
-    if ((bits and 0x8L) != 0L) add("HOST_CACHED")
-    if ((bits and 0x10L) != 0L) add("LAZILY_ALLOCATED")
-    if ((bits and 0x20L) != 0L) add("PROTECTED")
-    if ((bits and 0x40L) != 0L) add("DEVICE_COHERENT_AMD")
-    if ((bits and 0x80L) != 0L) add("DEVICE_UNCACHED_AMD")
-    if ((bits and 0x100L) != 0L) add("RDMA_CAPABLE_NV")
-}.joinToString(" | ").ifBlank { "NONE" } + rawBitsSuffix(bits, setOf(0x1L,0x2L,0x4L,0x8L,0x10L,0x20L,0x40L,0x80L,0x100L))
+private fun memoryTypeFlags(bits: Long): String = canonicalFlagNames(bits, listOf(
+    0x1L to "VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT",
+    0x2L to "VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT",
+    0x4L to "VK_MEMORY_PROPERTY_HOST_COHERENT_BIT",
+    0x8L to "VK_MEMORY_PROPERTY_HOST_CACHED_BIT",
+    0x10L to "VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT",
+    0x20L to "VK_MEMORY_PROPERTY_PROTECTED_BIT",
+    0x40L to "VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD",
+    0x80L to "VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD",
+    0x100L to "VK_MEMORY_PROPERTY_RDMA_CAPABLE_BIT_NV"
+))
 
-private fun queueCapabilityFlags(bits: Long): String = buildList {
-    if ((bits and 0x1L) != 0L) add("GRAPHICS")
-    if ((bits and 0x2L) != 0L) add("COMPUTE")
-    if ((bits and 0x4L) != 0L) add("TRANSFER")
-    if ((bits and 0x8L) != 0L) add("SPARSE_BINDING")
-    if ((bits and 0x10L) != 0L) add("PROTECTED")
-}.joinToString(" | ").ifBlank { "NONE" } + rawBitsSuffix(bits, setOf(0x1L,0x2L,0x4L,0x8L,0x10L))
+private fun queueCapabilityFlags(bits: Long): String = canonicalFlagNames(bits, listOf(
+    0x1L to "VK_QUEUE_GRAPHICS_BIT", 0x2L to "VK_QUEUE_COMPUTE_BIT", 0x4L to "VK_QUEUE_TRANSFER_BIT",
+    0x8L to "VK_QUEUE_SPARSE_BINDING_BIT", 0x10L to "VK_QUEUE_PROTECTED_BIT", 0x20L to "VK_QUEUE_VIDEO_DECODE_BIT_KHR",
+    0x40L to "VK_QUEUE_VIDEO_ENCODE_BIT_KHR", 0x100L to "VK_QUEUE_OPTICAL_FLOW_BIT_NV", 0x400L to "VK_QUEUE_DATA_GRAPH_BIT_ARM"
+))
 
-private fun formatFeatureFlags(bits: Long): String {
+private fun videoCodecOperationFlags(bits: Long): String = canonicalFlagNames(bits, listOf(
+    0x1L to "VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR", 0x2L to "VK_VIDEO_CODEC_OPERATION_DECODE_H265_BIT_KHR",
+    0x4L to "VK_VIDEO_CODEC_OPERATION_DECODE_AV1_BIT_KHR", 0x8L to "VK_VIDEO_CODEC_OPERATION_DECODE_VP9_BIT_KHR",
+    0x10000L to "VK_VIDEO_CODEC_OPERATION_ENCODE_H264_BIT_KHR", 0x20000L to "VK_VIDEO_CODEC_OPERATION_ENCODE_H265_BIT_KHR",
+    0x40000L to "VK_VIDEO_CODEC_OPERATION_ENCODE_AV1_BIT_KHR"
+))
+
+private fun canonicalFlagNames(bits: Long, names: List<Pair<Long, String>>): String {
     if (bits == 0L) return "NONE"
-    val names = listOf(
-        0x1L to "SAMPLED_IMAGE", 0x2L to "STORAGE_IMAGE", 0x4L to "STORAGE_IMAGE_ATOMIC", 0x8L to "UNIFORM_TEXEL_BUFFER",
-        0x10L to "STORAGE_TEXEL_BUFFER", 0x20L to "STORAGE_TEXEL_BUFFER_ATOMIC", 0x40L to "UNIFORM_BUFFER", 0x80L to "STORAGE_BUFFER",
-        0x100L to "STORAGE_BUFFER_ATOMIC", 0x200L to "VERTEX_BUFFER", 0x400L to "COLOR_ATTACHMENT", 0x800L to "COLOR_ATTACHMENT_BLEND",
-        0x1000L to "DEPTH_STENCIL_ATTACHMENT", 0x2000L to "BLIT_SRC", 0x4000L to "BLIT_DST", 0x8000L to "SAMPLED_IMAGE_FILTER_LINEAR",
-        0x10000L to "TRANSFER_SRC", 0x20000L to "TRANSFER_DST", 0x40000L to "MIDPOINT_CHROMA_SAMPLES", 0x80000L to "SAMPLED_IMAGE_YCBCR_CONVERSION_LINEAR_FILTER",
-        0x100000L to "SAMPLED_IMAGE_YCBCR_CONVERSION_SEPARATE_RECONSTRUCTION_FILTER", 0x200000L to "SAMPLED_IMAGE_YCBCR_CONVERSION_CHROMA_RECONSTRUCTION_EXPLICIT", 0x400000L to "SAMPLED_IMAGE_YCBCR_CONVERSION_CHROMA_RECONSTRUCTION_EXPLICIT_FORCEABLE",
-        0x800000L to "DISJOINT", 0x1000000L to "COSITED_CHROMA_SAMPLES"
-    )
     val known = names.filter { (bit, _) -> (bits and bit) != 0L }.map { it.second }
     return known.joinToString(" | ").ifBlank { "NONE" } + rawBitsSuffix(bits, names.map { it.first }.toSet())
 }
+
+
+private fun surfaceTransformFlags(bits: Long): String = canonicalFlagNames(bits, listOf(
+    0x1L to "VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR", 0x2L to "VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR",
+    0x4L to "VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR", 0x8L to "VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR",
+    0x10L to "VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_BIT_KHR", 0x20L to "VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_90_BIT_KHR",
+    0x40L to "VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180_BIT_KHR", 0x80L to "VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR",
+    0x100L to "VK_SURFACE_TRANSFORM_INHERIT_BIT_KHR"
+))
+
+private fun compositeAlphaFlags(bits: Long): String = canonicalFlagNames(bits, listOf(
+    0x1L to "VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR", 0x2L to "VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR",
+    0x4L to "VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR", 0x8L to "VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR"
+))
+
+private fun imageUsageFlags(bits: Long): String = canonicalFlagNames(bits, listOf(
+    0x1L to "VK_IMAGE_USAGE_TRANSFER_SRC_BIT", 0x2L to "VK_IMAGE_USAGE_TRANSFER_DST_BIT",
+    0x4L to "VK_IMAGE_USAGE_SAMPLED_BIT", 0x8L to "VK_IMAGE_USAGE_STORAGE_BIT",
+    0x10L to "VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT", 0x20L to "VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT",
+    0x40L to "VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT", 0x80L to "VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT",
+    0x100L to "VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR", 0x200L to "VK_IMAGE_USAGE_FRAGMENT_DENSITY_MAP_BIT_EXT",
+    0x400L to "VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR", 0x800L to "VK_IMAGE_USAGE_VIDEO_DECODE_SRC_BIT_KHR",
+    0x1000L to "VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR", 0x2000L to "VK_IMAGE_USAGE_VIDEO_ENCODE_DST_BIT_KHR",
+    0x4000L to "VK_IMAGE_USAGE_VIDEO_ENCODE_SRC_BIT_KHR", 0x8000L to "VK_IMAGE_USAGE_VIDEO_ENCODE_DPB_BIT_KHR",
+    0x40000L to "VK_IMAGE_USAGE_INVOCATION_MASK_BIT_HUAWEI", 0x80000L to "VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT",
+    0x100000L to "VK_IMAGE_USAGE_SAMPLE_WEIGHT_BIT_QCOM", 0x200000L to "VK_IMAGE_USAGE_SAMPLE_BLOCK_MATCH_BIT_QCOM",
+    0x400000L to "VK_IMAGE_USAGE_HOST_TRANSFER_BIT", 0x800000L to "VK_IMAGE_USAGE_TENSOR_ALIASING_BIT_ARM",
+    0x2000000L to "VK_IMAGE_USAGE_VIDEO_ENCODE_QUANTIZATION_DELTA_MAP_BIT_KHR", 0x4000000L to "VK_IMAGE_USAGE_VIDEO_ENCODE_EMPHASIS_MAP_BIT_KHR",
+    0x8000000L to "VK_IMAGE_USAGE_TILE_MEMORY_BIT_QCOM"
+))
+
+private fun canonicalSurfaceCapabilityValue(name: String, value: String): String {
+    val bits = value.toLongOrNull() ?: return value
+    val canonical = when (name) {
+        "supportedTransforms", "currentTransform" -> surfaceTransformFlags(bits)
+        "supportedCompositeAlpha" -> compositeAlphaFlags(bits)
+        "supportedUsageFlags" -> imageUsageFlags(bits)
+        else -> return value
+    }
+    return "$value · $canonical"
+}
+private fun formatFeatureFlags(bits: Long): String = canonicalFlagNames(bits, listOf(
+    0x1L to "VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT", 0x2L to "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT",
+    0x4L to "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_ATOMIC_BIT", 0x8L to "VK_FORMAT_FEATURE_2_UNIFORM_TEXEL_BUFFER_BIT",
+    0x10L to "VK_FORMAT_FEATURE_2_STORAGE_TEXEL_BUFFER_BIT", 0x20L to "VK_FORMAT_FEATURE_2_STORAGE_TEXEL_BUFFER_ATOMIC_BIT",
+    0x40L to "VK_FORMAT_FEATURE_2_VERTEX_BUFFER_BIT", 0x80L to "VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT",
+    0x100L to "VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BLEND_BIT", 0x200L to "VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT",
+    0x400L to "VK_FORMAT_FEATURE_2_BLIT_SRC_BIT", 0x800L to "VK_FORMAT_FEATURE_2_BLIT_DST_BIT",
+    0x1000L to "VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT", 0x2000L to "VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_CUBIC_BIT",
+    0x4000L to "VK_FORMAT_FEATURE_2_TRANSFER_SRC_BIT", 0x8000L to "VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT",
+    0x10000L to "VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_MINMAX_BIT", 0x20000L to "VK_FORMAT_FEATURE_2_MIDPOINT_CHROMA_SAMPLES_BIT",
+    0x40000L to "VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_YCBCR_CONVERSION_LINEAR_FILTER_BIT", 0x80000L to "VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_YCBCR_CONVERSION_SEPARATE_RECONSTRUCTION_FILTER_BIT",
+    0x100000L to "VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_YCBCR_CONVERSION_CHROMA_RECONSTRUCTION_EXPLICIT_BIT", 0x200000L to "VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_YCBCR_CONVERSION_CHROMA_RECONSTRUCTION_EXPLICIT_FORCEABLE_BIT",
+    0x400000L to "VK_FORMAT_FEATURE_2_DISJOINT_BIT", 0x800000L to "VK_FORMAT_FEATURE_2_COSITED_CHROMA_SAMPLES_BIT",
+    0x1000000L to "VK_FORMAT_FEATURE_2_FRAGMENT_DENSITY_MAP_BIT_EXT", 0x2000000L to "VK_FORMAT_FEATURE_2_VIDEO_DECODE_OUTPUT_BIT_KHR",
+    0x4000000L to "VK_FORMAT_FEATURE_2_VIDEO_DECODE_DPB_BIT_KHR", 0x8000000L to "VK_FORMAT_FEATURE_2_VIDEO_ENCODE_INPUT_BIT_KHR",
+    0x10000000L to "VK_FORMAT_FEATURE_2_VIDEO_ENCODE_DPB_BIT_KHR", 0x20000000L to "VK_FORMAT_FEATURE_2_ACCELERATION_STRUCTURE_VERTEX_BUFFER_BIT_KHR",
+    0x40000000L to "VK_FORMAT_FEATURE_2_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR", 0x80000000L to "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT",
+    0x100000000L to "VK_FORMAT_FEATURE_2_STORAGE_WRITE_WITHOUT_FORMAT_BIT", 0x200000000L to "VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_DEPTH_COMPARISON_BIT",
+    0x400000000L to "VK_FORMAT_FEATURE_2_WEIGHT_IMAGE_BIT_QCOM", 0x800000000L to "VK_FORMAT_FEATURE_2_WEIGHT_SAMPLED_IMAGE_BIT_QCOM",
+    0x1000000000L to "VK_FORMAT_FEATURE_2_BLOCK_MATCHING_BIT_QCOM", 0x2000000000L to "VK_FORMAT_FEATURE_2_BOX_FILTER_SAMPLED_BIT_QCOM",
+    0x4000000000L to "VK_FORMAT_FEATURE_2_LINEAR_COLOR_ATTACHMENT_BIT_NV", 0x8000000000L to "VK_FORMAT_FEATURE_2_TENSOR_SHADER_BIT_ARM",
+    0x10000000000L to "VK_FORMAT_FEATURE_2_OPTICAL_FLOW_IMAGE_BIT_NV", 0x20000000000L to "VK_FORMAT_FEATURE_2_OPTICAL_FLOW_VECTOR_BIT_NV",
+    0x40000000000L to "VK_FORMAT_FEATURE_2_OPTICAL_FLOW_COST_BIT_NV", 0x80000000000L to "VK_FORMAT_FEATURE_2_TENSOR_IMAGE_ALIASING_BIT_ARM",
+    0x100000000000L to "VK_FORMAT_FEATURE_2_BLOCK_MATCHING_SXD_BIT_QCOM", 0x200000000000L to "VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_2D_BIT_IMG",
+    0x400000000000L to "VK_FORMAT_FEATURE_2_HOST_IMAGE_TRANSFER_BIT", 0x1000000000000L to "VK_FORMAT_FEATURE_2_TENSOR_DATA_GRAPH_BIT_ARM",
+    0x2000000000000L to "VK_FORMAT_FEATURE_2_VIDEO_ENCODE_QUANTIZATION_DELTA_MAP_BIT_KHR", 0x4000000000000L to "VK_FORMAT_FEATURE_2_VIDEO_ENCODE_EMPHASIS_MAP_BIT_KHR",
+    0x8000000000000L to "VK_FORMAT_FEATURE_2_ACCELERATION_STRUCTURE_RADIUS_BUFFER_BIT_NV", 0x10000000000000L to "VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_COMPUTE_QUEUE_BIT_KHR",
+    0x20000000000000L to "VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_TRANSFER_QUEUE_BIT_KHR", 0x40000000000000L to "VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_COMPUTE_QUEUE_BIT_KHR",
+    0x80000000000000L to "VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_TRANSFER_QUEUE_BIT_KHR", 0x100000000000000L to "VK_FORMAT_FEATURE_2_DATA_GRAPH_OPTICAL_FLOW_IMAGE_BIT_ARM",
+    0x200000000000000L to "VK_FORMAT_FEATURE_2_DATA_GRAPH_OPTICAL_FLOW_VECTOR_BIT_ARM", 0x400000000000000L to "VK_FORMAT_FEATURE_2_DATA_GRAPH_OPTICAL_FLOW_COST_BIT_ARM",
+    0x800000000000000L to "VK_FORMAT_FEATURE_2_COPY_IMAGE_INDIRECT_DST_BIT_KHR"
+))
 
 private data class ProfileResult(val name: String, val revision: String, val status: String, val missingExtensions: List<String>, val missingFeatures: List<String>, val unknownFeatures: List<String>, val failingLimits: List<String>, val unknownLimits: List<String>, val failingBooleanLimits: List<String> = emptyList(), val unknownBooleanLimits: List<String> = emptyList())
 
@@ -2440,27 +2836,32 @@ private fun InfoPage(registryCoverage: RegistryCoverage) {
     ) {
         item {
             SectionCard("Developer") {
-                KeyValue("Developer", "Semih Boran")
-                KeyValue("Nickname", "EFI Shell")
-                Button(
+                ExpressiveIdentityBlock(
+                    title = "Semih Boran",
+                    subtitle = "EFI Shell · VulkanScope developer",
+                    icon = R.drawable.ic_info
+                )
+                ExpressiveActionButton(
+                    title = "Open GitHub profile",
+                    subtitle = "EFIShell0 · Project source and releases",
+                    icon = R.drawable.ic_action_github,
                     onClick = {
                         runCatching {
                             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/EFIShell0")))
                         }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("GitHub: github.com/EFIShell0")
-                }
+                    }
+                )
             }
         }
         item {
             SectionCard("Application") {
-                KeyValue("Application", "VulkanScope")
-                KeyValue("Version", versionName)
-                KeyValue("Version code", versionCode)
-                KeyValue("Package", context.packageName)
-                KeyValue("Installed ABI", installedAbi)
+                ExpressiveVersionBlock(
+                    application = "VulkanScope",
+                    version = versionName,
+                    versionCode = versionCode,
+                    packageName = context.packageName,
+                    abi = installedAbi
+                )
             }
         }
         item {
@@ -2525,8 +2926,11 @@ private fun turnipSupportDescription(support: TurnipSupport): String = when (sup
 }
 
 @Composable
-private fun SettingsPage(report: VulkanReport, display: DisplayReport, mode: DriverMode, turnipSupport: TurnipSupport, onModeChanged: (DriverMode) -> Unit, onInstallDriverBundle: () -> Unit) {
+private fun SettingsPage(report: VulkanReport, display: DisplayReport, mode: DriverMode, turnipSupport: TurnipSupport, onModeChanged: (DriverMode) -> Unit, onInstallDriverBundle: () -> Unit, onCheckForUpdates: () -> Unit, collectionStatus: CollectionStatus) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    var submissionState by remember { mutableStateOf("Ready") }
+    var submissionInFlight by remember { mutableStateOf(false) }
     val exportStem = remember(report) { exportFileStem(report) }
     val pendingLegacyExport = remember { mutableStateOf<ExportPayload?>(null) }
     val legacyPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -2571,16 +2975,43 @@ private fun SettingsPage(report: VulkanReport, display: DisplayReport, mode: Dri
         if (turnipSupport == TurnipSupport.SUPPORTED && mode == DriverMode.TURNIP) {
             item { SectionCard("Turnip / third-party driver bundle") {
                 KeyValue("Status", if (bundleInstalled) "Bundle installed" else "Not installed")
-                Button(onClick = onInstallDriverBundle, modifier = Modifier.fillMaxWidth()) { Text("Import driver ZIP") }
+                ExpressiveActionButton(title = "Import driver ZIP", subtitle = "Validate and install an AdrenoTools-compatible bundle", icon = R.drawable.ic_action_import, onClick = onInstallDriverBundle)
                 Text("Import an AdrenoTools-compatible Turnip ZIP. The driver remains inside VulkanScope's private storage; Android's system Vulkan driver is never replaced.", color = ComposeColor(0xFF777777), style = MaterialTheme.typography.bodySmall)
             } }
         }
+        item { SectionCard("Application updates") {
+            Text("Check the official VulkanScope GitHub release for a newer build compatible with the installed ABI. The result appears in the same non-modal update banner used at startup and shows the up-to-date result for approximately 8 seconds; update-available and error results retain the existing approximately 10-second banner behavior.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
+            ExpressiveActionButton(title = "Check for updates", subtitle = "Official EFIShell0/VulkanScope GitHub release channel", icon = R.drawable.ic_action_update, onClick = onCheckForUpdates)
+        } }
         item { SectionCard("Export complete report") {
             Text("Export the complete currently collected VulkanScope report, including device properties, detailed Core 1.1/1.2/1.3/1.4 properties when available, features, memory, queues, formats, surface data, extensions, layers and Android/display information.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = { exportDocument("${exportStem}.txt", reportToText(context, report, display, mode), "text/plain", textLauncher) }, modifier = Modifier.weight(1f)) { Text("Export TXT") }
-                Button(onClick = { exportDocument("${exportStem}.html", reportToHtml(context, report, display, mode), "text/html", htmlLauncher) }, modifier = Modifier.weight(1f)) { Text("Export HTML") }
+                ExpressiveActionButton(title = "Export TXT", subtitle = "Plain-text complete report", icon = R.drawable.ic_action_text, modifier = Modifier.weight(1f), compact = true, onClick = { exportDocument("${exportStem}.txt", reportToText(context, report, display, mode), "text/plain", textLauncher) })
+                ExpressiveActionButton(title = "Export HTML", subtitle = "Styled offline complete report", icon = R.drawable.ic_action_html, modifier = Modifier.weight(1f), compact = true, onClick = { exportDocument("${exportStem}.html", reportToHtml(context, report, display, mode), "text/html", htmlLauncher) })
             }
+        } }
+        item { SectionCard("VulkanScope Database") {
+            Text("Submit the complete technical VulkanScope report to the public database. Capability fields cannot be selectively omitted: a submission contains the complete collected technical report. VulkanScope does not include IMEI, Android ID, device serial, MAC addresses, account data, authentication tokens or private file paths.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
+            ExpressiveActionButton(
+                title = if (submissionInFlight) "Submitting…" else "Submit complete report",
+                subtitle = if (submissionInFlight) "Uploading the complete technical dataset" else "Structured JSON + canonical TXT report",
+                icon = R.drawable.ic_action_database,
+                enabled = !submissionInFlight && report.devices.isNotEmpty() && collectionStatus != CollectionStatus.COLLECTING,
+                onClick = {
+                    if (!submissionInFlight) {
+                        submissionInFlight = true
+                        submissionState = "Submitting complete technical report…"
+                        scope.launch {
+                            val result = submitDatabaseReport(context, report, display, mode)
+                            submissionState = result
+                            submissionInFlight = false
+                        }
+                    }
+                }
+            )
+            Text(submissionState, color = ComposeColor(0xFFAAAAAA), style = MaterialTheme.typography.bodySmall)
+            if (collectionStatus == CollectionStatus.COLLECTING) Text("Wait for the current Vulkan collection pass to finish before submitting.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
+            Text("Submission is explicit and user-initiated. The official VulkanScope Database endpoint is used automatically; no report is uploaded automatically or in the background.", color = ComposeColor(0xFF777777), style = MaterialTheme.typography.bodySmall)
         } }
         item { SectionCard("Important") {
             Text("VulkanScope uses libadrenotools for rootless driver loading on modern Android. This avoids the libhardware.so / linker-namespace problem of directly loading libvulkan_freedreno.so.", color = ComposeColor(0xFFAAAAAA), style = MaterialTheme.typography.bodySmall)
@@ -2653,6 +3084,163 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
     }
 }
 
+
+private fun technicalReportJson(context: Context, report: VulkanReport, display: DisplayReport, mode: DriverMode): JSONObject = JSONObject().apply {
+    put("schemaVersion", 3)
+    put("loaderInstanceApiVersion", report.loaderVersion)
+    put("driverMode", mode.label)
+    put("collectionError", report.error ?: JSONObject.NULL)
+    put("applicationAbi", detectInstalledAbi(context))
+    put("supportedDeviceAbis", JSONArray(Build.SUPPORTED_ABIS.toList()))
+    put("display", JSONObject().apply {
+        put("resolution", display.resolution)
+        put("refreshRate", display.refreshRate)
+        put("wideGamut", display.wideGamut)
+        put("preferredWideGamut", display.preferredWideGamut)
+        put("hdrTypes", JSONArray(display.hdrTypes))
+        put("minLuminance", display.minLuminance)
+        put("maxLuminance", display.maxLuminance)
+        put("averageLuminance", display.averageLuminance)
+        put("modes", JSONArray(display.modes))
+    })
+    put("registryCoverage", JSONObject().apply {
+        put("baseline", report.registryCoverage.baseline)
+        put("mode", report.registryCoverage.mode)
+        put("implementedPhysicalDeviceStructCount", report.registryCoverage.implementedPhysicalDeviceStructCount)
+        put("validatedRuntimeQueryGroupCount", report.registryCoverage.validatedRuntimeQueryGroupCount)
+        put("runtimeExtensionTokenCount", report.registryCoverage.runtimeExtensionTokenCount)
+        put("catalogSchemaVersion", report.registryCoverage.catalogSchemaVersion)
+        put("reportSchema", report.registryCoverage.reportSchema)
+        put("headerBaseline", report.registryCoverage.headerBaseline)
+        put("instanceDependencyCandidateCount", report.registryCoverage.instanceDependencyCandidateCount)
+        put("implementedPhysicalDeviceStructs", JSONArray(report.registryCoverage.implementedPhysicalDeviceStructs))
+        put("validatedRuntimeQueryGroups", JSONArray(report.registryCoverage.validatedRuntimeQueryGroups))
+    })
+    put("instanceExtensions", JSONArray().apply {
+        report.instanceExtensions.forEach { ext -> put(JSONObject().apply { put("name", ext.name); put("scope", ext.scope); put("specVersion", ext.specVersion); put("supported", ext.supported) }) }
+    })
+    put("instanceLayers", JSONArray().apply {
+        report.instanceLayers.forEach { layer -> put(JSONObject().apply {
+            put("name", layer.name); put("description", layer.description); put("specVersion", layer.specVersion); put("implementationVersion", layer.implementationVersion)
+            put("extensions", JSONArray().apply { layer.extensions.forEach { ext -> put(JSONObject().apply { put("name", ext.name); put("scope", ext.scope); put("specVersion", ext.specVersion); put("supported", ext.supported) }) } })
+        }) }
+    })
+    put("devices", JSONArray().apply {
+        report.devices.forEach { d -> put(JSONObject().apply {
+            put("name", d.name); put("apiVersion", d.apiVersion); put("driverVersionRaw", d.driverVersion); put("driverVersionText", d.driverVersionText)
+            put("vendorId", d.vendorId); put("vendorIdRaw", d.vendorIdRaw); put("deviceId", d.deviceId); put("deviceType", d.deviceType)
+            put("deviceExtensionStatus", d.deviceExtensionStatus); put("deviceExtensionReason", d.deviceExtensionReason)
+            put("extendedQueryStatus", d.extendedQueryStatus); put("extendedQueryReason", d.extendedQueryReason)
+            put("vulkan14Status", d.vulkan14Status); put("vulkan14Reason", d.vulkan14Reason)
+            put("deviceLayers", JSONArray().apply { d.deviceLayers.forEach { layer -> put(JSONObject().apply {
+                put("name", layer.name); put("description", layer.description); put("specVersion", layer.specVersion); put("implementationVersion", layer.implementationVersion)
+                put("extensions", JSONArray().apply { layer.extensions.forEach { ext -> put(JSONObject().apply { put("name", ext.name); put("scope", ext.scope); put("specVersion", ext.specVersion); put("supported", ext.supported) }) } })
+            }) } })
+            put("extensions", JSONArray().apply { d.extensions.forEach { ext -> put(JSONObject().apply { put("name", ext.name); put("scope", ext.scope); put("specVersion", ext.specVersion); put("supported", ext.supported) }) } })
+            put("features", JSONArray().apply { d.features.forEach { feature -> put(JSONObject().apply { put("name", feature.name); put("supported", feature.supported) }) } })
+            put("detailedProperties", JSONArray().apply { d.detailedProperties.forEach { prop -> put(JSONObject().apply { put("section", prop.section); put("name", prop.name); put("value", prop.value) }) } })
+            put("limits", JSONArray().apply { d.limits.forEach { value -> put(JSONObject().apply { put("name", value.first); put("value", value.second) }) } })
+            put("memoryHeaps", JSONArray().apply { d.heaps.forEach { heap -> put(JSONObject().apply { put("index", heap.index); put("size", heap.size); put("sizeU64", heap.size.toULong().toString()); put("flags", heap.flags); put("flagsU64", heap.flags.toULong().toString()); put("flagsCanonical", memoryHeapFlags(heap.flags)) }) } })
+            put("memoryTypes", JSONArray().apply { d.memoryTypes.forEach { type -> put(JSONObject().apply { put("index", type.index); put("heap", type.heap); put("flags", type.flags); put("flagsU64", type.flags.toULong().toString()); put("flagsCanonical", memoryTypeFlags(type.flags)) }) } })
+            put("queues", JSONArray().apply { d.queues.forEach { q -> put(JSONObject().apply {
+                put("index", q.index); put("count", q.count); put("timestampBits", q.timestampBits); put("flags", q.flags); put("flagsU64", q.flags.toULong().toString()); put("flagsCanonical", queueCapabilityFlags(q.flags)); put("graphics", q.graphics); put("compute", q.compute); put("transfer", q.transfer); put("sparse", q.sparse); put("protected", q.protected); put("videoDecode", q.videoDecode); put("videoEncode", q.videoEncode); put("opticalFlow", q.opticalFlow); put("dataGraph", q.dataGraph); put("unknownFlags", q.unknownFlags); put("granularity", q.granularity); put("videoCodecOperations", q.videoCodecOperations); put("videoCodecOperationsU64", q.videoCodecOperations.toULong().toString()); put("videoCodecOperationsCanonical", videoCodecOperationFlags(q.videoCodecOperations))
+            }) } })
+            put("formats", JSONArray().apply { d.formats.forEach { f -> put(JSONObject().apply { put("name", f.name); put("supported", f.supported); put("linear", f.linear); put("linearU64", f.linear.toULong().toString()); put("linearCanonical", formatFeatureFlags(f.linear)); put("optimal", f.optimal); put("optimalU64", f.optimal.toULong().toString()); put("optimalCanonical", formatFeatureFlags(f.optimal)); put("buffer", f.buffer); put("bufferU64", f.buffer.toULong().toString()); put("bufferCanonical", formatFeatureFlags(f.buffer)) }) } })
+            put("surface", JSONObject().apply {
+                put("available", d.surfaceAvailable); put("presentationSupported", d.surfacePresentationSupported); put("colorSpaceExtensionAvailable", d.surfaceColorSpaceExtensionAvailable); put("colorSpaceExtensionEnabled", d.surfaceColorSpaceExtensionEnabled)
+                put("formatQueryResult", d.surfaceFormatQueryResult); put("formatQueryResultSecond", d.surfaceFormatQueryResultSecond); put("formatQuerySecondAttempted", d.surfaceFormatQuerySecondAttempted); put("formatQuerySafetyRejected", d.surfaceFormatQuerySafetyRejected)
+                put("capabilities", JSONArray().apply { d.surfaceCapabilities.forEach { value -> put(JSONObject().apply { put("name", value.first); put("value", value.second) }) } })
+                put("formats", JSONArray().apply { d.surfaceFormats.forEach { f -> put(JSONObject().apply { put("format", f.format); put("colorSpace", f.colorSpace); put("classification", f.classification); put("description", f.description); put("supported", f.supported) }) } })
+                put("presentModes", JSONArray(d.presentModes))
+                put("presentationQueues", JSONArray().apply { d.presentationQueues.forEach { q -> put(JSONObject().apply { put("queue", q.first); put("supported", q.second) }) } })
+            })
+            put("profileEvaluation", JSONArray().apply { vulkanProfileRequirements().map { evaluateProfile(report, d, it) }.forEach { profile -> put(JSONObject().apply { put("name", profile.name); put("revision", profile.revision); put("status", profile.status); put("summary", profileSummary(profile)) }) } })
+        }) }
+    })
+    put("profileCatalog", JSONArray().apply { vulkanProfileCatalog().forEach { value -> put(JSONObject().apply { put("name", value.first); put("revision", value.second) }) } })
+}
+
+private fun databaseSubmissionJson(context: Context, report: VulkanReport, display: DisplayReport, mode: DriverMode): String {
+    val packageInfo = runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull()
+    val appVersionCode = if (packageInfo != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        packageInfo.longVersionCode
+    } else {
+        @Suppress("DEPRECATION")
+        packageInfo?.versionCode?.toLong() ?: 0L
+    }
+    val device = report.devices.firstOrNull()
+    return JSONObject().apply {
+        put("schemaVersion", 2)
+        put("application", JSONObject().apply {
+            put("name", "VulkanScope")
+            put("version", packageInfo?.versionName ?: "Unknown")
+            put("versionCode", appVersionCode)
+            put("packageName", context.packageName)
+            put("applicationAbi", detectInstalledAbi(context))
+            put("supportedDeviceAbis", JSONArray(Build.SUPPORTED_ABIS.toList()))
+        })
+        put("device", JSONObject().apply {
+            put("manufacturer", Build.MANUFACTURER)
+            put("brand", Build.BRAND)
+            put("model", Build.MODEL)
+            put("device", Build.DEVICE)
+            put("product", Build.PRODUCT)
+            put("androidRelease", Build.VERSION.RELEASE)
+            put("sdk", Build.VERSION.SDK_INT)
+            put("securityPatch", Build.VERSION.SECURITY_PATCH)
+        })
+        put("gpu", JSONObject().apply {
+            put("name", device?.name ?: "Unknown")
+            put("vendorId", device?.vendorId ?: "Unknown")
+            put("deviceId", device?.deviceId ?: "Unknown")
+            put("deviceType", device?.deviceType ?: "Unknown")
+        })
+        put("driver", JSONObject().apply {
+            put("mode", mode.label)
+            put("version", device?.driverVersionText ?: "Unknown")
+            put("rawVersion", device?.driverVersion ?: "Unknown")
+        })
+        put("vulkan", JSONObject().apply {
+            put("loaderInstanceApiVersion", report.loaderVersion)
+            put("deviceApiVersion", device?.apiVersion ?: "Unknown")
+            put("registryBaseline", report.registryCoverage.baseline)
+            put("headerBaseline", report.registryCoverage.headerBaseline)
+            put("reportSchema", report.registryCoverage.reportSchema)
+        })
+        put("collection", JSONObject().apply {
+            put("status", if (report.error == null) "available" else "incomplete")
+            put("error", report.error ?: JSONObject.NULL)
+            put("deviceCount", report.devices.size)
+        })
+        put("technicalReport", technicalReportJson(context, report, display, mode))
+        put("reportText", reportToText(context, report, display, mode))
+    }.toString()
+}
+
+private suspend fun submitDatabaseReport(context: Context, report: VulkanReport, display: DisplayReport, mode: DriverMode): String = withContext(Dispatchers.IO) {
+    val baseUrl = OFFICIAL_DATABASE_API_ENDPOINT.toHttpUrlOrNull() ?: return@withContext "The official VulkanScope Database endpoint is invalid."
+    if (baseUrl.scheme != "https" || baseUrl.host.isBlank() || baseUrl.username.isNotEmpty() || baseUrl.password.isNotEmpty() || baseUrl.query != null || baseUrl.fragment != null || baseUrl.encodedPath != "/") return@withContext "The official VulkanScope Database endpoint is invalid."
+    val submissionUrl = baseUrl.newBuilder().addPathSegments("v1/reports").build()
+    val payload = databaseSubmissionJson(context, report, display, mode).toByteArray(Charsets.UTF_8)
+    if (payload.size > 2 * 1024 * 1024) return@withContext "Submission rejected locally: the complete report exceeds the current VulkanScope Database 2 MiB transport limit. No data was truncated."
+    runCatching {
+        val request = Request.Builder()
+            .url(submissionUrl)
+            .header("Accept", "application/json")
+            .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
+        ipv6PreferredHttpClient.newCall(request).execute().use { response ->
+            val body = readResponseTextLimited(response.body, 64 * 1024)
+            if (response.isSuccessful) {
+                val id = runCatching { JSONObject(body).optString("id") }.getOrDefault("")
+                if (id.isBlank()) "Report submitted successfully." else "Report submitted successfully · ${id.take(12)}"
+            } else {
+                val message = runCatching { JSONObject(body).optString("error") }.getOrDefault("").ifBlank { "HTTP ${response.code}" }
+                "Submission failed: $message"
+            }
+        }
+    }.getOrElse { "Submission failed: ${it.message ?: "network error"}" }
+}
 
 private fun exportFileStem(report: VulkanReport): String {
     val gpuName = report.devices.firstOrNull()?.name?.trim().orEmpty().ifBlank { "Unknown-GPU" }
@@ -2771,6 +3359,7 @@ private fun reportToText(context: Context, report: VulkanReport, display: Displa
     appendLine("Preferred wide gamut: ${display.preferredWideGamut}")
     appendLine("HDR types: ${display.hdrTypes.joinToString(", ")}")
     appendLine("HDR luminance: min=${display.minLuminance}, max=${display.maxLuminance}, average=${display.averageLuminance}")
+    appendLine("Display modes: ${display.modes.joinToString(" | ").ifBlank { "Not exposed" }}")
     appendLine("Android: ${Build.MANUFACTURER} ${Build.MODEL}, ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
     appendLine("Codename=${Build.VERSION.CODENAME}, Security patch=${Build.VERSION.SECURITY_PATCH}")
     appendLine("Brand=${Build.BRAND}, Product=${Build.PRODUCT}, Device=${Build.DEVICE}, Board=${Build.BOARD}, Hardware=${Build.HARDWARE}")
@@ -2812,10 +3401,12 @@ private fun reportToText(context: Context, report: VulkanReport, display: Displa
         appendLine(); appendLine("LIMITS"); d.limits.forEach { appendLine("${it.first} = ${it.second}") }
         appendLine(); appendLine("MEMORY HEAPS"); d.heaps.forEach { appendLine("Heap ${it.index}: ${formatBytes(it.size)} | flags ${it.flags}") }
         appendLine(); appendLine("MEMORY TYPES"); d.memoryTypes.forEach { appendLine("Type ${it.index}: heap ${it.heap} | flags ${it.flags}") }
-        appendLine(); appendLine("QUEUES"); d.queues.forEach { appendLine("Family ${it.index}: count=${it.count}, timestampBits=${it.timestampBits}, flags=${it.flags}, graphics=${it.graphics}, compute=${it.compute}, transfer=${it.transfer}, sparse=${it.sparse}, protected=${it.protected}, videoDecode=${it.videoDecode}, videoEncode=${it.videoEncode}, opticalFlow=${it.opticalFlow}, dataGraph=${it.dataGraph}, unknownFlags=0x${it.unknownFlags.toString(16).uppercase()}, granularity=${it.granularity}") }
+        appendLine(); appendLine("QUEUES"); d.queues.forEach { appendLine("Family ${it.index}: count=${it.count}, timestampBits=${it.timestampBits}, flags=${it.flags}, graphics=${it.graphics}, compute=${it.compute}, transfer=${it.transfer}, sparse=${it.sparse}, protected=${it.protected}, videoDecode=${it.videoDecode}, videoEncode=${it.videoEncode}, opticalFlow=${it.opticalFlow}, dataGraph=${it.dataGraph}, unknownFlags=0x${it.unknownFlags.toString(16).uppercase()}, granularity=${it.granularity}, videoCodecOperations=0x${it.videoCodecOperations.toString(16).uppercase()} (${videoCodecOperationsName(it.videoCodecOperations)})") }
         appendLine(); appendLine("FORMATS"); d.formats.forEach { appendLine("${it.name}: ${if (it.supported) "SUPPORTED" else "NOT SUPPORTED"}, linear=${it.linear}, optimal=${it.optimal}, buffer=${it.buffer}") }
         appendLine(); appendLine("SURFACE")
         appendLine("Available=${d.surfaceAvailable}, presentation=${d.surfacePresentationSupported}")
+        appendLine("Color-space extension: available=${d.surfaceColorSpaceExtensionAvailable}, enabled=${d.surfaceColorSpaceExtensionEnabled}")
+        appendLine("Format query: first=${d.surfaceFormatQueryResult}, second=${d.surfaceFormatQueryResultSecond}, secondAttempted=${d.surfaceFormatQuerySecondAttempted}, safetyRejected=${d.surfaceFormatQuerySafetyRejected}")
         d.surfaceCapabilities.forEach { appendLine("${it.first} = ${it.second}") }
         d.surfaceFormats.forEach { appendLine("${it.format} | ${it.colorSpace} | ${it.classification} | ${if (it.supported) "SUPPORTED" else "NOT SUPPORTED"} | ${it.description}") }
         appendLine("Present modes: ${d.presentModes.joinToString(", ")}")
@@ -2841,7 +3432,7 @@ private fun reportToHtml(context: Context, report: VulkanReport, display: Displa
         }
     }.getOrNull()
     append("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>VulkanScope report</title>")
-    append("<style>body{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;background:#0a0a0b;color:#f4f4f5;margin:0;line-height:1.45}.wrap{max-width:1320px;margin:0 auto;padding:28px}.hero{background:linear-gradient(135deg,#1a1517,#0f1012);border:1px solid #2d2d31;border-radius:26px;padding:30px;box-shadow:0 16px 50px rgba(0,0,0,.28)}h1{margin:0 0 8px;font-size:36px}h2{margin:0 0 14px;font-size:22px}.muted{color:#a7a7ae}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:18px}.metric{background:#121214;border:1px solid #292a2e;border-radius:17px;padding:14px}.section{margin-top:24px;background:#111113;border:1px solid #292a2e;border-radius:22px;padding:18px;overflow:auto}.section h2{position:sticky;left:0}table{border-collapse:collapse;width:100%;min-width:660px}td,th{border-bottom:1px solid #28282c;padding:10px 8px;text-align:left;vertical-align:top}th{color:#cbcad0;font-weight:600}.badge{display:inline-block;border-radius:999px;padding:3px 9px;font-size:11px;font-weight:800;letter-spacing:.03em}.yes{background:#133b28;color:#74e2a6}.no{background:#49171c;color:#ff8f98}.neutral{background:#403713;color:#ffd76b}.unknown{background:#292a2f;color:#c6c6cc}.code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.small{font-size:13px}.subtle{color:#7f8088}.github-link{color:#7f94d8;text-decoration:none;font-weight:600}.github-link:hover{color:#ff6b74;text-decoration:underline}.github-link:visited{color:#7f94d8}</style></head><body><div class=\"wrap\">")
+    append("<style>body{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;background:#0a0a0b;color:#f4f4f5;margin:0;line-height:1.45}.wrap{max-width:1320px;margin:0 auto;padding:28px}.hero{background:linear-gradient(135deg,#1a1517,#0f1012);border:1px solid #2d2d31;border-radius:26px;padding:30px;box-shadow:0 16px 50px rgba(0,0,0,.28)}h1{margin:0 0 8px;font-size:36px}h2{margin:0 0 14px;font-size:22px}.muted{color:#a7a7ae}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:18px}.metric{background:#121214;border:1px solid #292a2e;border-radius:17px;padding:14px}.section{margin-top:24px;background:#111113;border:1px solid #292a2e;border-radius:22px;padding:18px;overflow:auto}.section h2{position:sticky;left:0}table{border-collapse:collapse;width:100%;min-width:660px}td,th{border-bottom:1px solid #28282c;padding:10px 8px;text-align:left;vertical-align:top}th{color:#cbcad0;font-weight:600}.badge{display:inline-block;border-radius:999px;padding:3px 9px;font-size:11px;font-weight:800;letter-spacing:.03em}.yes{background:#133b28;color:#74e2a6}.available{background:#123044;color:#7cc7ff}.no{background:#49171c;color:#ff8f98}.neutral{background:#403713;color:#ffd76b}.unknown{background:#292a2f;color:#c6c6cc}.code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.small{font-size:13px}.subtle{color:#7f8088}.github-link{color:#7f94d8;text-decoration:none;font-weight:600}.github-link:hover{color:#ff6b74;text-decoration:underline}.github-link:visited{color:#7f94d8}</style></head><body><div class=\"wrap\">")
     append("<div class=\"hero\">")
     if (logoData != null) {
         append("<div style=\"display:flex;align-items:center;justify-content:flex-start;margin-bottom:14px;\"><img src=\"data:image/png;base64,$logoData\" alt=\"VulkanScope\" style=\"display:block;width:min(522px,100%);height:auto;max-height:76px;object-fit:contain;object-position:left center;\"></div>")
@@ -2862,7 +3453,8 @@ private fun reportToHtml(context: Context, report: VulkanReport, display: Displa
     fun statusBadge(value: String): String {
         val lower = value.trim().lowercase().replace('_', ' ')
         val cls = when {
-            lower == "true" || lower == "yes" || lower == "supported" || lower == "available" -> "yes"
+            lower == "true" || lower == "yes" || lower == "supported" -> "yes"
+            lower == "available" -> "available"
             lower == "false" || lower == "no" || lower == "not supported" || lower == "unsupported" -> "no"
             lower.contains("unavailable") || lower.contains("not applicable") -> "neutral"
             lower.contains("unknown") -> "unknown"
@@ -2893,7 +3485,8 @@ private fun reportToHtml(context: Context, report: VulkanReport, display: Displa
         "SDK" to Build.VERSION.SDK_INT.toString(), "Resolution" to htmlEscape(display.resolution),
         "Refresh rate" to htmlEscape(display.refreshRate), "Wide gamut" to statusBadge(display.wideGamut.toString()),
         "Preferred wide gamut" to htmlEscape(display.preferredWideGamut), "HDR types" to htmlEscape(display.hdrTypes.joinToString(", ").ifBlank { "Not exposed" }),
-        "HDR min luminance" to htmlEscape(display.minLuminance), "HDR max luminance" to htmlEscape(display.maxLuminance), "HDR average luminance" to htmlEscape(display.averageLuminance)
+        "HDR min luminance" to htmlEscape(display.minLuminance), "HDR max luminance" to htmlEscape(display.maxLuminance), "HDR average luminance" to htmlEscape(display.averageLuminance),
+        "Display modes" to htmlEscape(display.modes.joinToString(" | ").ifBlank { "Not exposed" })
     ))
 
     table("Vulkan Registry Coverage", "<th>Property</th><th>Value</th>", listOf(
@@ -2912,6 +3505,17 @@ private fun reportToHtml(context: Context, report: VulkanReport, display: Displa
     }
     append("</tbody></table></div>")
 
+    table("Instance layers", "<th>Layer</th><th>Details</th>", report.instanceLayers.map { layer ->
+        layer.name to htmlEscape("spec ${layer.specVersion}, implementation ${layer.implementationVersion}; ${layer.description}; extensions=${layer.extensions.joinToString(", ") { "${it.name}(${it.specVersion})" }.ifBlank { "none" }}")
+    })
+
+    val profileRows = report.devices.flatMap { device -> vulkanProfileRequirements().map { requirement ->
+        val evaluation = evaluateProfile(report, device, requirement)
+        "${device.name} / ${evaluation.name}" to "${statusBadge(evaluation.status)} ${htmlEscape("${evaluation.revision}; ${profileSummary(evaluation)}")}" 
+    } }
+    table("Vulkan Profile evaluation", "<th>Device / profile</th><th>Status / details</th>", profileRows)
+    table("Vulkan Profiles catalog", "<th>Profile</th><th>Revision</th>", vulkanProfileCatalog().map { it.first to htmlEscape(it.second) })
+
     report.devices.forEach { d ->
         append("<div class=\"section\"><h2>Device: ${htmlEscape(d.name)}</h2>")
         table("Device properties", "<th>Property</th><th>Value</th>", listOf(
@@ -2924,15 +3528,26 @@ private fun reportToHtml(context: Context, report: VulkanReport, display: Displa
             append("<tr><td class=\"code\">${htmlEscape(ext.name)}</td><td>${htmlEscape(ext.scope)}</td><td>${ext.specVersion}</td><td>${statusBadge(if (ext.supported) "SUPPORTED" else "NOT SUPPORTED")}</td></tr>")
         }
         append("</tbody></table></div>")
-        table("Device layers", "<th>Layer</th><th>Details</th>", d.deviceLayers.map { it.name to htmlEscape("spec ${it.specVersion}, implementation ${it.implementationVersion}; ${it.description}; extensions=${it.extensions.size}") })
+        table("Device layers", "<th>Layer</th><th>Details</th>", d.deviceLayers.map { layer -> layer.name to htmlEscape("spec ${layer.specVersion}, implementation ${layer.implementationVersion}; ${layer.description}; extensions=${layer.extensions.joinToString(", ") { "${it.name}(${it.specVersion})" }.ifBlank { "none" }}") })
         table("Features", "<th>Feature</th><th>Status</th>", d.features.map { htmlEscape(it.name) to statusBadge(if (it.supported) "SUPPORTED" else "NOT SUPPORTED") })
         table("Detailed query results (${d.detailedProperties.size} results; ${d.detailedProperties.map { "${it.section} / ${it.name}" }.distinct().size} unique report fields)", "<th>Section / property</th><th>Value</th>", d.detailedProperties.map { "${it.section} / ${it.name}" to htmlEscape(it.value) })
         table("Limits", "<th>Limit</th><th>Value</th>", d.limits.map { it.first to htmlEscape(it.second) })
         table("Memory", "<th>Entry</th><th>Value</th>", d.heaps.map { "Heap ${it.index}" to htmlEscape("${formatBytes(it.size)} | flags ${it.flags}") } + d.memoryTypes.map { "Type ${it.index}" to htmlEscape("heap ${it.heap} | flags ${it.flags}") })
-        table("Queues", "<th>Family</th><th>Details</th>", d.queues.map { "${it.index}" to htmlEscape("count=${it.count}, timestampBits=${it.timestampBits}, flags=${it.flags}, graphics=${it.graphics}, compute=${it.compute}, transfer=${it.transfer}, sparse=${it.sparse}, protected=${it.protected}, videoDecode=${it.videoDecode}, videoEncode=${it.videoEncode}, opticalFlow=${it.opticalFlow}, dataGraph=${it.dataGraph}, unknownFlags=0x${it.unknownFlags.toString(16).uppercase()}, granularity=${it.granularity}") })
+        table("Queues", "<th>Family</th><th>Details</th>", d.queues.map { "${it.index}" to htmlEscape("count=${it.count}, timestampBits=${it.timestampBits}, flags=${it.flags}, graphics=${it.graphics}, compute=${it.compute}, transfer=${it.transfer}, sparse=${it.sparse}, protected=${it.protected}, videoDecode=${it.videoDecode}, videoEncode=${it.videoEncode}, opticalFlow=${it.opticalFlow}, dataGraph=${it.dataGraph}, unknownFlags=0x${it.unknownFlags.toString(16).uppercase()}, granularity=${it.granularity}, videoCodecOperations=0x${it.videoCodecOperations.toString(16).uppercase()} (${videoCodecOperationsName(it.videoCodecOperations)})") })
         table("Formats", "<th>Format</th><th>Status / feature masks</th>", d.formats.map { htmlEscape(it.name) to "${statusBadge(if (it.supported) "SUPPORTED" else "NOT SUPPORTED")} ${htmlEscape("linear=${it.linear}, optimal=${it.optimal}, buffer=${it.buffer}")}" })
+        table("Surface query diagnostics", "<th>Property</th><th>Value</th>", listOf(
+            "Surface available" to statusBadge(if (d.surfaceAvailable) "AVAILABLE" else "UNAVAILABLE"),
+            "Presentation supported" to statusBadge(if (d.surfacePresentationSupported) "SUPPORTED" else "NOT SUPPORTED"),
+            "Color-space extension available" to statusBadge(if (d.surfaceColorSpaceExtensionAvailable) "AVAILABLE" else "UNAVAILABLE"),
+            "Color-space extension enabled" to statusBadge(if (d.surfaceColorSpaceExtensionEnabled) "SUPPORTED" else "NOT SUPPORTED"),
+            "Format query first result" to htmlEscape(d.surfaceFormatQueryResult.toString()),
+            "Format query second result" to htmlEscape(d.surfaceFormatQueryResultSecond.toString()),
+            "Second query attempted" to statusBadge(d.surfaceFormatQuerySecondAttempted.toString()),
+            "Safety rejected" to statusBadge(d.surfaceFormatQuerySafetyRejected.toString())
+        ) + d.surfaceCapabilities.map { it.first to htmlEscape(it.second) })
         table("Surface formats / color spaces", "<th>Format / color space</th><th>Status / description</th>", d.surfaceFormats.map { "${it.format} / ${it.colorSpace}" to "${statusBadge(if (it.supported) "SUPPORTED" else "NOT SUPPORTED")} ${htmlEscape("${it.classification}; ${it.description}")}" })
         table("Present modes", "<th>Mode</th><th>Status</th>", d.presentModes.map { it to statusBadge("SUPPORTED") })
+        table("Presentation queues", "<th>Queue family</th><th>Status</th>", d.presentationQueues.map { "Queue ${it.first}" to statusBadge(if (it.second) "SUPPORTED" else "NOT SUPPORTED") })
         append("</div>")
     }
     append("</div></body></html>")
@@ -3070,6 +3685,49 @@ private fun VendorLogo(vendorId: Long?, modifier: Modifier) {
 }
 
 @Composable
+private fun UpdateStatusBanner(status: UpdateStatus, onInstallUpdate: (AppUpdate) -> Unit) {
+    AnimatedVisibility(
+        visible = status !is UpdateStatus.Hidden,
+        enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(260)) + expandVertically(animationSpec = androidx.compose.animation.core.tween(260)),
+        exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(420)) + shrinkVertically(animationSpec = androidx.compose.animation.core.tween(420))
+    ) {
+        Surface(modifier = Modifier.fillMaxWidth(), color = ComposeColor(0xFF111111), tonalElevation = 0.dp) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                when (status) {
+                    UpdateStatus.Checking -> {
+                        AssistChip(onClick = {}, enabled = false, label = { Text("Checking for updates…") })
+                        LinearProgressIndicator(Modifier.weight(1f))
+                    }
+                    UpdateStatus.UpToDate -> Text("VulkanScope is up to date.", color = ComposeColor(0xFFB8B8B8), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+                    is UpdateStatus.Available -> {
+                        AssistChip(onClick = { onInstallUpdate(status.update) }, label = { Text("Update available") })
+                        Text(
+                            "VulkanScope ${status.update.version} is available for ${status.update.assetName}. Download & install?",
+                            color = ComposeColor(0xFFB8B8B8),
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Button(onClick = { onInstallUpdate(status.update) }) { Text("Install") }
+                    }
+                    is UpdateStatus.Downloading -> {
+                        AssistChip(onClick = {}, enabled = false, label = { Text("Downloading update…") })
+                        LinearProgressIndicator(Modifier.weight(1f))
+                    }
+                    is UpdateStatus.Failed -> Text(status.message, color = ComposeColor(0xFFFF8A8A), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+                    UpdateStatus.Hidden -> Unit
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun CollectionStatusBanner(status: CollectionStatus) {
     AnimatedVisibility(
         visible = status != CollectionStatus.IDLE,
@@ -3142,6 +3800,120 @@ private fun SectionCard(title: String, content: @Composable () -> Unit) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             content()
+        }
+    }
+}
+
+@Composable
+private fun ExpressiveActionButton(
+    title: String,
+    subtitle: String,
+    icon: Int,
+    modifier: Modifier = Modifier.fillMaxWidth(),
+    enabled: Boolean = true,
+    compact: Boolean = false,
+    onClick: () -> Unit
+) {
+    val container = if (enabled) ComposeColor(0xFF1A1718) else ComposeColor(0xFF111111)
+    val iconContainer = if (enabled) ComposeColor(0xFF351B20) else ComposeColor(0xFF181818)
+    val accent = if (enabled) ComposeColor(0xFFFF7A88) else ComposeColor(0xFF606064)
+    val titleColor = if (enabled) ComposeColor(0xFFF7F2F3) else ComposeColor(0xFF6C696A)
+    val detailColor = if (enabled) ComposeColor(0xFFB6ACAE) else ComposeColor(0xFF5A5758)
+    Card(
+        onClick = onClick,
+        enabled = enabled,
+        colors = CardDefaults.cardColors(containerColor = container),
+        shape = RoundedCornerShape(if (compact) 26.dp else 28.dp),
+        modifier = modifier
+    ) {
+        if (compact) {
+            Column(
+                Modifier.fillMaxWidth().padding(15.dp),
+                verticalArrangement = Arrangement.spacedBy(11.dp)
+            ) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Surface(shape = RoundedCornerShape(17.dp), color = iconContainer) {
+                        Icon(painter = painterResource(icon), contentDescription = null, tint = accent, modifier = Modifier.padding(10.dp).size(21.dp))
+                    }
+                    Surface(shape = RoundedCornerShape(999.dp), color = if (enabled) ComposeColor(0xFF28191C) else ComposeColor(0xFF171717)) {
+                        Text("›", color = accent, fontSize = 21.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp))
+                    }
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(title, color = titleColor, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(subtitle, color = detailColor, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        } else {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Surface(shape = RoundedCornerShape(18.dp), color = iconContainer) {
+                    Icon(painter = painterResource(icon), contentDescription = null, tint = accent, modifier = Modifier.padding(11.dp).size(22.dp))
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(title, color = titleColor, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(subtitle, color = detailColor, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                Surface(shape = RoundedCornerShape(999.dp), color = if (enabled) ComposeColor(0xFF28191C) else ComposeColor(0xFF171717)) {
+                    Text("›", color = accent, fontSize = 23.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExpressiveIdentityBlock(title: String, subtitle: String, icon: Int) {
+    Surface(color = ComposeColor(0xFF181516), shape = RoundedCornerShape(28.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(17.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Surface(shape = RoundedCornerShape(20.dp), color = ComposeColor(0xFF351B20)) {
+                Icon(painter = painterResource(icon), contentDescription = null, tint = ComposeColor(0xFFFF7A88), modifier = Modifier.padding(12.dp).size(24.dp))
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = ComposeColor(0xFFF7F2F3))
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = ComposeColor(0xFFB6ACAE))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExpressiveVersionBlock(application: String, version: String, versionCode: String, packageName: String, abi: String) {
+    Surface(color = ComposeColor(0xFF181516), shape = RoundedCornerShape(30.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(13.dp)) {
+                Surface(shape = RoundedCornerShape(19.dp), color = ComposeColor(0xFF351B20)) {
+                    Icon(painter = painterResource(R.drawable.ic_info), contentDescription = null, tint = ComposeColor(0xFFFF7A88), modifier = Modifier.padding(11.dp).size(23.dp))
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    Text(application, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    Text("Version $version", color = ComposeColor(0xFFFF9AA5), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                }
+                Surface(shape = RoundedCornerShape(999.dp), color = ComposeColor(0xFF272224)) {
+                    Text("#$versionCode", color = ComposeColor(0xFFC7BEC0), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp))
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ExpressiveInfoPill("Installed ABI", abi, Modifier.weight(1f))
+                ExpressiveInfoPill("Package", packageName, Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExpressiveInfoPill(label: String, value: String, modifier: Modifier = Modifier) {
+    Surface(color = ComposeColor(0xFF211E1F), shape = RoundedCornerShape(18.dp), modifier = modifier) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(label, color = ComposeColor(0xFF968D8F), style = MaterialTheme.typography.labelSmall)
+            Text(value, color = ComposeColor(0xFFE7DFE1), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }

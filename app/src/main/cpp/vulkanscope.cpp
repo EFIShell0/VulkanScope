@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cctype>
 #include <cstdlib>
 #include <cstring>
 #include <sstream>
@@ -133,6 +134,7 @@ struct VulkanApi {
     PFN_vkGetPhysicalDeviceQueueFamilyProperties getPhysicalDeviceQueueFamilyProperties = nullptr;
     PFN_vkGetPhysicalDeviceVideoCapabilitiesKHR getPhysicalDeviceVideoCapabilitiesKHR = nullptr;
     PFN_vkGetPhysicalDeviceVideoFormatPropertiesKHR getPhysicalDeviceVideoFormatPropertiesKHR = nullptr;
+    PFN_vkGetPhysicalDeviceCooperativeMatrixProperties2EXT getPhysicalDeviceCooperativeMatrixProperties2EXT = nullptr;
     PFN_vkGetPhysicalDeviceToolProperties getPhysicalDeviceToolProperties = nullptr;
     PFN_vkGetPhysicalDeviceQueueFamilyProperties2 getPhysicalDeviceQueueFamilyProperties2 = nullptr;
     PFN_vkGetPhysicalDeviceFormatProperties2 getPhysicalDeviceFormatProperties2 = nullptr;
@@ -312,6 +314,7 @@ struct VulkanApi {
         getPhysicalDeviceQueueFamilyProperties = loadInstance<PFN_vkGetPhysicalDeviceQueueFamilyProperties>(instance, "vkGetPhysicalDeviceQueueFamilyProperties");
         getPhysicalDeviceVideoCapabilitiesKHR = loadInstance<PFN_vkGetPhysicalDeviceVideoCapabilitiesKHR>(instance, "vkGetPhysicalDeviceVideoCapabilitiesKHR");
         getPhysicalDeviceVideoFormatPropertiesKHR = loadInstance<PFN_vkGetPhysicalDeviceVideoFormatPropertiesKHR>(instance, "vkGetPhysicalDeviceVideoFormatPropertiesKHR");
+        getPhysicalDeviceCooperativeMatrixProperties2EXT = loadInstance<PFN_vkGetPhysicalDeviceCooperativeMatrixProperties2EXT>(instance, "vkGetPhysicalDeviceCooperativeMatrixProperties2EXT");
         getPhysicalDeviceToolProperties = loadInstance<PFN_vkGetPhysicalDeviceToolProperties>(instance, "vkGetPhysicalDeviceToolProperties");
         if (!getPhysicalDeviceToolProperties) getPhysicalDeviceToolProperties = loadInstance<PFN_vkGetPhysicalDeviceToolProperties>(instance, "vkGetPhysicalDeviceToolPropertiesEXT");
         getPhysicalDeviceQueueFamilyProperties2 = loadInstance<PFN_vkGetPhysicalDeviceQueueFamilyProperties2>(instance, "vkGetPhysicalDeviceQueueFamilyProperties2");
@@ -2300,10 +2303,16 @@ std::string collectVulkanExtensionGroup(const char* driverMode, const char* driv
         return std::string("{\"status\":\"unavailable\",\"group\":") + jsonString(group ? group : "") + ",\"reason\":" + jsonString(api.openError.empty() ? "Vulkan loader unavailable" : api.openError) + ",\"devices\":[]}";
     }
     const auto* descriptor = vulkanscope_registry::findQueryDescriptor(group);
-    if (!descriptor || std::strcmp(descriptor->scope, "device-extension") != 0 || descriptor->extension[0] == '\0') {
-        return std::string("{\"status\":\"unavailable\",\"group\":") + jsonString(group ? group : "") + ",\"reason\":\"Unknown or non-device-extension Vulkan query group.\",\"devices\":[]}";
+    const bool directExtensionQuery = group && std::strncmp(group, "ext::", 5) == 0;
+    const char* extensionName = directExtensionQuery ? group + 5 : ((descriptor && std::strcmp(descriptor->scope, "device-extension") == 0) ? descriptor->extension : nullptr);
+    if (!extensionName || extensionName[0] == '\0' || std::strncmp(extensionName, "VK_", 3) != 0 || std::strlen(extensionName) > VK_MAX_EXTENSION_NAME_SIZE - 1) {
+        return std::string("{\"status\":\"unavailable\",\"group\":") + jsonString(group ? group : "") + ",\"reason\":\"Unknown or invalid device-extension Vulkan query group.\",\"devices\":[]}";
     }
-    const char* extensionName = descriptor->extension;
+    for (const char* p = extensionName; *p; ++p) {
+        if (!(std::isalnum(static_cast<unsigned char>(*p)) || *p == '_')) {
+            return std::string("{\"status\":\"unavailable\",\"group\":") + jsonString(group ? group : "") + ",\"reason\":\"Invalid Vulkan extension name.\",\"devices\":[]}";
+        }
+    }
 
     uint32_t loaderVersion = VK_API_VERSION_1_0;
     if (api.enumerateInstanceVersion) {
@@ -2486,7 +2495,7 @@ std::string collectVulkanExtensionGroup(const char* driverMode, const char* driv
             api.queryFeatures2(devices[i], &q);
             addFeature("vertexAttributeInstanceRateDivisor", f.vertexAttributeInstanceRateDivisor);
             addFeature("vertexAttributeInstanceRateZeroDivisor", f.vertexAttributeInstanceRateZeroDivisor);
-        } else if (std::strcmp(extensionName, "VK_KHR_inline_uniform_block") == 0) {
+        } else if (std::strcmp(extensionName, "VK_EXT_inline_uniform_block") == 0) {
             VkPhysicalDeviceInlineUniformBlockFeatures f{};
             f.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_FEATURES;
             VkPhysicalDeviceFeatures2 q{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f, {}};
@@ -2516,6 +2525,79 @@ std::string collectVulkanExtensionGroup(const char* driverMode, const char* driv
         if (runtimePNext.featureHead && api.getPhysicalDeviceFeatures2) api.queryFeatures2(devices[i], &generatedFeatures);
         if (runtimePNext.propertyHead && api.getPhysicalDeviceProperties2) api.queryProperties2(devices[i], &generatedProperties);
         if (runtimePNextAdded > 0) addProperty("generatedRuntimePNextTypes", std::to_string(runtimePNextAdded));
+        if (std::strcmp(extensionName, "VK_EXT_cooperative_matrix_maintenance1") == 0) {
+            auto componentTypeName = [](VkComponentTypeKHR type) -> const char* {
+                if (type == VK_COMPONENT_TYPE_FLOAT16_KHR) return "VK_COMPONENT_TYPE_FLOAT16_KHR";
+                if (type == VK_COMPONENT_TYPE_FLOAT32_KHR) return "VK_COMPONENT_TYPE_FLOAT32_KHR";
+                if (type == VK_COMPONENT_TYPE_FLOAT64_KHR) return "VK_COMPONENT_TYPE_FLOAT64_KHR";
+                if (type == VK_COMPONENT_TYPE_SINT8_KHR) return "VK_COMPONENT_TYPE_SINT8_KHR";
+                if (type == VK_COMPONENT_TYPE_SINT16_KHR) return "VK_COMPONENT_TYPE_SINT16_KHR";
+                if (type == VK_COMPONENT_TYPE_SINT32_KHR) return "VK_COMPONENT_TYPE_SINT32_KHR";
+                if (type == VK_COMPONENT_TYPE_SINT64_KHR) return "VK_COMPONENT_TYPE_SINT64_KHR";
+                if (type == VK_COMPONENT_TYPE_UINT8_KHR) return "VK_COMPONENT_TYPE_UINT8_KHR";
+                if (type == VK_COMPONENT_TYPE_UINT16_KHR) return "VK_COMPONENT_TYPE_UINT16_KHR";
+                if (type == VK_COMPONENT_TYPE_UINT32_KHR) return "VK_COMPONENT_TYPE_UINT32_KHR";
+                if (type == VK_COMPONENT_TYPE_UINT64_KHR) return "VK_COMPONENT_TYPE_UINT64_KHR";
+                if (type == VK_COMPONENT_TYPE_BFLOAT16_KHR) return "VK_COMPONENT_TYPE_BFLOAT16_KHR";
+                if (type == VK_COMPONENT_TYPE_SINT8_PACKED_NV) return "VK_COMPONENT_TYPE_SINT8_PACKED_NV";
+                if (type == VK_COMPONENT_TYPE_UINT8_PACKED_NV) return "VK_COMPONENT_TYPE_UINT8_PACKED_NV";
+                if (type == VK_COMPONENT_TYPE_FLOAT8_E4M3_EXT) return "VK_COMPONENT_TYPE_FLOAT8_E4M3_EXT";
+                if (type == VK_COMPONENT_TYPE_FLOAT8_E5M2_EXT) return "VK_COMPONENT_TYPE_FLOAT8_E5M2_EXT";
+                if (type == VK_COMPONENT_TYPE_FLOAT6_E2M3_EXT) return "VK_COMPONENT_TYPE_FLOAT6_E2M3_EXT";
+                if (type == VK_COMPONENT_TYPE_FLOAT6_E3M2_EXT) return "VK_COMPONENT_TYPE_FLOAT6_E3M2_EXT";
+                if (type == VK_COMPONENT_TYPE_FLOAT4_E2M1_EXT) return "VK_COMPONENT_TYPE_FLOAT4_E2M1_EXT";
+                if (type == VK_COMPONENT_TYPE_FLOAT8_UNSIGNED_E8M0_EXT) return "VK_COMPONENT_TYPE_FLOAT8_UNSIGNED_E8M0_EXT";
+                if (type == VK_COMPONENT_TYPE_MXINT8_EXT) return "VK_COMPONENT_TYPE_MXINT8_EXT";
+                return "UNKNOWN_VK_COMPONENT_TYPE_KHR";
+            };
+            VkPhysicalDeviceCooperativeMatrixMaintenance1FeaturesEXT maintenance{};
+            maintenance.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_MAINTENANCE_1_FEATURES_EXT;
+            VkPhysicalDeviceFeatures2 maintenanceQuery{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &maintenance, {}};
+            if (api.getPhysicalDeviceFeatures2) api.queryFeatures2(devices[i], &maintenanceQuery);
+            if (!maintenance.cooperativeMatrixProperties2) {
+                addProperty("cooperativeMatrixProperties2Query", "Not applicable: cooperativeMatrixProperties2 is not supported.");
+            } else if (!api.getPhysicalDeviceCooperativeMatrixProperties2EXT) {
+                addProperty("cooperativeMatrixProperties2Query", "Unavailable: vkGetPhysicalDeviceCooperativeMatrixProperties2EXT is not exposed by the Vulkan loader.");
+            } else {
+                VkPhysicalDeviceCooperativeMatrixInfo2EXT info{};
+                info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_INFO_2_EXT;
+                info.scope = VK_SCOPE_SUBGROUP_KHR;
+                info.invocations = 0;
+                info.subgroupSize = 0;
+                info.flags = 0;
+                uint32_t propertyCount = 0;
+                VkResult propertyResult = api.getPhysicalDeviceCooperativeMatrixProperties2EXT(devices[i], &info, &propertyCount, nullptr);
+                if ((propertyResult == VK_SUCCESS || propertyResult == VK_INCOMPLETE) && propertyCount <= 4096) {
+                    std::vector<VkCooperativeMatrixProperties2EXT> properties(propertyCount);
+                    for (auto& property : properties) { property.sType = VK_STRUCTURE_TYPE_COOPERATIVE_MATRIX_PROPERTIES_2_EXT; property.pNext = nullptr; }
+                    if (propertyCount > 0) propertyResult = api.getPhysicalDeviceCooperativeMatrixProperties2EXT(devices[i], &info, &propertyCount, properties.data());
+                    addProperty("cooperativeMatrixProperties2Query", propertyResult == VK_SUCCESS ? "Available" : (propertyResult == VK_INCOMPLETE ? "Available: VK_INCOMPLETE" : ("Unavailable: VkResult=" + std::to_string(propertyResult))));
+                    addProperty("cooperativeMatrixProperties2Count", std::to_string(propertyCount));
+                    const uint32_t emitCount = std::min<uint32_t>(propertyCount, static_cast<uint32_t>(properties.size()));
+                    for (uint32_t propertyIndex = 0; propertyIndex < emitCount; ++propertyIndex) {
+                        const auto& property = properties[propertyIndex];
+                        const std::string prefix = "cooperativeMatrixProperties2[" + std::to_string(propertyIndex) + "].";
+                        addProperty(prefix + "MGranularity", std::to_string(property.MGranularity));
+                        addProperty(prefix + "NGranularity", std::to_string(property.NGranularity));
+                        addProperty(prefix + "KGranularity", std::to_string(property.KGranularity));
+                        addProperty(prefix + "AType", std::string(componentTypeName(property.AType)) + " (raw=" + std::to_string(static_cast<int32_t>(property.AType)) + ")");
+                        addProperty(prefix + "BType", std::string(componentTypeName(property.BType)) + " (raw=" + std::to_string(static_cast<int32_t>(property.BType)) + ")");
+                        addProperty(prefix + "CType", std::string(componentTypeName(property.CType)) + " (raw=" + std::to_string(static_cast<int32_t>(property.CType)) + ")");
+                        addProperty(prefix + "ResultType", std::string(componentTypeName(property.ResultType)) + " (raw=" + std::to_string(static_cast<int32_t>(property.ResultType)) + ")");
+                        addProperty(prefix + "ATypeRaw", std::to_string(static_cast<int32_t>(property.AType)));
+                        addProperty(prefix + "BTypeRaw", std::to_string(static_cast<int32_t>(property.BType)));
+                        addProperty(prefix + "CTypeRaw", std::to_string(static_cast<int32_t>(property.CType)));
+                        addProperty(prefix + "ResultTypeRaw", std::to_string(static_cast<int32_t>(property.ResultType)));
+                    }
+                } else if (propertyCount > 4096) {
+                    addProperty("cooperativeMatrixProperties2Query", "Unavailable: property count exceeds the 4096-entry safety bound.");
+                    addProperty("cooperativeMatrixProperties2Count", std::to_string(propertyCount));
+                } else {
+                    addProperty("cooperativeMatrixProperties2Query", "Unavailable: VkResult=" + std::to_string(propertyResult));
+                    addProperty("cooperativeMatrixProperties2Count", std::to_string(propertyCount));
+                }
+            }
+        }
         const char* groupName = group;
         if (std::strcmp(groupName, "videoCapabilities") == 0) {
             const bool videoQueue = hasExt("VK_KHR_video_queue");
@@ -3598,6 +3680,8 @@ Java_com_efishell_vulkanscope_VulkanProbeService_collectVulkanQueryData(JNIEnv* 
     std::string result;
     if (groupName == "metadata") {
         result = collectVulkanMetadata(driverMode, driverIcdPath, driverBundlePath, hookLibDir);
+    } else if (groupName.rfind("ext::", 0) == 0) {
+        result = collectVulkanExtensionGroup(driverMode, driverIcdPath, driverBundlePath, hookLibDir, groupName.c_str());
     } else if (!descriptor) {
         result = std::string("{\"status\":\"unavailable\",\"group\":") + jsonString(groupName) + ",\"reason\":\"Unknown registry query group.\",\"devices\":[]}";
     } else if (std::strcmp(descriptor->scope, "core") == 0 && descriptor->minApiMinor == 1) {

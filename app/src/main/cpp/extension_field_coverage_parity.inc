@@ -1873,8 +1873,349 @@ static void appendParityStructFields(std::vector<GeneratedField>& dst, uint32_t 
             generatedEmitAuto(dst, section, "zeroInitializeDeviceMemory", value.zeroInitializeDeviceMemory);
             break;
         }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_FILTER_MINMAX_PROPERTIES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceSamplerFilterMinmaxProperties*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceSamplerFilterMinmaxProperties";
+            generatedEmitAuto(dst, section, "filterMinmaxSingleComponentFormats", value.filterMinmaxSingleComponentFormats);
+            generatedEmitAuto(dst, section, "filterMinmaxImageComponentMapping", value.filterMinmaxImageComponentMapping);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_PROPERTIES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceInlineUniformBlockProperties*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceInlineUniformBlockProperties";
+            generatedEmitAuto(dst, section, "maxInlineUniformBlockSize", value.maxInlineUniformBlockSize);
+            generatedEmitAuto(dst, section, "maxPerStageDescriptorInlineUniformBlocks", value.maxPerStageDescriptorInlineUniformBlocks);
+            generatedEmitAuto(dst, section, "maxPerStageDescriptorUpdateAfterBindInlineUniformBlocks", value.maxPerStageDescriptorUpdateAfterBindInlineUniformBlocks);
+            generatedEmitAuto(dst, section, "maxDescriptorSetInlineUniformBlocks", value.maxDescriptorSetInlineUniformBlocks);
+            generatedEmitAuto(dst, section, "maxDescriptorSetUpdateAfterBindInlineUniformBlocks", value.maxDescriptorSetUpdateAfterBindInlineUniformBlocks);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceDescriptorIndexingProperties*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceDescriptorIndexingProperties";
+            generatedEmitAuto(dst, section, "maxUpdateAfterBindDescriptorsInAllPools", value.maxUpdateAfterBindDescriptorsInAllPools);
+            generatedEmitAuto(dst, section, "shaderUniformBufferArrayNonUniformIndexingNative", value.shaderUniformBufferArrayNonUniformIndexingNative);
+            generatedEmitAuto(dst, section, "shaderSampledImageArrayNonUniformIndexingNative", value.shaderSampledImageArrayNonUniformIndexingNative);
+            generatedEmitAuto(dst, section, "shaderStorageBufferArrayNonUniformIndexingNative", value.shaderStorageBufferArrayNonUniformIndexingNative);
+            generatedEmitAuto(dst, section, "shaderStorageImageArrayNonUniformIndexingNative", value.shaderStorageImageArrayNonUniformIndexingNative);
+            generatedEmitAuto(dst, section, "shaderInputAttachmentArrayNonUniformIndexingNative", value.shaderInputAttachmentArrayNonUniformIndexingNative);
+            generatedEmitAuto(dst, section, "robustBufferAccessUpdateAfterBind", value.robustBufferAccessUpdateAfterBind);
+            generatedEmitAuto(dst, section, "quadDivergentImplicitLod", value.quadDivergentImplicitLod);
+            generatedEmitAuto(dst, section, "maxPerStageDescriptorUpdateAfterBindSamplers", value.maxPerStageDescriptorUpdateAfterBindSamplers);
+            generatedEmitAuto(dst, section, "maxPerStageDescriptorUpdateAfterBindUniformBuffers", value.maxPerStageDescriptorUpdateAfterBindUniformBuffers);
+            generatedEmitAuto(dst, section, "maxPerStageDescriptorUpdateAfterBindStorageBuffers", value.maxPerStageDescriptorUpdateAfterBindStorageBuffers);
+            generatedEmitAuto(dst, section, "maxPerStageDescriptorUpdateAfterBindSampledImages", value.maxPerStageDescriptorUpdateAfterBindSampledImages);
+            generatedEmitAuto(dst, section, "maxPerStageDescriptorUpdateAfterBindStorageImages", value.maxPerStageDescriptorUpdateAfterBindStorageImages);
+            generatedEmitAuto(dst, section, "maxPerStageDescriptorUpdateAfterBindInputAttachments", value.maxPerStageDescriptorUpdateAfterBindInputAttachments);
+            generatedEmitAuto(dst, section, "maxPerStageUpdateAfterBindResources", value.maxPerStageUpdateAfterBindResources);
+            generatedEmitAuto(dst, section, "maxDescriptorSetUpdateAfterBindSamplers", value.maxDescriptorSetUpdateAfterBindSamplers);
+            generatedEmitAuto(dst, section, "maxDescriptorSetUpdateAfterBindUniformBuffers", value.maxDescriptorSetUpdateAfterBindUniformBuffers);
+            generatedEmitAuto(dst, section, "maxDescriptorSetUpdateAfterBindUniformBuffersDynamic", value.maxDescriptorSetUpdateAfterBindUniformBuffersDynamic);
+            generatedEmitAuto(dst, section, "maxDescriptorSetUpdateAfterBindStorageBuffers", value.maxDescriptorSetUpdateAfterBindStorageBuffers);
+            generatedEmitAuto(dst, section, "maxDescriptorSetUpdateAfterBindStorageBuffersDynamic", value.maxDescriptorSetUpdateAfterBindStorageBuffersDynamic);
+            generatedEmitAuto(dst, section, "maxDescriptorSetUpdateAfterBindSampledImages", value.maxDescriptorSetUpdateAfterBindSampledImages);
+            generatedEmitAuto(dst, section, "maxDescriptorSetUpdateAfterBindStorageImages", value.maxDescriptorSetUpdateAfterBindStorageImages);
+            generatedEmitAuto(dst, section, "maxDescriptorSetUpdateAfterBindInputAttachments", value.maxDescriptorSetUpdateAfterBindInputAttachments);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_PROPERTIES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceMultiviewProperties*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceMultiviewProperties";
+            generatedEmitAuto(dst, section, "maxMultiviewViewCount", value.maxMultiviewViewCount);
+            generatedEmitAuto(dst, section, "maxMultiviewInstanceIndex", value.maxMultiviewInstanceIndex);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_POINT_CLIPPING_PROPERTIES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDevicePointClippingProperties*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDevicePointClippingProperties";
+            generatedEmitAuto(dst, section, "pointClippingBehavior", value.pointClippingBehavior);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FLOAT_CONTROLS_PROPERTIES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceFloatControlsProperties*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceFloatControlsProperties";
+            generatedEmitAuto(dst, section, "denormBehaviorIndependence", value.denormBehaviorIndependence);
+            generatedEmitAuto(dst, section, "roundingModeIndependence", value.roundingModeIndependence);
+            generatedEmitAuto(dst, section, "shaderSignedZeroInfNanPreserveFloat16", value.shaderSignedZeroInfNanPreserveFloat16);
+            generatedEmitAuto(dst, section, "shaderSignedZeroInfNanPreserveFloat32", value.shaderSignedZeroInfNanPreserveFloat32);
+            generatedEmitAuto(dst, section, "shaderSignedZeroInfNanPreserveFloat64", value.shaderSignedZeroInfNanPreserveFloat64);
+            generatedEmitAuto(dst, section, "shaderDenormPreserveFloat16", value.shaderDenormPreserveFloat16);
+            generatedEmitAuto(dst, section, "shaderDenormPreserveFloat32", value.shaderDenormPreserveFloat32);
+            generatedEmitAuto(dst, section, "shaderDenormPreserveFloat64", value.shaderDenormPreserveFloat64);
+            generatedEmitAuto(dst, section, "shaderDenormFlushToZeroFloat16", value.shaderDenormFlushToZeroFloat16);
+            generatedEmitAuto(dst, section, "shaderDenormFlushToZeroFloat32", value.shaderDenormFlushToZeroFloat32);
+            generatedEmitAuto(dst, section, "shaderDenormFlushToZeroFloat64", value.shaderDenormFlushToZeroFloat64);
+            generatedEmitAuto(dst, section, "shaderRoundingModeRTEFloat16", value.shaderRoundingModeRTEFloat16);
+            generatedEmitAuto(dst, section, "shaderRoundingModeRTEFloat32", value.shaderRoundingModeRTEFloat32);
+            generatedEmitAuto(dst, section, "shaderRoundingModeRTEFloat64", value.shaderRoundingModeRTEFloat64);
+            generatedEmitAuto(dst, section, "shaderRoundingModeRTZFloat16", value.shaderRoundingModeRTZFloat16);
+            generatedEmitAuto(dst, section, "shaderRoundingModeRTZFloat32", value.shaderRoundingModeRTZFloat32);
+            generatedEmitAuto(dst, section, "shaderRoundingModeRTZFloat64", value.shaderRoundingModeRTZFloat64);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_STENCIL_RESOLVE_PROPERTIES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceDepthStencilResolveProperties*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceDepthStencilResolveProperties";
+            generatedEmitAuto(dst, section, "supportedDepthResolveModes", value.supportedDepthResolveModes);
+            generatedEmitAuto(dst, section, "supportedStencilResolveModes", value.supportedStencilResolveModes);
+            generatedEmitAuto(dst, section, "independentResolveNone", value.independentResolveNone);
+            generatedEmitAuto(dst, section, "independentResolve", value.independentResolve);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_INTEGER_DOT_PRODUCT_PROPERTIES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceShaderIntegerDotProductProperties*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceShaderIntegerDotProductProperties";
+            generatedEmitAuto(dst, section, "integerDotProduct8BitUnsignedAccelerated", value.integerDotProduct8BitUnsignedAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProduct8BitSignedAccelerated", value.integerDotProduct8BitSignedAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProduct8BitMixedSignednessAccelerated", value.integerDotProduct8BitMixedSignednessAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProduct4x8BitPackedUnsignedAccelerated", value.integerDotProduct4x8BitPackedUnsignedAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProduct4x8BitPackedSignedAccelerated", value.integerDotProduct4x8BitPackedSignedAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProduct4x8BitPackedMixedSignednessAccelerated", value.integerDotProduct4x8BitPackedMixedSignednessAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProduct16BitUnsignedAccelerated", value.integerDotProduct16BitUnsignedAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProduct16BitSignedAccelerated", value.integerDotProduct16BitSignedAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProduct16BitMixedSignednessAccelerated", value.integerDotProduct16BitMixedSignednessAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProduct32BitUnsignedAccelerated", value.integerDotProduct32BitUnsignedAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProduct32BitSignedAccelerated", value.integerDotProduct32BitSignedAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProduct32BitMixedSignednessAccelerated", value.integerDotProduct32BitMixedSignednessAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProduct64BitUnsignedAccelerated", value.integerDotProduct64BitUnsignedAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProduct64BitSignedAccelerated", value.integerDotProduct64BitSignedAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProduct64BitMixedSignednessAccelerated", value.integerDotProduct64BitMixedSignednessAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProductAccumulatingSaturating8BitUnsignedAccelerated", value.integerDotProductAccumulatingSaturating8BitUnsignedAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProductAccumulatingSaturating8BitSignedAccelerated", value.integerDotProductAccumulatingSaturating8BitSignedAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProductAccumulatingSaturating8BitMixedSignednessAccelerated", value.integerDotProductAccumulatingSaturating8BitMixedSignednessAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProductAccumulatingSaturating4x8BitPackedUnsignedAccelerated", value.integerDotProductAccumulatingSaturating4x8BitPackedUnsignedAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProductAccumulatingSaturating4x8BitPackedSignedAccelerated", value.integerDotProductAccumulatingSaturating4x8BitPackedSignedAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProductAccumulatingSaturating4x8BitPackedMixedSignednessAccelerated", value.integerDotProductAccumulatingSaturating4x8BitPackedMixedSignednessAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProductAccumulatingSaturating16BitUnsignedAccelerated", value.integerDotProductAccumulatingSaturating16BitUnsignedAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProductAccumulatingSaturating16BitSignedAccelerated", value.integerDotProductAccumulatingSaturating16BitSignedAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProductAccumulatingSaturating16BitMixedSignednessAccelerated", value.integerDotProductAccumulatingSaturating16BitMixedSignednessAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProductAccumulatingSaturating32BitUnsignedAccelerated", value.integerDotProductAccumulatingSaturating32BitUnsignedAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProductAccumulatingSaturating32BitSignedAccelerated", value.integerDotProductAccumulatingSaturating32BitSignedAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProductAccumulatingSaturating32BitMixedSignednessAccelerated", value.integerDotProductAccumulatingSaturating32BitMixedSignednessAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProductAccumulatingSaturating64BitUnsignedAccelerated", value.integerDotProductAccumulatingSaturating64BitUnsignedAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProductAccumulatingSaturating64BitSignedAccelerated", value.integerDotProductAccumulatingSaturating64BitSignedAccelerated);
+            generatedEmitAuto(dst, section, "integerDotProductAccumulatingSaturating64BitMixedSignednessAccelerated", value.integerDotProductAccumulatingSaturating64BitMixedSignednessAccelerated);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_PROPERTIES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceMaintenance4Properties*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceMaintenance4Properties";
+            generatedEmitAuto(dst, section, "maxBufferSize", value.maxBufferSize);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceInlineUniformBlockFeatures*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceInlineUniformBlockFeatures";
+            generatedEmitAuto(dst, section, "inlineUniformBlock", value.inlineUniformBlock);
+            generatedEmitAuto(dst, section, "descriptorBindingInlineUniformBlockUpdateAfterBind", value.descriptorBindingInlineUniformBlockUpdateAfterBind);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceDescriptorIndexingFeatures*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceDescriptorIndexingFeatures";
+            generatedEmitAuto(dst, section, "shaderInputAttachmentArrayDynamicIndexing", value.shaderInputAttachmentArrayDynamicIndexing);
+            generatedEmitAuto(dst, section, "shaderUniformTexelBufferArrayDynamicIndexing", value.shaderUniformTexelBufferArrayDynamicIndexing);
+            generatedEmitAuto(dst, section, "shaderStorageTexelBufferArrayDynamicIndexing", value.shaderStorageTexelBufferArrayDynamicIndexing);
+            generatedEmitAuto(dst, section, "shaderUniformBufferArrayNonUniformIndexing", value.shaderUniformBufferArrayNonUniformIndexing);
+            generatedEmitAuto(dst, section, "shaderSampledImageArrayNonUniformIndexing", value.shaderSampledImageArrayNonUniformIndexing);
+            generatedEmitAuto(dst, section, "shaderStorageBufferArrayNonUniformIndexing", value.shaderStorageBufferArrayNonUniformIndexing);
+            generatedEmitAuto(dst, section, "shaderStorageImageArrayNonUniformIndexing", value.shaderStorageImageArrayNonUniformIndexing);
+            generatedEmitAuto(dst, section, "shaderInputAttachmentArrayNonUniformIndexing", value.shaderInputAttachmentArrayNonUniformIndexing);
+            generatedEmitAuto(dst, section, "shaderUniformTexelBufferArrayNonUniformIndexing", value.shaderUniformTexelBufferArrayNonUniformIndexing);
+            generatedEmitAuto(dst, section, "shaderStorageTexelBufferArrayNonUniformIndexing", value.shaderStorageTexelBufferArrayNonUniformIndexing);
+            generatedEmitAuto(dst, section, "descriptorBindingUniformBufferUpdateAfterBind", value.descriptorBindingUniformBufferUpdateAfterBind);
+            generatedEmitAuto(dst, section, "descriptorBindingSampledImageUpdateAfterBind", value.descriptorBindingSampledImageUpdateAfterBind);
+            generatedEmitAuto(dst, section, "descriptorBindingStorageImageUpdateAfterBind", value.descriptorBindingStorageImageUpdateAfterBind);
+            generatedEmitAuto(dst, section, "descriptorBindingStorageBufferUpdateAfterBind", value.descriptorBindingStorageBufferUpdateAfterBind);
+            generatedEmitAuto(dst, section, "descriptorBindingUniformTexelBufferUpdateAfterBind", value.descriptorBindingUniformTexelBufferUpdateAfterBind);
+            generatedEmitAuto(dst, section, "descriptorBindingStorageTexelBufferUpdateAfterBind", value.descriptorBindingStorageTexelBufferUpdateAfterBind);
+            generatedEmitAuto(dst, section, "descriptorBindingUpdateUnusedWhilePending", value.descriptorBindingUpdateUnusedWhilePending);
+            generatedEmitAuto(dst, section, "descriptorBindingPartiallyBound", value.descriptorBindingPartiallyBound);
+            generatedEmitAuto(dst, section, "descriptorBindingVariableDescriptorCount", value.descriptorBindingVariableDescriptorCount);
+            generatedEmitAuto(dst, section, "runtimeDescriptorArray", value.runtimeDescriptorArray);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceSubgroupSizeControlFeatures*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceSubgroupSizeControlFeatures";
+            generatedEmitAuto(dst, section, "subgroupSizeControl", value.subgroupSizeControl);
+            generatedEmitAuto(dst, section, "computeFullSubgroups", value.computeFullSubgroups);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceHostQueryResetFeatures*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceHostQueryResetFeatures";
+            generatedEmitAuto(dst, section, "hostQueryReset", value.hostQueryReset);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DEMOTE_TO_HELPER_INVOCATION_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceShaderDemoteToHelperInvocationFeatures*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceShaderDemoteToHelperInvocationFeatures";
+            generatedEmitAuto(dst, section, "shaderDemoteToHelperInvocation", value.shaderDemoteToHelperInvocation);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRIVATE_DATA_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDevicePrivateDataFeatures*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDevicePrivateDataFeatures";
+            generatedEmitAuto(dst, section, "privateData", value.privateData);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_CREATION_CACHE_CONTROL_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDevicePipelineCreationCacheControlFeatures*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDevicePipelineCreationCacheControlFeatures";
+            generatedEmitAuto(dst, section, "pipelineCreationCacheControl", value.pipelineCreationCacheControl);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceDynamicRenderingFeatures*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceDynamicRenderingFeatures";
+            generatedEmitAuto(dst, section, "dynamicRendering", value.dynamicRendering);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceMultiviewFeatures*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceMultiviewFeatures";
+            generatedEmitAuto(dst, section, "multiview", value.multiview);
+            generatedEmitAuto(dst, section, "multiviewGeometryShader", value.multiviewGeometryShader);
+            generatedEmitAuto(dst, section, "multiviewTessellationShader", value.multiviewTessellationShader);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceShaderFloat16Int8Features*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceShaderFloat16Int8Features";
+            generatedEmitAuto(dst, section, "shaderFloat16", value.shaderFloat16);
+            generatedEmitAuto(dst, section, "shaderInt8", value.shaderInt8);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDevice16BitStorageFeatures*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDevice16BitStorageFeatures";
+            generatedEmitAuto(dst, section, "storageBuffer16BitAccess", value.storageBuffer16BitAccess);
+            generatedEmitAuto(dst, section, "uniformAndStorageBuffer16BitAccess", value.uniformAndStorageBuffer16BitAccess);
+            generatedEmitAuto(dst, section, "storagePushConstant16", value.storagePushConstant16);
+            generatedEmitAuto(dst, section, "storageInputOutput16", value.storageInputOutput16);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGELESS_FRAMEBUFFER_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceImagelessFramebufferFeatures*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceImagelessFramebufferFeatures";
+            generatedEmitAuto(dst, section, "imagelessFramebuffer", value.imagelessFramebuffer);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VARIABLE_POINTERS_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceVariablePointersFeatures*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceVariablePointersFeatures";
+            generatedEmitAuto(dst, section, "variablePointersStorageBuffer", value.variablePointersStorageBuffer);
+            generatedEmitAuto(dst, section, "variablePointers", value.variablePointers);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_YCBCR_CONVERSION_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceSamplerYcbcrConversionFeatures*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceSamplerYcbcrConversionFeatures";
+            generatedEmitAuto(dst, section, "samplerYcbcrConversion", value.samplerYcbcrConversion);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_EXTENDED_TYPES_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceShaderSubgroupExtendedTypesFeatures*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceShaderSubgroupExtendedTypesFeatures";
+            generatedEmitAuto(dst, section, "shaderSubgroupExtendedTypes", value.shaderSubgroupExtendedTypes);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDevice8BitStorageFeatures*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDevice8BitStorageFeatures";
+            generatedEmitAuto(dst, section, "storageBuffer8BitAccess", value.storageBuffer8BitAccess);
+            generatedEmitAuto(dst, section, "uniformAndStorageBuffer8BitAccess", value.uniformAndStorageBuffer8BitAccess);
+            generatedEmitAuto(dst, section, "storagePushConstant8", value.storagePushConstant8);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceShaderAtomicInt64Features*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceShaderAtomicInt64Features";
+            generatedEmitAuto(dst, section, "shaderBufferInt64Atomics", value.shaderBufferInt64Atomics);
+            generatedEmitAuto(dst, section, "shaderSharedInt64Atomics", value.shaderSharedInt64Atomics);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceTimelineSemaphoreFeatures*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceTimelineSemaphoreFeatures";
+            generatedEmitAuto(dst, section, "timelineSemaphore", value.timelineSemaphore);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_MEMORY_MODEL_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceVulkanMemoryModelFeatures*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceVulkanMemoryModelFeatures";
+            generatedEmitAuto(dst, section, "vulkanMemoryModel", value.vulkanMemoryModel);
+            generatedEmitAuto(dst, section, "vulkanMemoryModelDeviceScope", value.vulkanMemoryModelDeviceScope);
+            generatedEmitAuto(dst, section, "vulkanMemoryModelAvailabilityVisibilityChains", value.vulkanMemoryModelAvailabilityVisibilityChains);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_TERMINATE_INVOCATION_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceShaderTerminateInvocationFeatures*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceShaderTerminateInvocationFeatures";
+            generatedEmitAuto(dst, section, "shaderTerminateInvocation", value.shaderTerminateInvocation);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SEPARATE_DEPTH_STENCIL_LAYOUTS_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceSeparateDepthStencilLayoutsFeatures*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceSeparateDepthStencilLayoutsFeatures";
+            generatedEmitAuto(dst, section, "separateDepthStencilLayouts", value.separateDepthStencilLayouts);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFORM_BUFFER_STANDARD_LAYOUT_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceUniformBufferStandardLayoutFeatures*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceUniformBufferStandardLayoutFeatures";
+            generatedEmitAuto(dst, section, "uniformBufferStandardLayout", value.uniformBufferStandardLayout);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceBufferDeviceAddressFeatures*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceBufferDeviceAddressFeatures";
+            generatedEmitAuto(dst, section, "bufferDeviceAddress", value.bufferDeviceAddress);
+            generatedEmitAuto(dst, section, "bufferDeviceAddressCaptureReplay", value.bufferDeviceAddressCaptureReplay);
+            generatedEmitAuto(dst, section, "bufferDeviceAddressMultiDevice", value.bufferDeviceAddressMultiDevice);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_INTEGER_DOT_PRODUCT_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceShaderIntegerDotProductFeatures*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceShaderIntegerDotProductFeatures";
+            generatedEmitAuto(dst, section, "shaderIntegerDotProduct", value.shaderIntegerDotProduct);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceSynchronization2Features*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceSynchronization2Features";
+            generatedEmitAuto(dst, section, "synchronization2", value.synchronization2);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ZERO_INITIALIZE_WORKGROUP_MEMORY_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceZeroInitializeWorkgroupMemoryFeatures*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceZeroInitializeWorkgroupMemoryFeatures";
+            generatedEmitAuto(dst, section, "shaderZeroInitializeWorkgroupMemory", value.shaderZeroInitializeWorkgroupMemory);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceMaintenance4Features*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceMaintenance4Features";
+            generatedEmitAuto(dst, section, "maintenance4", value.maintenance4);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_QUEUE_PERF_HINT_FEATURES_QCOM: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceQueuePerfHintFeaturesQCOM*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceQueuePerfHintFeaturesQCOM";
+            generatedEmitAuto(dst, section, "queuePerfHint", value.queuePerfHint);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_PROCESSING_3_FEATURES_QCOM: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceImageProcessing3FeaturesQCOM*>(ptr);
+            const char* section = "CapsViewer 4.12 parity · VkPhysicalDeviceImageProcessing3FeaturesQCOM";
+            generatedEmitAuto(dst, section, "imageGatherLinear", value.imageGatherLinear);
+            generatedEmitAuto(dst, section, "imageGatherExtendedModes", value.imageGatherExtendedModes);
+            generatedEmitAuto(dst, section, "blockMatchExtendedClampToEdge", value.blockMatchExtendedClampToEdge);
+            break;
+        }
         default: break;
     }
 }
 
-static constexpr uint32_t kCapsViewerParitySerializerCount = 259;
+static constexpr uint32_t kCapsViewerParitySerializerCount = 297;

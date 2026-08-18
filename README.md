@@ -1,8 +1,8 @@
 # VulkanScope
 
-VulkanScope is an offline Android Vulkan, Surface, Display and HDR inspection tool.
+VulkanScope is an Android Vulkan, Surface, Display and HDR inspection tool with local hardware collection and explicit opt-in network services for database submission and application updates.
 
-**Current version: 0.22.7**
+**Current version: 0.30.5**
 
 ## UI
 
@@ -15,19 +15,19 @@ The native collector queries the installed Android Vulkan loader and physical de
 # Screenshots
 
 <p align="center">
-  <img src="screenshots/0.22.7-1.jpg" width="200">
-  <img src="screenshots/0.22.7-2.jpg" width="200">
-  <img src="screenshots/0.22.7-3.jpg" width="200">
+  <img src="screenshots/1.jpg" width="200">
+  <img src="screenshots/2.jpg" width="200">
+  <img src="screenshots/3.jpg" width="200">
 </p>
 
 <p align="center">
-  <img src="screenshots/0.22.7-4.jpg" width="200">
-  <img src="screenshots/0.22.7-5.jpg" width="200">
-  <img src="screenshots/0.22.7-6.jpg" width="200">
+  <img src="screenshots/4.jpg" width="200">
+  <img src="screenshots/5.jpg" width="200">
+  <img src="screenshots/6.jpg" width="200">
 </p>
 
 <p align="center">
-  <img src="screenshots/0.22.7-7.png" width="500">
+  <img src="screenshots/7.png" width="500">
 </p>
 
 
@@ -58,7 +58,7 @@ VulkanScope may continue collecting optional Vulkan details after the main repor
 
 ## Security and privacy
 
-The application declares no Internet permission and performs no runtime network access. Hardware and display information stays on the device.
+Runtime network access is limited to the explicit VulkanScope Database submission flow and the official GitHub release update flow. Complete technical reports are uploaded only after the user presses Submit complete report, and sensitive device/account identifiers are excluded.
 
 ## Build
 

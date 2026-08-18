@@ -8,34 +8,79 @@ errors = []
 gradle = (root / 'app/build.gradle.kts').read_text(encoding='utf-8')
 version = re.search(r'versionName\s*=\s*"([^"]+)"', gradle)
 code = re.search(r'versionCode\s*=\s*(\d+)', gradle)
-if not version or version.group(1) != '0.22.7': errors.append('versionName mismatch')
-if not code or code.group(1) != '150': errors.append('versionCode mismatch')
+if not version or version.group(1) != '0.32.4': errors.append('versionName mismatch')
+if not code or code.group(1) != '324': errors.append('versionCode mismatch')
 abi_line = re.search(r'abiFilters \+= listOf\(([^\n]+)\)', gradle)
 if not abi_line or any(x not in abi_line.group(1) for x in ['arm64-v8a', 'armeabi-v7a', 'x86_64']): errors.append('required ABI set is incomplete')
 if '"x86"' in gradle: errors.append('x86 ABI must remain excluded')
 manifest = (root / 'app/src/main/AndroidManifest.xml').read_text(encoding='utf-8')
-if 'android.permission.INTERNET' in manifest: errors.append('INTERNET permission is forbidden')
+if manifest.count('android.permission.INTERNET') != 1: errors.append('exactly one INTERNET permission is required for approved HTTPS runtime paths')
 catalog = (root / 'app/src/main/cpp/registry_query_catalog.h').read_text(encoding='utf-8')
-for needle in ['kCatalogSchemaVersion = 6', 'kBaseline = "Vulkan 1.4.357"', 'findQueryDescriptor']:
+for needle in ['kCatalogSchemaVersion = 6', 'kBaseline = "Vulkan 1.4.360"', 'findQueryDescriptor']:
     if needle not in catalog: errors.append(f'missing catalog requirement: {needle}')
 manifest_json = json.loads((root / 'registry/generated/registry_query_manifest.json').read_text(encoding='utf-8'))
 snapshot = json.loads((root / 'registry/generated/coverage_snapshot.json').read_text(encoding='utf-8'))
-if manifest_json.get('baseline') != 'Vulkan 1.4.357': errors.append('generated manifest baseline mismatch')
-if snapshot.get('baseline') != 'Vulkan 1.4.357': errors.append('coverage snapshot baseline mismatch')
+if manifest_json.get('baseline') != 'Vulkan 1.4.360': errors.append('generated manifest baseline mismatch')
+if snapshot.get('baseline') != 'Vulkan 1.4.360': errors.append('coverage snapshot baseline mismatch')
 cpp = (root / 'app/src/main/cpp/vulkanscope.cpp').read_text(encoding='utf-8')
 kt = (root / 'app/src/main/java/com/efishell/vulkanscope/MainActivity.kt').read_text(encoding='utf-8')
 for needle in ['reportToText', 'reportToHtml', 'registryCoverage', 'instanceExtensions', 'deviceExtensions']:
     if needle not in kt + cpp: errors.append(f'missing report/export path: {needle}')
 if re.search(r'\bTODO\b|\bFIXME\b', cpp + kt): errors.append('TODO/FIXME marker remains in production source')
+if 'android:usesCleartextTraffic="false"' not in manifest: errors.append('cleartext traffic must be disabled')
+for needle in ['packageSigningCertificatesMatch', 'archiveVersionCode <= installedVersionCode', 'toHttpUrlOrNull', 'baseUrl.username.isNotEmpty()', 'target.parentFile?.canonicalFile']:
+    if needle not in kt: errors.append(f'missing update/network hardening: {needle}')
+if 'onCheckForUpdates: () -> Unit' not in kt or 'onCheckForUpdates = onCheckForUpdates' not in kt:
+    errors.append('manual update callback is not propagated through PageContent')
+if 'OFFICIAL_DATABASE_API_ENDPOINT = "https://vulkanscope-database-api.vulkanscope.workers.dev"' not in kt:
+    errors.append('official VulkanScope Database endpoint is missing')
+if 'baseUrl.encodedPath != "/"' not in kt:
+    errors.append('official database endpoint must be constrained to an HTTPS API root')
+if 'Database API endpoint' in kt or 'databaseEndpoint' in kt or 'vulkanscope_database' in kt:
+    errors.append('database endpoint must not be user-editable or persisted')
+if 'submitDatabaseReport(context, report, display, mode)' not in kt:
+    errors.append('database submission must use the fixed official endpoint')
+if 'collectionStatus != CollectionStatus.COLLECTING' not in kt:
+    errors.append('database submission must be disabled during active collection')
+
+cmake = (root / 'app/src/main/cpp/CMakeLists.txt').read_text(encoding='utf-8')
+for needle in ['GIT_TAG 0b7f383797fa7be53ae28213e001ae60668ee511', '#define VK_HEADER_VERSION[ \\t]+360', '-Wl,-z,relro', '-Wl,-z,now']:
+    if needle not in cmake: errors.append(f'missing current native build/security baseline: {needle}')
+for needle in ['technicalReport', 'schemaVersion", 3', 'ExpressiveActionButton', 'meta.json', 'canonicalLibrary.path.startsWith(rootPrefix)']:
+    if needle not in kt: errors.append(f'missing 0.32.x report/UI/runtime hardening: {needle}')
+if 'Vulkan 1.4.360 compile headers; validated query catalog Vulkan 1.4.360' not in catalog:
+    errors.append('compile-header/query-catalog baseline distinction is missing')
+
+coverage_kt = (root / 'app/src/main/java/com/efishell/vulkanscope/CapsViewer412ExtensionCoverage.kt').read_text(encoding='utf-8')
+coverage_extensions = set(re.findall(r'\"(VK_[A-Za-z0-9_]+)\"', coverage_kt))
+if len(coverage_extensions) != 301: errors.append(f'CapsViewer 4.12 physical-device extension coverage mismatch: {len(coverage_extensions)}')
+
+if 'groupName.rfind("ext::", 0) == 0' not in cpp: errors.append('generic exhaustive extension query dispatch is missing')
+if '.map { "ext::$it" }' not in kt: errors.append('runtime-enumerated exhaustive extension scheduling is missing')
+if 'for (group in newGroups)' not in kt: errors.append('isolated complete-report queries must execute sequentially')
+if 'payload.size > 2 * 1024 * 1024' not in kt: errors.append('complete-report submission bound must match current Database transport')
+
 # Every validated device-extension descriptor must have an implemented native query branch.
 descriptor_groups = set(re.findall(r'\{\"([^\"]+)\", \"device-extension\"', catalog))
 implemented_groups = set(re.findall(r'std::strcmp\(groupName, \"([^\"]+)\"\)', cpp))
 implemented_extension_branches = set(re.findall(r'std::strcmp\(extensionName, "([^"]+)"\)', cpp))
+pnext_text = (root / 'app/src/main/cpp/runtime_extension_pnext_generated.inc').read_text(encoding='utf-8') + '\n' + (root / 'app/src/main/cpp/runtime_extension_pnext_parity.inc').read_text(encoding='utf-8')
+for needle in ['VK_EXT_image_tiling_control', 'VK_EXT_cooperative_matrix_maintenance1']:
+    if needle not in coverage_kt: errors.append(f'missing Vulkan 1.4.360 delta extension scheduling: {needle}')
+for needle in ['VkPhysicalDeviceImageTilingControlFeaturesEXT', 'VkPhysicalDeviceCooperativeMatrixMaintenance1FeaturesEXT']:
+    if needle not in pnext_text: errors.append(f'missing Vulkan 1.4.360 delta pNext query: {needle}')
+for needle in ['vkGetPhysicalDeviceCooperativeMatrixProperties2EXT', 'cooperativeMatrixProperties2Query']:
+    if needle not in cpp: errors.append(f'missing cooperative matrix maintenance1 physical-device query: {needle}')
+for needle in ['linearU64', 'optimalU64', 'bufferU64', 'flagsU64', 'VK_FORMAT_FEATURE_2_VERTEX_BUFFER_BIT']:
+    if needle not in kt: errors.append(f'missing exact/canonical structured Vulkan data: {needle}')
+
+implemented_extension_branches.update(re.findall(r'std::strcmp\(selectedExtension, "([^"]+)"\)', pnext_text))
 extension_to_group = {}
 for match in re.finditer(r'\{"([^"]+)", "device-extension", "([^"]+)"', catalog): extension_to_group[match.group(2)] = match.group(1)
 implemented_groups.update(extension_to_group[name] for name in implemented_extension_branches if name in extension_to_group)
 missing_groups = sorted(descriptor_groups - implemented_groups)
 if missing_groups: errors.append('validated device-extension query groups missing native implementation: ' + ', '.join(missing_groups))
+if not (root / 'gradlew').exists() or not (root / 'gradlew.bat').exists(): errors.append('Gradle wrapper launch scripts are missing')
 if not (root / 'tools/verify_canonical_vulkan_headers.py').exists(): errors.append('canonical header verifier missing')
 if not (root / 'app/src/main/cpp/runtime_extension_pnext_generated.inc').exists(): errors.append('checked-in runtime pNext generated source missing')
 if not (root / 'tools/generate_extension_pnext_query.py').exists(): errors.append('runtime pNext generator missing')
@@ -96,7 +141,7 @@ if 'kMaxSparseImageFormatEntries' not in cpp:
 if re.search(r'^\s*/[/*]', cpp, re.MULTILINE) or re.search(r'^\s*/[/*]', kt, re.MULTILINE):
     errors.append('source-code comments are forbidden by PROJECT_RULES')
 if 'GIT_TAG master' in cmake: errors.append('libadrenotools dependency must be pinned to an immutable commit')
-if 'e3b1eec08173d6b825cd3ac88c885a63b621504a' not in cmake: errors.append('canonical Vulkan-Headers commit is not pinned')
+if '0b7f383797fa7be53ae28213e001ae60668ee511' not in cmake: errors.append('canonical Vulkan-Headers 1.4.360 commit is not pinned')
 if '#include <vulkan/vulkan.h>' not in cpp: errors.append('canonical Vulkan header is not used')
 if '#define VK_ENABLE_BETA_EXTENSIONS 1' not in cpp: errors.append('provisional Vulkan extensions must be explicitly enabled before vulkan.h')
 if 'VK_USE_PLATFORM_ANDROID_KHR' not in cpp: errors.append('Android Vulkan platform macro missing')
@@ -104,4 +149,4 @@ if errors:
     for error in errors: print(f'FAIL: {error}')
     raise SystemExit(1)
 print('VulkanScope release verification: PASS')
-print(f'version={version.group(1)} code={code.group(1)} baseline=Vulkan 1.4.357 schema=6 canonicalHeaders=e3b1eec08173d6b825cd3ac88c885a63b621504a')
+print(f'version={version.group(1)} code={code.group(1)} baseline=Vulkan 1.4.360 schema=6 compileHeaders=0b7f383797fa7be53ae28213e001ae60668ee511')

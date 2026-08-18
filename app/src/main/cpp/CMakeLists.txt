@@ -24,7 +24,7 @@ set(FETCHCONTENT_QUIET OFF)
 FetchContent_Declare(
     vulkan_headers
     GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
-    GIT_TAG e3b1eec08173d6b825cd3ac88c885a63b621504a
+    GIT_TAG 0b7f383797fa7be53ae28213e001ae60668ee511
     GIT_SHALLOW FALSE
 )
 FetchContent_MakeAvailable(vulkan_headers)
@@ -32,12 +32,12 @@ FetchContent_MakeAvailable(vulkan_headers)
 set(VULKANSCOPE_VULKAN_HEADERS_DIR "${vulkan_headers_SOURCE_DIR}/include")
 set(VULKANSCOPE_VULKAN_XML "${vulkan_headers_SOURCE_DIR}/registry/vk.xml")
 if(NOT EXISTS "${VULKANSCOPE_VULKAN_HEADERS_DIR}/vulkan/vulkan_core.h" OR NOT EXISTS "${VULKANSCOPE_VULKAN_XML}")
-    message(FATAL_ERROR "Canonical Vulkan-Headers v1.4.357 was not fetched correctly")
+    message(FATAL_ERROR "Canonical Vulkan-Headers v1.4.360 was not fetched correctly")
 endif()
 file(READ "${VULKANSCOPE_VULKAN_HEADERS_DIR}/vulkan/vulkan_core.h" VULKAN_CORE_HEADER_TEXT)
-string(REGEX MATCH "#define VK_HEADER_VERSION[ \t]+357([\r\n])" VULKAN_HEADER_357_MATCH "${VULKAN_CORE_HEADER_TEXT}")
-if(NOT VULKAN_HEADER_357_MATCH)
-    message(FATAL_ERROR "Vulkan header baseline mismatch: expected VK_HEADER_VERSION 357")
+string(REGEX MATCH "#define VK_HEADER_VERSION[ \t]+360([\r\n])" VULKAN_HEADER_360_MATCH "${VULKAN_CORE_HEADER_TEXT}")
+if(NOT VULKAN_HEADER_360_MATCH)
+    message(FATAL_ERROR "Vulkan header baseline mismatch: expected VK_HEADER_VERSION 360")
 endif()
 set(VULKANSCOPE_GENERATED_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(VULKANSCOPE_GENERATED_FIELD_FILE "${VULKANSCOPE_GENERATED_DIR}/extension_field_coverage_generated.inc")
@@ -74,4 +74,6 @@ target_compile_options(vulkanscope PRIVATE
 target_link_options(vulkanscope PRIVATE
     "-Wl,-z,max-page-size=16384"
     "-Wl,-z,common-page-size=16384"
+    "-Wl,-z,relro"
+    "-Wl,-z,now"
 )

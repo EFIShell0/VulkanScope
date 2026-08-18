@@ -5,7 +5,7 @@
 - Security, correctness, memory safety, performance and usability are never traded away for convenience.
 - No known security vulnerability may be knowingly shipped.
 - No known memory leak may be knowingly shipped.
-- No unnecessary network permission or network dependency.
+- No unnecessary network permission or network dependency. Permitted runtime network paths are explicit user-initiated VulkanScope Database submission over HTTPS and a non-blocking startup update check against the official public VulkanScope GitHub release API.
 - No guessed hardware capabilities.
 - Unknown, unsupported and unavailable are distinct states.
 - Vulkan loader version, device API version and driver version are distinct values.
@@ -16,8 +16,10 @@
 - UI-thread blocking native work is forbidden.
 - Large collections must be lazy and searchable.
 - No unnecessary allocations or repeated Vulkan queries during UI recomposition.
-- No runtime network access is permitted.
-- Device and display data must remain on-device.
+- Runtime network access is forbidden except for an explicit user-initiated complete technical report submission to the fixed official VulkanScope Database HTTPS endpoint and the official VulkanScope update flow. Update checks may run at startup, but APK download and package installation must require an explicit user action.
+- Device and display data remain on-device unless the user explicitly presses Submit complete report. Submission must exclude IMEI, Android ID, device serial, MAC addresses, account data, authentication tokens and private file paths.
+- Database submission must not offer per-capability omission controls; the technical report is submitted as one complete dataset or not submitted at all.
+- No automatic or background report upload is permitted.
 - Runtime-enumerated Vulkan extension names must be displayed exactly as returned by the Vulkan implementation.
 - Vulkan enum names must not be replaced by marketing names or inferred capabilities.
 - A missing API query must be reported as unavailable or unknown, never as unsupported without evidence.
@@ -65,6 +67,15 @@
 - Invalid or invented VkFormat numeric values must never be queried.
 - Format names must be canonical Vulkan names.
 
+## Complete report collection
+- A complete report must preserve supported, unsupported, unavailable, not-applicable and unknown results in one dataset; status categories must never be used as omission filters for export or database submission.
+- Database submission remains disabled until every scheduled core, advanced and applicable extension feature/property query has either completed or produced an explicit unavailable/not-applicable result.
+- The bounded submission size limit must be large enough for the exhaustive technical dataset; a report must not be truncated or selectively reduced to satisfy transport limits.
+- Every runtime-enumerated device extension that has a validated VulkanCapsViewer 4.12 physical-device feature/property query mapping must be queried automatically; opening the Extensions screen must not be required for report completeness.
+- Isolated Vulkan queries sharing the single probe worker must be scheduled sequentially so queued work cannot expire merely because earlier probes are still executing.
+- Platform-only physical-device structures for non-Android platforms must not be queried on Android and must be documented as platform exclusions rather than unsupported device capabilities.
+- Instance capability extensions without their own device feature/property pNext structure are covered by the appropriate instance or advanced physical-device query path and must not be fabricated as device feature groups.
+
 ## Release quality
 - Test on all target ABIs.
 - Test Vulkan 1.0 through the latest API version exposed by the installed Android Vulkan stack.
@@ -89,3 +100,54 @@
 - Extension aggregation must preserve exact Vulkan extension names, scope, and specVersion without lossy transformations.
 - Registry-driven query coverage is build-time authored from canonical Khronos metadata; the Android CMake build must not require Python or any runtime registry download. Generated native metadata is checked in and verified before release; runtime must never download or parse remote registry data.
 - Generated registry metadata is informational unless the corresponding native struct/query path has been explicitly validated; unknown registry structures must remain unavailable rather than being guessed.
+
+
+## Network address-family policy
+- Runtime HTTPS clients must prefer IPv6 when a hostname resolves to both IPv6 and IPv4.
+- IPv4 fallback must remain available; IPv6-only behavior is forbidden.
+- Dual-stack connection establishment must use fast fallback so broken IPv6 does not impose the full connection timeout before IPv4 is attempted.
+- Hostnames must remain hostnames through TLS; replacing HTTPS hosts with resolved IP literals is forbidden.
+- IPv6-only and DNS64/NAT64 networks must remain supported by using the platform resolver rather than hard-coded address literals.
+
+## Application updates
+- Startup update checks must be asynchronous and must never block Vulkan collection, Surface lifecycle, navigation or first-frame UI.
+- Update metadata must come only from the official EFIShell0/VulkanScope GitHub Releases API over HTTPS.
+- Only published latest-release APK assets are eligible.
+- ABI-specific APK selection must prefer the application's installed ABI; a clearly named universal APK may be used only as a compatible fallback.
+- Update availability UI must use the existing VulkanScope banner visual language and remain non-modal. The explicit up-to-date result must leave the interface after approximately 8 seconds; update-available and failure results retain the existing approximately 10-second behavior when no download is in progress.
+- APK download and installation require explicit user action. Silent installation is forbidden.
+- Downloaded APKs must be exposed to Android's package installer through a non-exported FileProvider with temporary read permission.
+- Android unknown-source authorization must be respected; VulkanScope must never attempt to bypass the platform package installer or its user confirmation.
+- Settings must expose a manual Check for updates action so a dismissed startup update result can be requested again without restarting VulkanScope. Manual checks must reuse the same non-modal update-status banner and must not block Vulkan collection or navigation.
+
+- Runtime cleartext HTTP is forbidden; approved network flows must remain HTTPS-only.
+- Network metadata/error responses consumed into memory must have explicit size limits; unbounded response-body materialization is forbidden.
+- Downloaded update APKs must match the installed VulkanScope package identity and signing certificate and must carry a strictly newer versionCode before Android's installer is launched.
+- Update asset filenames must be treated as untrusted input and confined to VulkanScope's private update cache directory.
+- The VulkanScope Database endpoint is fixed in the application to the official HTTPS Worker root. User-editable database endpoints are forbidden. The fixed endpoint must be parsed and validated as HTTPS and must not contain user-info, query, fragment or extra path components.
+- Database submission must be disabled while a Vulkan collection pass is active so an in-progress snapshot is not knowingly submitted as a complete technical report.
+
+## Current upstream and structured-report baseline
+- Release 0.32.3 compiles native Vulkan code against the official Khronos Vulkan-Headers v1.4.360 and verifies `VK_HEADER_VERSION` at CMake configure time.
+- The generated exhaustive physical-device query catalog is validated through Vulkan 1.4.360. Vulkan 1.4.358 VK_EXT_image_tiling_control and Vulkan 1.4.359 VK_EXT_cooperative_matrix_maintenance1 are included in automatic runtime extension probing; Vulkan 1.4.360 adds no further extension. A future header update must not be presented as wider validated query coverage until its registry delta is independently audited.
+- Unknown structures or fields introduced after the validated generated catalog baseline must not be guessed, synthesized, or silently reported as unsupported.
+- Database submission must preserve the complete human-readable report and an additional lossless structured technical-report object when transport permits; the structured object is additive and must not remove legacy schema fields required by the deployed Database worker.
+- Client-side database payload limits must match the deployed Database transport limit. If the full payload exceeds that limit, submission must fail locally without truncating, filtering, or reclassifying technical data.
+- Turnip runtime loading must use only the validated `meta.json` `libraryName`, reject path separators, require an `.so` filename, and confirm the resolved library remains inside VulkanScope private bundle storage. Arbitrary first-JSON/first-library fallbacks are forbidden.
+- TXT and HTML exports must carry the same material technical categories, including display modes, instance and device layer details, profile evaluation, queue video operation data, surface diagnostics, and presentation queue results.
+- HTML status colors must preserve semantics: supported is green, available is blue, unsupported is red, unavailable/not-applicable is amber, and unknown is gray.
+- Android display HDR capability objects are nullable. A null `Display.hdrCapabilities` must be represented as not exposed/unknown data and must never be force-dereferenced or converted into guessed HDR support/luminance values.
+
+
+## Info / Settings visual scope
+- Release 0.32.2 Material 3 Expressive-inspired visual changes are confined to the contents of the Info and Settings destinations opened from the top-bar info and gear icons.
+- Shared navigation, top app bar geometry, SectionCard, DataRow, MetricCard and every Vulkan capability page outside Info/Settings must retain the established pre-0.32.0 visual language unless a later user request explicitly authorizes a broader redesign.
+- Info and Settings actions should use clear icon + title + supporting-text hierarchy, generous touch targets and expressive rounded shapes while preserving VulkanScope's dark neutral surfaces and rose/red accent identity.
+- Export, update, driver-import and Database actions must remain semantically identical; visual styling must not change report completeness, safety gates or submission behavior.
+
+- 64-bit Vulkan bitmasks in structured Database payloads must include an exact unsigned decimal string representation in addition to any legacy numeric field; canonical names are additive and raw bits must never be discarded.
+- Canonical application flag/enum display tables must use official VK_* names and values from the validated Vulkan registry baseline; unknown bits remain visible as UNKNOWN_BITS rather than being dropped.
+
+- Vulkan 1.4.360 extension-query output must remain lossless across the in-app model, TXT export, HTML export, and structured database payload. Generic detailed query output may carry new fields, but canonical enum names must accompany raw enum values where a canonical Vulkan enum is known.
+- Update APK downloads must continue to validate official release URL provenance, APK parseability, package identity, signing-certificate compatibility, and monotonically newer versionCode/versionName before invoking the package installer.
+- Release 0.32.4 inherits the Vulkan-Headers 1.4.360 compile/query baseline from 0.32.3 without removing any query group or report field.

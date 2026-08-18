@@ -1,3 +1,83 @@
+# 0.32.4
+
+- Verified Vulkan 1.4.360 query export parity across TXT, HTML and structured database submission.
+- Added canonical VkComponentTypeKHR names alongside raw cooperative-matrix maintenance1 component-type values.
+- Shortened only the explicit up-to-date update banner from approximately 10 seconds to approximately 8 seconds.
+- Re-audited the GitHub update flow and preserved official-URL, APK identity, signing-certificate and monotonic-version validation.
+
+## 0.32.3
+- Corrected `VK_MEMORY_HEAP_TILE_MEMORY_BIT_QCOM` to the Vulkan-Headers 1.4.360 value `0x8`.
+- Added canonical Surface transform, composite-alpha and image-usage flag reporting while preserving raw values.
+- Kept Database `technicalReport.schemaVersion` at 3 and added exact unsigned-decimal/canonical fields additively for backward compatibility.
+- Validated Vulkan query coverage through Vulkan 1.4.360.
+- Added automatic VK_EXT_image_tiling_control feature probing.
+- Added automatic VK_EXT_cooperative_matrix_maintenance1 feature probing and bounded vkGetPhysicalDeviceCooperativeMatrixProperties2EXT reporting.
+- Corrected application canonical Vulkan flag names and VkFormatFeatureFlags2 bit values.
+- Added exact unsigned-decimal structured fields for 64-bit Vulkan masks without removing legacy fields.
+
+# 0.32.2
+
+- Fixed Android API 37 Kotlin compilation failure caused by nullable `Display.hdrCapabilities`.
+- HDR capability absence is now represented without guessing: HDR types fall back to an empty reported list where the legacy API requires `HdrCapabilities`, and luminance fields report `Not exposed`.
+- Avoided `!!`/forced dereference so displays that legitimately expose no `HdrCapabilities` cannot crash this report path.
+- Preserved the 0.32.1 Info/Settings-only Material 3 Expressive visual scope and all existing Vulkan/report/export/database/security behavior.
+
+# 0.32.1
+
+- Rebased the 0.32.0 engineering/security/export/database fixes on the original 0.31.1 visual baseline.
+- Restricted all new Material 3 Expressive presentation changes to the Info and Settings tabs opened from the top-bar info and gear icons.
+- Redesigned Info developer/application identity and version metadata with expressive shape hierarchy while preserving all other page styling.
+- Redesigned Settings actions, including TXT/HTML export, update, Turnip import and Database submission, as larger icon-bearing expressive action surfaces with clearer hierarchy and touch targets.
+- Preserved every 0.32.0 Vulkan, Android API 37, NDK r29, Vulkan-Headers 1.4.360, Turnip hardening, structured Database report, export parity and linker-hardening change.
+- No visual changes were made to Home, Properties, Features, Memory, Queues, Formats, Surface, Extensions, Profiles, navigation, global SectionCard styling, or data rows.
+
+# 0.32.0
+
+- Updated compileSdk/targetSdk to 37 and NDK to stable r29.
+- Compiles native Vulkan code against official Vulkan-Headers v1.4.360 while keeping the independently validated generated query catalog explicitly labeled Vulkan 1.4.357 / VulkanCapsViewer 4.12.
+- Hardened Turnip runtime ICD selection to validated meta.json declarations confined to private bundle storage.
+- Added structured lossless technicalReport data to Database submissions without breaking the deployed schema-v2 envelope.
+- Matched the app submission cap to the deployed Database 2 MiB transport limit and never truncates a complete report.
+- Expanded TXT/HTML export parity for display modes, layer extensions, Profiles, queue video operations, surface diagnostics and presentation queues.
+- Corrected HTML Available/Unavailable status colors.
+- Redesigned Settings/Info actions as consistent icon-bearing premium action cards.
+- Added explicit native RELRO/now linker hardening.
+- Restored the missing Gradle wrapper launch scripts.
+
+# 0.31.1
+
+- Made database/export collection exhaustive for all applicable VulkanCapsViewer 4.12 physical-device extension feature/property mappings.
+- Added automatic runtime extension-to-query scheduling for 299 validated CapsViewer 4.12 mappings.
+- Serialized isolated background queries so waiting work cannot expire in the single-worker probe queue.
+- Preserved unavailable/not-applicable query outcomes in the same complete technical report.
+- Re-audited vendor-specific coverage and documented the only five CapsViewer extension-name exclusions: three instance capability dependencies plus OHOS/QNX platform-only entries.
+
+# VulkanScope 0.31.0
+
+- Expanded VulkanCapsViewer 4.12 feature/property parity and extension query coverage.
+- Added missing validated background extension query groups without changing runtime extension support semantics.
+- Corrected `VK_EXT_inline_uniform_block` gating.
+- Preserved Vulkan 1.4.357, Surface/HDR, Turnip, database submission, update-security and ABI behavior.
+
+# VulkanScope 0.30.6
+
+- Removed the user-editable VulkanScope Database API endpoint field; complete-report submission now always uses the fixed official HTTPS Worker endpoint.
+- Removed the obsolete database-endpoint SharedPreferences path so stale or user-modified endpoints cannot redirect technical reports.
+- Disabled database submission while a Vulkan collection pass is active to avoid knowingly submitting an in-progress report snapshot as complete.
+- Preserved explicit user initiation, full-report submission semantics, sensitive-identifier exclusions, HTTPS-only transport, IPv6-first fast fallback, and all existing Vulkan query/report coverage.
+- Added bounded in-memory response parsing for GitHub update metadata and VulkanScope Database responses to prevent unbounded response-body allocation.
+- Re-audited update download identity/signing/version checks, FileProvider confinement, cleartext blocking, coroutine/lifecycle cancellation, Surface synchronization, native ABI targets, release shrinking, and registry baseline invariants.
+- Bumped versionName to 0.30.6 and versionCode to 306.
+
+# VulkanScope 0.30.5
+
+- Fixed the release Kotlin compilation failure caused by the manual update callback not being propagated through `PageContent`.
+- Preserved the startup and Settings update-check flows while keeping the update banner non-modal.
+- Set the live VulkanScope Database Worker root as the default API endpoint while preserving the editable HTTPS endpoint field.
+- Hardened database endpoint validation so submissions accept an HTTPS API root only and cannot accidentally append `/v1/reports` to an existing path.
+- Preserved all Vulkan query, report, Surface, Turnip, ABI, export and database-submission coverage.
+- Bumped versionName to 0.30.5 and versionCode to 305.
+
 # VulkanScope 0.22.7
 
 - Added the missing `VK_KHR_ray_query` isolated feature-query group without removing or changing existing Vulkan query coverage.
