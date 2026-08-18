@@ -30,6 +30,7 @@ The native collector queries the installed Android Vulkan loader and physical de
   <img src="screenshots/7.png" width="500">
 </p>
 
+**NOTE: The last image was taken from BlueStacks, and VM (hypervisor) software like BlueStacks is not supported.**
 
 The Surface page reports exact format and color-space pairs, present modes, surface capabilities and queue-family presentation support. The Display & HDR page separately reports Android display HDR types, luminance, wide-color capability, preferred wide-gamut color space and display modes.
 
