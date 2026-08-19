@@ -63,6 +63,7 @@ A capability that was not queried or could not be determined is not silently con
 
 <p align="center">
   <img src="screenshots/0.22.7-7.png" width="500">
+  <img src="screenshots/database.png" width="500">
 </p>
 **NOTE: The last image was taken from BlueStacks, and VM (hypervisor) software like BlueStacks is not supported.**
 
