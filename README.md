@@ -2,7 +2,34 @@
 
 VulkanScope is an Android Vulkan, Surface, Display and HDR inspection tool with local hardware collection and explicit opt-in network services for database submission and application updates.
 
+Database: https://efishell0.github.io/VulkanScope_database/
+
 **Current version: 0.33.1**
+
+> VulkanScope reports what the active Vulkan implementation actually exposes. It does not infer support from the Android version, GPU model, or Vulkan API version alone.
+
+## Highlights
+
+- Vulkan 1.0–1.4 core capability inspection
+- Query coverage validated against **Vulkan-Headers 1.4.360**
+- Extensive Khronos and vendor-specific feature/property queries
+- Runtime instance and device extension enumeration with `specVersion`
+- Detailed physical-device properties and limits
+- Memory heap/type inspection with canonical Vulkan flags
+- Queue-family and presentation capability inspection
+- 64-bit format-feature inspection with exact raw values
+- Real Android `VkSurfaceKHR` capability inspection
+- Surface formats, color spaces, present modes, transforms, composite alpha, and usage flags
+- Android Display and HDR capability reporting
+- Vulkan Video decode/encode capability inspection
+- Vulkan Profile evaluation
+- Offline registry-driven Vulkan query metadata
+- Turnip / third-party Vulkan driver support
+- TXT and self-contained HTML reports
+- Explicit complete-report submission to VulkanScope Database
+- Secure GitHub-based update checking
+- Multi-ABI native Android builds
+- Dark Material 3 Expressive interface
 
 ## UI
 
