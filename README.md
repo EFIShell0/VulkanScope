@@ -65,7 +65,8 @@ A capability that was not queried or could not be determined is not silently con
   <img src="screenshots/0.22.7-7.png" width="500">
   <img src="screenshots/database.png" width="500">
 </p>
-**NOTE: The last image was taken from BlueStacks, and VM (hypervisor) software like BlueStacks is not supported.**
+**NOTE: The first landscape image was taken from BlueStacks, and VM (hypervisor) software like BlueStacks is not supported.**
+**NOTE 2: The last landscape photo is a screenshot of the database website (link: https://efishell0.github.io/VulkanScope_database).**
 
 ## Vulkan coverage
 
