@@ -1,5 +1,15 @@
-# VulkanScope 0.32.4
+# VulkanScope 0.33.1
 
-VulkanScope 0.32.4 is a focused build-fix release based on 0.32.1. It fixes the Android API 37 Kotlin nullability change for `Display.hdrCapabilities` without changing Vulkan query coverage or UI outside the already-authorized Info and Settings scope. If HDR capabilities are not exposed, VulkanScope records that absence as `Not exposed` instead of forcing a non-null value or inventing luminance data.
+## Complete-collection driver gate
 
-All 0.32.1 engineering, export, Database, security, Vulkan and scoped Material 3 Expressive changes are preserved.
+System Vulkan driver selection, Turnip / third-party driver selection, and Turnip ZIP import now remain disabled while the complete Vulkan collection pass is active. They unlock together with TXT, HTML, and Database complete-report actions once collection finishes.
+
+This is an interactivity gate only: the restored 0.32.4 Turnip/SAF implementation itself remains unchanged.
+
+## Turnip / SAF full restoration
+
+This release restores the complete Turnip/SAF path to the known-working VulkanScope 0.32.4 implementation. The restoration covers the Storage Access Framework picker, ZIP import flow, driver-mode switching, installed Turnip library discovery, and the Settings driver/import controls.
+
+The native Turnip loader integration was already identical to 0.32.4 and remains unchanged.
+
+Later independent improvements are preserved: Vulkan 1.4.360 query coverage, HDR logo/capability presentation, update confirmation, exact structured report data, TXT/HTML complete-report gating, and VulkanScope Database compatibility.

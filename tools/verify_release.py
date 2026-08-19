@@ -8,8 +8,8 @@ errors = []
 gradle = (root / 'app/build.gradle.kts').read_text(encoding='utf-8')
 version = re.search(r'versionName\s*=\s*"([^"]+)"', gradle)
 code = re.search(r'versionCode\s*=\s*(\d+)', gradle)
-if not version or version.group(1) != '0.32.4': errors.append('versionName mismatch')
-if not code or code.group(1) != '324': errors.append('versionCode mismatch')
+if not version or version.group(1) != '0.33.1': errors.append('versionName mismatch')
+if not code or code.group(1) != '331': errors.append('versionCode mismatch')
 abi_line = re.search(r'abiFilters \+= listOf\(([^\n]+)\)', gradle)
 if not abi_line or any(x not in abi_line.group(1) for x in ['arm64-v8a', 'armeabi-v7a', 'x86_64']): errors.append('required ABI set is incomplete')
 if '"x86"' in gradle: errors.append('x86 ABI must remain excluded')
@@ -30,8 +30,8 @@ if re.search(r'\bTODO\b|\bFIXME\b', cpp + kt): errors.append('TODO/FIXME marker 
 if 'android:usesCleartextTraffic="false"' not in manifest: errors.append('cleartext traffic must be disabled')
 for needle in ['packageSigningCertificatesMatch', 'archiveVersionCode <= installedVersionCode', 'toHttpUrlOrNull', 'baseUrl.username.isNotEmpty()', 'target.parentFile?.canonicalFile']:
     if needle not in kt: errors.append(f'missing update/network hardening: {needle}')
-if 'onCheckForUpdates: () -> Unit' not in kt or 'onCheckForUpdates = onCheckForUpdates' not in kt:
-    errors.append('manual update callback is not propagated through PageContent')
+if 'private fun InfoPage(registryCoverage: RegistryCoverage, onCheckForUpdates: () -> Unit)' not in kt or 'Page.Info -> InfoPage(report.registryCoverage, onCheckForUpdates)' not in kt:
+    errors.append('manual update callback is not exposed from the Info destination')
 if 'OFFICIAL_DATABASE_API_ENDPOINT = "https://vulkanscope-database-api.vulkanscope.workers.dev"' not in kt:
     errors.append('official VulkanScope Database endpoint is missing')
 if 'baseUrl.encodedPath != "/"' not in kt:
@@ -42,6 +42,52 @@ if 'submitDatabaseReport(context, report, display, mode)' not in kt:
     errors.append('database submission must use the fixed official endpoint')
 if 'collectionStatus != CollectionStatus.COLLECTING' not in kt:
     errors.append('database submission must be disabled during active collection')
+
+for needle in [
+    'UpdateConfirmationDialog',
+    'releaseNotes = json.optString("body")',
+    'installedVersionCode()',
+    'downloadAbi = selectedAbi',
+    'OFFICIAL_DATABASE_WEB_URL = "https://efishell0.github.io/VulkanScope_database/"',
+    'enabled = completeReportReady',
+    'if (showProgress && result is UpdateCheckResult.Available)'
+]:
+    if needle not in kt: errors.append(f'missing 0.32.5 update/export UX requirement: {needle}')
+if kt.count('enabled = completeReportReady') < 2:
+    errors.append('TXT and HTML must both use the complete-report collection gate')
+if 'Download APK' not in kt or 'Downloaded versionCode' not in kt:
+    errors.append('update confirmation must expose explicit download approval and APK version verification state')
+
+
+
+# 0.33.0 intentionally restores the complete Turnip/SAF behavior from VulkanScope 0.32.4.
+for needle in [
+    'ActivityResultContracts.OpenDocument()',
+    'driverPickerLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))',
+    'return root.walkTopDown().firstOrNull { it.isFile && it.extension.equals("so", true) && it.length() > 0L }'
+]:
+    if needle not in kt: errors.append(f'missing restored 0.32.4 Turnip/SAF behavior: {needle}')
+for forbidden in [
+    'Driver import was deferred because Vulkan collection is still active.',
+    'Wait for the current Vulkan collection pass to finish before changing drivers.',
+    'enabled = completeReportReady, onClick = { if (completeReportReady) onInstallDriverBundle() }',
+    'val path = findTurnipIcd() ?: return null'
+]:
+    if forbidden in kt: errors.append(f'post-0.32.4 Turnip behavior remains: {forbidden}')
+
+# 0.33.1 changes only Settings interactivity: the restored 0.32.4 Turnip/SAF internals remain intact.
+for needle in [
+    'enabled = completeReportReady && turnipSupport == TurnipSupport.SUPPORTED',
+    'if (completeReportReady) "Uses Android\'s system Vulkan loader/driver." else "Waiting for complete Vulkan collection"',
+    'title = "Import driver ZIP"',
+    'subtitle = if (completeReportReady) "Validate and install an AdrenoTools-compatible bundle" else "Waiting for complete Vulkan collection"'
+]:
+    if needle not in kt: errors.append(f'missing 0.33.1 collection driver gate: {needle}')
+
+if 'SectionCard("Application updates")' in kt:
+    errors.append('manual update control must no longer be hosted in Settings')
+if kt.count('title = "Check for updates"') != 1:
+    errors.append('manual update action must appear exactly once in Info')
 
 cmake = (root / 'app/src/main/cpp/CMakeLists.txt').read_text(encoding='utf-8')
 for needle in ['GIT_TAG 0b7f383797fa7be53ae28213e001ae60668ee511', '#define VK_HEADER_VERSION[ \\t]+360', '-Wl,-z,relro', '-Wl,-z,now']:
@@ -107,6 +153,7 @@ for left, right in [
     ('VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_EXT', 'VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_KHR'),
 ]:
     if left in field_parity and right in field_parity: errors.append(f'duplicate VkStructureType alias cases remain: {left} / {right}')
+
 cmake = (root / 'app/src/main/cpp/CMakeLists.txt').read_text(encoding='utf-8')
 if 'find_package(Python3' in cmake or 'Python3_EXECUTABLE' in cmake: errors.append('Android CMake build must not require Python at configure/build time')
 

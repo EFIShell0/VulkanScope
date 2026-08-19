@@ -1,3 +1,40 @@
+# VulkanScope 0.33.1
+
+- System/Turnip driver selection and Turnip ZIP import are now disabled until the complete Vulkan collection pass finishes, matching TXT/HTML/Database report gating.
+- The underlying 0.32.4-restored Turnip/SAF picker, import, library discovery and native loading behavior remains unchanged.
+
+- Restored the complete Turnip/SAF implementation to the known-working 0.32.4 behavior, including picker, import, driver switching, installed-library discovery, and Settings driver controls.
+- Preserved later Vulkan 1.4.360, HDR, update, export, and Database improvements.
+
+# VulkanScope 0.32.9
+
+- Fixed Turnip ZIP selection on SAF providers that treat ZIP archives as browsable containers.
+- Added a dedicated ZIP-compatible picker without wildcard MIME selection.
+- Added a picker re-entry guard to prevent duplicate SAF launches.
+- Preserved all existing Turnip bundle security validation and collection mutation gates.
+- Re-audited structured Database submission against VulkanScope Database 0.34.4; no schema-breaking producer changes were required.
+
+
+
+- Surface-format negative inference is now allowed only after a completed second enumeration returns `VK_SUCCESS`; partial/incomplete enumeration never turns missing pairs into unsupported claims.
+- Queues UI now exposes the already-collected video decode, video encode, data graph and unknown queue-flag information instead of leaving those model fields export-only.
+- Moved the manual update check from Settings to the Info/Application version card.
+- Driver switching and Turnip package selection/import are locked while a Vulkan collection pass is active.
+- TXT, HTML and Database complete-report actions retain the same collection-completeness gate.
+- SAF exports now preserve the exact complete-report snapshot captured when the export action is pressed.
+- Removed the remaining arbitrary first-`.so` Turnip runtime fallback; installed-driver resolution now reuses validated `meta.json`/canonical-path resolution.
+- Re-audited VulkanCapsViewer 4.12 source parity: all 299 Android-applicable physical-device extension handlers remain covered, with the three instance-capability and two OHOS/QNX exclusions documented; the two post-4.12 Vulkan 1.4.360 query additions remain included.
+- Re-audited Vulkan 1.4.360, structured Database schema-v3, Android lifecycle, export, security and native ownership paths.
+
+# 0.32.5
+
+- Added a pre-download update confirmation dialog with official GitHub release notes, installed/available version information, installed ABI, selected download ABI and APK asset details.
+- Manual Settings update checks now open the same confirmation dialog when a compatible newer release is found; startup checks remain non-modal.
+- APK download starts only after explicit confirmation; existing package/signature/version verification remains mandatory.
+- Added the public VulkanScope Database link to Settings.
+- TXT and HTML complete-report exports now stay disabled while Vulkan collection is active, matching the Database submission completeness gate.
+- Preserved the Vulkan 1.4.360 query/export/database baseline from 0.32.4.
+
 # 0.32.4
 
 - Verified Vulkan 1.4.360 query export parity across TXT, HTML and structured database submission.
@@ -668,3 +705,15 @@ Expanded validated Vulkan extension-specific feature coverage and completed all 
 - Completed `VK_KHR_ray_query` isolated feature-query aliases so all catalog forms resolve to the runtime feature query.
 - Removed `CapsViewer 4.12 parity ·` from user-visible feature and property labels in TXT/HTML report parsing while retaining internal parity metadata in source/catalog files.
 - Preserved existing Vulkan query coverage and report schemas.
+
+## 0.32.8
+- Fixed Turnip ZIP selection by returning to the canonical ACTION_OPEN_DOCUMENT SAF flow instead of ACTION_GET_CONTENT.
+- Kept picker re-entry protection and strict ZIP bundle validation.
+- Fixed duplicate Turnip decompressed-byte accounting.
+- Added HDR capability logo cards consistent with VulkanScope Database, including white Dolby Vision/HDR10+ assets and a dedicated HDR10 white-background logo card.
+
+
+## 0.32.9
+- Restored the Turnip SAF launcher behavior exactly to the known-working 0.32.4 OpenDocument path after 0.32.7/0.32.8 picker experiments failed on the reported provider/device.
+- Kept current post-selection Turnip ZIP security validation and collection-state commit guard.
+- Replaced Dolby Vision and HDR10+ application assets with the exact white-wordmark versions used by VulkanScope Database 0.34.7.

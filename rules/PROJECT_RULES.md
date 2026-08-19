@@ -118,7 +118,7 @@
 - APK download and installation require explicit user action. Silent installation is forbidden.
 - Downloaded APKs must be exposed to Android's package installer through a non-exported FileProvider with temporary read permission.
 - Android unknown-source authorization must be respected; VulkanScope must never attempt to bypass the platform package installer or its user confirmation.
-- Settings must expose a manual Check for updates action so a dismissed startup update result can be requested again without restarting VulkanScope. Manual checks must reuse the same non-modal update-status banner and must not block Vulkan collection or navigation.
+- Info must expose a manual Check for updates action beside the installed application version information so a dismissed startup update result can be requested again without restarting VulkanScope. Settings must not duplicate this action. Manual checks reuse the same update-status/confirmation flow and must not block Vulkan collection or navigation.
 
 - Runtime cleartext HTTP is forbidden; approved network flows must remain HTTPS-only.
 - Network metadata/error responses consumed into memory must have explicit size limits; unbounded response-body materialization is forbidden.
@@ -151,3 +151,67 @@
 - Vulkan 1.4.360 extension-query output must remain lossless across the in-app model, TXT export, HTML export, and structured database payload. Generic detailed query output may carry new fields, but canonical enum names must accompany raw enum values where a canonical Vulkan enum is known.
 - Update APK downloads must continue to validate official release URL provenance, APK parseability, package identity, signing-certificate compatibility, and monotonically newer versionCode/versionName before invoking the package installer.
 - Release 0.32.4 inherits the Vulkan-Headers 1.4.360 compile/query baseline from 0.32.3 without removing any query group or report field.
+
+## Release 0.32.5 update confirmation and complete-export gate
+- Discovering an update must not start an APK download. The update-available banner may invite the user to review/download, but the actual download begins only after an explicit confirmation action in the update confirmation dialog.
+- A manual Info update check that finds a newer compatible release must open the same confirmation dialog used by the update-available banner. The non-interactive startup check must remain non-modal and must not open the confirmation dialog automatically.
+- The confirmation dialog must identify the installed version, installed versionCode, installed ABI, selected download ABI, selected APK asset and available release version before download. A remote APK versionCode that has not yet been inspected must be described as pending verification rather than guessed.
+- Release notes displayed before download must come from the official GitHub latest-release metadata already accepted by the update flow, remain bounded by the existing response-size limit, and be rendered as inert text. Large release-note line collections must use lazy scrolling rather than eager full-layout rendering.
+- Downloaded APK package identity, signing certificate, versionCode and versionName verification remains mandatory after download and before launching Android's package installer.
+- TXT and HTML complete-report export actions must use the same collection-completeness gate as Database submission. While CollectionStatus is COLLECTING, all three complete-report actions remain disabled and must not snapshot an in-progress report.
+- Settings must expose the official public VulkanScope Database URL https://efishell0.github.io/VulkanScope_database/ without making the Database API endpoint user-editable.
+- These visual/interaction changes remain confined to the existing update banner/dialog plus Info/Settings destinations; Vulkan capability pages and shared data presentation must not be restyled.
+
+
+## Release 0.32.6 collection mutation gate
+- A partial or `VK_INCOMPLETE` Surface-format enumeration must never be used to infer that unreturned format/color-space pairs are unsupported. Negative Surface catalog entries require a completed enumeration result.
+- Queue capability fields collected into the report model, including video decode, video encode, optical flow, data graph and unknown queue bits, must remain visible in the Queues UI or an equivalent explicit technical detail view.
+- While a complete Vulkan collection pass is active, driver-source changes and Turnip package selection/import are forbidden in both UI state and Activity callbacks; a race with recomposition must not allow the active driver inputs to mutate mid-collection.
+- TXT, HTML and Database complete-report actions remain unavailable during active collection.
+- SAF exports must preserve the exact complete-report snapshot captured when the export action is initiated; returning from a document picker must not regenerate the report from a newer or in-progress collection state.
+- Installed Turnip runtime discovery must resolve only the validated metadata-declared library inside VulkanScope private bundle storage. Arbitrary first-JSON or first-`.so` fallbacks are forbidden.
+- Manual update checking belongs beside application version information in Info and must not be duplicated in Settings.
+
+## Release 0.32.7 Turnip SAF picker and Database 0.34.4 compatibility
+- Turnip package selection uses a dedicated single-file SAF content picker whose accepted MIME set is restricted to ZIP-compatible types. A wildcard `*/*` picker is forbidden because archive-capable document providers may treat ZIP files as browsable containers instead of selectable package files.
+- Turnip picker launch is re-entry guarded so rapid taps, recomposition or a pending Activity Result cannot launch a second SAF picker while one is already active.
+- The selected package is still treated as untrusted content: ZIP structure, entry paths, size bounds, `meta.json`, schemaVersion, metadata-declared `libraryName`, canonical private-storage path and non-empty `.so` validation remain mandatory after selection; MIME type alone is never trusted as package validation.
+- VulkanScope 0.32.7 remains schema-compatible with VulkanScope Database 0.34.4. Schema-v3 Display/HDR, layer-extension lists, queue video/optical-flow/data-graph fields, Surface diagnostics, exact U64 strings and Vulkan 1.4.360 registry/query metadata must remain present in complete submissions.
+- Database UI-only changes never justify mutating raw Vulkan values or introducing producer fields that are not required by the published submission schema.
+
+## 0.32.8 Turnip SAF and HDR presentation
+- Turnip bundle selection must use the platform Storage Access Framework document picker through ACTION_OPEN_DOCUMENT / ActivityResultContracts.OpenDocument; ACTION_GET_CONTENT must not be used for this archive import because it may delegate to third-party file browsing UIs that treat ZIP archives as navigable containers instead of returning the archive document.
+- The Turnip picker must request only ZIP-compatible MIME types and must retain the in-flight guard so a second picker cannot be launched while a document request is pending.
+- MIME filtering is usability only; bounded ZIP extraction, zip-slip protection, required meta.json, schema validation and metadata-declared Vulkan .so validation remain authoritative.
+- Driver bundle extraction byte accounting must count each decompressed byte exactly once.
+- Android Display HDR types must be represented from the values actually exposed by Android. Logo assets are presentation only and must never create or infer HDR capability support.
+- Dolby Vision and HDR10+ use the white-wordmark VulkanScope Database presentation assets; HDR10 uses its dedicated HDR10 logo on an opaque white card. Unknown HDR types remain visible as text.
+
+- Android API 37 HLG+ must use the canonical Display.HdrCapabilities value 6; value 5 must remain unknown unless Android defines it in a future API.
+
+
+## 0.32.9 Turnip SAF regression restoration
+- The Turnip SAF launcher/opening behavior is restored exactly to the known-working VulkanScope 0.32.4 path: `ActivityResultContracts.OpenDocument()` with MIME candidates `application/zip`, `application/octet-stream`, and `*/*` as the final provider-compatibility fallback.
+- The 0.32.7/0.32.8 picker re-entry/MIME experiments are superseded for the launcher itself because they did not resolve the observed device/provider regression. Do not reintroduce those picker changes without device-level evidence.
+- The wildcard is only a document-picker compatibility fallback. It does not weaken package trust: ZIP entry-count/size bounds, zip-slip/canonical-path checks, required `meta.json`, schema validation, exact metadata-declared `libraryName`, private-storage containment, and non-empty Vulkan `.so` validation remain authoritative after selection.
+- Driver import still refuses to commit a selected package while Vulkan collection is active; Settings keeps the import/driver controls disabled until complete collection.
+- Dolby Vision and HDR10+ application artwork must use the exact white-wordmark assets shipped by VulkanScope Database 0.34.7. Black-wordmark variants must not be substituted on the dark application surface.
+
+## 0.33.0 complete Turnip/SAF restoration
+- This release supersedes the 0.32.6-0.32.9 Turnip/SAF experiments. All Turnip/SAF behavior must match the known 0.32.4 implementation, not only the picker launcher.
+- The picker must use ActivityResultContracts.OpenDocument with `application/zip`, `application/octet-stream`, and `*/*` fallback exactly as 0.32.4 did.
+- Turnip import must use the 0.32.4 install flow and must not add collection-state rejection before ZIP processing.
+- Driver switching must use the 0.32.4 requestDriverModeChange behavior and must not be blocked by collection state.
+- Installed Turnip library discovery must use the 0.32.4 metadata-first then non-empty `.so` fallback behavior.
+- Settings driver controls and the Turnip ZIP import action must match 0.32.4 enablement behavior. Complete-report gating remains mandatory only for TXT, HTML, and Database submission.
+- Native Turnip loader code, CMake integration, and VulkanProbeService must remain byte-identical to 0.32.4 unless a separately verified Turnip fix is requested.
+- HDR presentation, Vulkan 1.4.360 query coverage, update confirmation, report completeness, and Database compatibility changes are independent and must remain preserved.
+
+
+## 0.33.1 collection gate for driver controls
+- This release preserves the restored VulkanScope 0.32.4 Turnip/SAF implementation itself. Picker, import, library discovery and driver-switch internals must not be rewritten by this gate.
+- While `collectionStatus == COLLECTING` or no completed device report is available, both System Vulkan driver and Turnip / third-party driver controls must be disabled in Settings.
+- Turnip ZIP package selection/import must be disabled under the same complete-report gate used by TXT, HTML and Database submission.
+- Driver and package controls become interactive again only after the complete Vulkan collection pass has finished.
+- The disabled state must be visually explicit and must not synthesize a different Turnip support result; it is a temporary collection-state gate only.
+- This rule supersedes only the 0.33.0 Settings enablement clause. The underlying 0.32.4 Turnip/SAF behavior remains the reference implementation.

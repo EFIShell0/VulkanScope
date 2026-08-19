@@ -69,6 +69,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -78,6 +79,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -95,6 +97,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
@@ -113,6 +116,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -132,6 +136,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
+
 
 private data class DisplayReport(
     val resolution: String,
@@ -329,8 +334,18 @@ private enum class DriverMode(val label: String) {
 
 private enum class TurnipSupport { UNKNOWN, SUPPORTED, UNSUPPORTED }
 private enum class CollectionStatus { IDLE, COLLECTING, COMPLETED }
-private data class AppUpdate(val version: String, val assetName: String, val downloadUrl: String)
+private data class AppUpdate(
+    val version: String,
+    val assetName: String,
+    val downloadUrl: String,
+    val releaseNotes: String,
+    val installedAbi: String,
+    val downloadAbi: String,
+    val installedVersion: String,
+    val installedVersionCode: Long
+)
 private const val OFFICIAL_DATABASE_API_ENDPOINT = "https://vulkanscope-database-api.vulkanscope.workers.dev"
+private const val OFFICIAL_DATABASE_WEB_URL = "https://efishell0.github.io/VulkanScope_database/"
 private sealed interface UpdateStatus {
     data object Hidden : UpdateStatus
     data object Checking : UpdateStatus
@@ -390,6 +405,7 @@ class MainActivity : ComponentActivity() {
     private var reportLoading by mutableStateOf(true)
     private var collectionStatus by mutableStateOf(CollectionStatus.IDLE)
     private var updateStatus by mutableStateOf<UpdateStatus>(UpdateStatus.Hidden)
+    private var updateConfirmation by mutableStateOf<AppUpdate?>(null)
     private var pendingUpdateApk: File? = null
     private var updateCheckJob: Job? = null
     private var collectionInFlight = false
@@ -433,7 +449,13 @@ class MainActivity : ComponentActivity() {
                 loading = reportLoading,
                 collectionStatus = collectionStatus,
                 updateStatus = updateStatus,
-                onInstallUpdate = { update -> downloadAndInstallUpdate(update) },
+                updateConfirmation = updateConfirmation,
+                onRequestUpdateConfirmation = { update -> updateConfirmation = update },
+                onDismissUpdateConfirmation = { updateConfirmation = null },
+                onConfirmUpdateDownload = { update ->
+                    updateConfirmation = null
+                    downloadAndInstallUpdate(update)
+                },
                 onCheckForUpdates = { checkForApplicationUpdate(showProgress = true) },
                 surfaceReady = { surface ->
                     val changed = synchronized(surfaceLock) {
@@ -774,6 +796,9 @@ class MainActivity : ComponentActivity() {
                 UpdateCheckResult.UpToDate -> if (showProgress) UpdateStatus.UpToDate else UpdateStatus.Hidden
                 is UpdateCheckResult.Failed -> if (showProgress) UpdateStatus.Failed(result.message) else UpdateStatus.Hidden
             }
+            if (showProgress && result is UpdateCheckResult.Available) {
+                updateConfirmation = result.update
+            }
             if (updateStatus !is UpdateStatus.Hidden && updateStatus !is UpdateStatus.Downloading) {
                 val displayDurationMillis = if (updateStatus is UpdateStatus.UpToDate) 8_000L else 10_000L
                 delay(displayDurationMillis)
@@ -822,15 +847,31 @@ class MainActivity : ComponentActivity() {
                 val exact = apkAssets.firstOrNull { asset -> abiTokens.any { asset.optString("name").lowercase().contains(it) } }
                 val universal = apkAssets.firstOrNull { it.optString("name").lowercase().contains("universal") }
                 val selected = exact ?: universal ?: error("A newer VulkanScope release exists, but it has no APK compatible with the installed ABI ($abi).")
+                val selectedAbi = if (exact != null) abi else "universal"
                 val url = selected.optString("browser_download_url")
                 if (!url.startsWith("https://github.com/EFIShell0/VulkanScope/releases/download/")) error("The release APK URL is not an official VulkanScope GitHub release asset.")
-                AppUpdate(latest, selected.optString("name"), url)
+                val releaseNotes = json.optString("body").trim().ifBlank { "No release notes were provided for this GitHub release." }
+                AppUpdate(
+                    version = latest,
+                    assetName = selected.optString("name"),
+                    downloadUrl = url,
+                    releaseNotes = releaseNotes,
+                    installedAbi = abi,
+                    downloadAbi = selectedAbi,
+                    installedVersion = installedVersionName(),
+                    installedVersionCode = installedVersionCode()
+                )
             }
     }
 
     private fun installedVersionName(): String = runCatching {
         packageManager.getPackageInfo(packageName, 0).versionName ?: "0.0.0"
     }.getOrDefault("0.0.0")
+
+    private fun installedVersionCode(): Long = runCatching {
+        val info = packageManager.getPackageInfo(packageName, 0)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) info.longVersionCode else info.versionCode.toLong()
+    }.getOrDefault(0L)
 
     private fun isNewerVersion(candidate: String, current: String): Boolean {
         fun parts(value: String) = value.substringBefore('-').split('.').map { it.toIntOrNull() ?: 0 }
@@ -1245,7 +1286,7 @@ private fun hdrTypeName(type: Int): String = when (type) {
     2 -> "HDR10"
     3 -> "HLG"
     4 -> "HDR10+"
-    5 -> "HLG+"
+    6 -> "HLG+"
     else -> "Unknown ($type)"
 }
 
@@ -1745,7 +1786,10 @@ private fun VulkanScopeApp(
     loading: Boolean,
     collectionStatus: CollectionStatus,
     updateStatus: UpdateStatus,
-    onInstallUpdate: (AppUpdate) -> Unit,
+    updateConfirmation: AppUpdate?,
+    onRequestUpdateConfirmation: (AppUpdate) -> Unit,
+    onDismissUpdateConfirmation: () -> Unit,
+    onConfirmUpdateDownload: (AppUpdate) -> Unit,
     onCheckForUpdates: () -> Unit,
     surfaceReady: (Surface) -> Unit,
     surfaceDestroyed: () -> Unit,
@@ -1770,7 +1814,7 @@ private fun VulkanScopeApp(
                 Column {
                     AppHeader(page, onBack = { page = Page.Overview }, onSettings = { page = Page.Settings }, onInfo = { page = Page.Info })
                     CollectionStatusBanner(collectionStatus)
-                    UpdateStatusBanner(updateStatus, onInstallUpdate)
+                    UpdateStatusBanner(updateStatus, onRequestUpdateConfirmation)
                 }
             },
             bottomBar = {
@@ -1849,6 +1893,13 @@ private fun VulkanScopeApp(
                 }
             }
         }
+        updateConfirmation?.let { update ->
+            UpdateConfirmationDialog(
+                update = update,
+                onDismiss = onDismissUpdateConfirmation,
+                onConfirm = { onConfirmUpdateDownload(update) }
+            )
+        }
     }
 }
 
@@ -1894,8 +1945,8 @@ private fun PageContent(page: Page, report: VulkanReport, display: DisplayReport
         Page.Properties -> PropertiesPage(device, onRequestQuery)
         Page.Extensions -> ExtensionsPage(report, device)
         Page.Profiles -> ProfilesPage(report, device)
-        Page.Settings -> SettingsPage(report, display, driverMode, turnipSupport, onDriverModeChanged, onInstallDriverBundle, onCheckForUpdates, collectionStatus)
-        Page.Info -> InfoPage(report.registryCoverage)
+        Page.Settings -> SettingsPage(report, display, driverMode, turnipSupport, onDriverModeChanged, onInstallDriverBundle, collectionStatus)
+        Page.Info -> InfoPage(report.registryCoverage, onCheckForUpdates)
     }
 }
 
@@ -2224,9 +2275,16 @@ private fun DisplayPage(display: DisplayReport, device: DeviceReport?) {
             KeyValue("Preferred wide gamut color space", display.preferredWideGamut)
         } }
         item { SectionCard("HDR capabilities") {
-            if (display.hdrTypes.isEmpty()) Text("No HDR type reported", color = ComposeColor(0xFF9E9E9E))
-            display.hdrTypes.forEach { Text(it, fontWeight = FontWeight.Medium) }
-            HorizontalDivider(Modifier.padding(vertical = 6.dp), color = ComposeColor(0xFF303030))
+            if (display.hdrTypes.isEmpty()) {
+                Surface(shape = RoundedCornerShape(999.dp), color = ComposeColor(0xFF4A3211)) {
+                    Text("UNAVAILABLE", color = ComposeColor(0xFFFFC857), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp))
+                }
+            } else {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    display.hdrTypes.forEach { HdrTypeCard(it) }
+                }
+            }
+            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = ComposeColor(0xFF303030))
             KeyValue("Minimum luminance", display.minLuminance)
             KeyValue("Maximum luminance", display.maxLuminance)
             KeyValue("Maximum average luminance", display.averageLuminance)
@@ -2240,11 +2298,53 @@ private fun DisplayPage(display: DisplayReport, device: DeviceReport?) {
     }
 }
 
+
+@Composable
+private fun HdrTypeCard(type: String) {
+    val normalized = type.trim().lowercase(java.util.Locale.ROOT)
+    val logo = when (normalized) {
+        "dolby vision" -> R.drawable.hdr_dolby_vision
+        "dolby vision 2" -> R.drawable.hdr_dolby_vision_2
+        "hdr10" -> R.drawable.hdr_hdr10
+        "hdr10+" -> R.drawable.hdr_hdr10_plus
+        "hdr10+ advanced" -> R.drawable.hdr_hdr10_plus_advanced
+        "hdr vivid" -> R.drawable.hdr_vivid
+        else -> null
+    }
+    val whiteCard = normalized == "hdr10"
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = if (whiteCard) ComposeColor.White else ComposeColor(0xFF111111),
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (whiteCard) ComposeColor(0xFFE0E0E0) else ComposeColor(0xFF2B2B2B))
+    ) {
+        if (logo != null) {
+            Image(
+                painter = painterResource(logo),
+                contentDescription = type,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.width(154.dp).height(62.dp).padding(horizontal = 13.dp, vertical = 10.dp)
+            )
+        } else {
+            Text(
+                type,
+                color = if (whiteCard) ComposeColor.Black else ComposeColor.White,
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
+            )
+        }
+    }
+}
+
 @Composable
 private fun SurfacePage(device: DeviceReport?) {
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf(SupportFilter.ALL) }
-    val entries = remember(device) { buildSurfaceCatalog(device?.surfaceFormats ?: emptyList()) }
+    val entries = remember(device) {
+        val formats = device?.surfaceFormats ?: emptyList()
+        val completeEnumeration = device?.surfaceFormatQuerySecondAttempted == true && device.surfaceFormatQueryResultSecond == 0
+        if (completeEnumeration) buildSurfaceCatalog(formats) else formats
+    }
     val filtered = remember(query, filter, entries) {
         entries.filter { entry ->
             val statusOk = when (filter) { SupportFilter.ALL -> true; SupportFilter.SUPPORTED -> entry.supported; SupportFilter.UNSUPPORTED -> !entry.supported }
@@ -2282,7 +2382,7 @@ private fun SurfacePage(device: DeviceReport?) {
             val wideColorPairs = device?.surfaceFormats?.count { it.classification == "Display-P3" || it.classification == "Display-P3 / Linear" || it.classification == "BT.2020" || it.classification == "scRGB" || it.classification == "scRGB / Linear" } ?: 0
             KeyValue("HDR color-space pairs", if (device?.surfacePresentationSupported != true) "Unavailable" else hdrPairs.toString())
             KeyValue("Wide-color pairs", if (device?.surfacePresentationSupported != true) "Unavailable" else wideColorPairs.toString())
-            Text("Supported entries are returned directly by vkGetPhysicalDeviceSurfaceFormatsKHR. Unsupported entries are generated from the app's known inspection catalog and are not driver-reported capabilities.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
+            Text(if (device?.surfaceFormatQuerySecondAttempted == true && device.surfaceFormatQueryResultSecond == 0) "Supported entries are returned directly by the completed surface-format enumeration. Catalog entries absent from that complete result are shown as not supported for this surface." else "Surface-format enumeration was not confirmed complete, so VulkanScope shows only returned entries and does not infer unsupported format/color-space pairs from missing results.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
         } }
         item { SectionCard("Format + color-space pairs") {
             if (filtered.isEmpty()) Text("No matching entries")
@@ -2411,8 +2511,12 @@ private fun QueuesPage(device: DeviceReport?) {
                 KeyValue("Transfer", if (queue.transfer) "YES" else "NO")
                 KeyValue("Sparse binding", if (queue.sparse) "YES" else "NO")
                 KeyValue("Protected", if (queue.protected) "YES" else "NO")
+                KeyValue("Video decode", if (queue.videoDecode) "YES" else "NO")
+                KeyValue("Video encode", if (queue.videoEncode) "YES" else "NO")
                 KeyValue("Optical flow", if (queue.opticalFlow) "YES" else "NO")
+                KeyValue("Data graph", if (queue.dataGraph) "YES" else "NO")
                 KeyValue("Min image transfer granularity", queue.granularity)
+                if (queue.unknownFlags != 0L) KeyValue("Unknown queue flag bits", "0x${queue.unknownFlags.toString(16).uppercase()}")
                 if (queue.videoCodecOperations != 0L) KeyValue("Video codec operations", videoCodecOperationsName(queue.videoCodecOperations))
             }
         }
@@ -2816,7 +2920,7 @@ private fun ProfilesPage(report: VulkanReport, device: DeviceReport?) {
 }
 
 @Composable
-private fun InfoPage(registryCoverage: RegistryCoverage) {
+private fun InfoPage(registryCoverage: RegistryCoverage, onCheckForUpdates: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val installedAbi = remember { detectInstalledAbi(context) }
     val packageInfo = remember {
@@ -2861,6 +2965,17 @@ private fun InfoPage(registryCoverage: RegistryCoverage) {
                     versionCode = versionCode,
                     packageName = context.packageName,
                     abi = installedAbi
+                )
+                ExpressiveActionButton(
+                    title = "Check for updates",
+                    subtitle = "Official EFIShell0/VulkanScope GitHub release channel",
+                    icon = R.drawable.ic_action_update,
+                    onClick = onCheckForUpdates
+                )
+                Text(
+                    "Update checks use the official VulkanScope GitHub release channel. A compatible update is reviewed with release notes, installed/download ABI and version details before any APK is downloaded.",
+                    color = ComposeColor(0xFF8F8F8F),
+                    style = MaterialTheme.typography.bodySmall
                 )
             }
         }
@@ -2926,13 +3041,16 @@ private fun turnipSupportDescription(support: TurnipSupport): String = when (sup
 }
 
 @Composable
-private fun SettingsPage(report: VulkanReport, display: DisplayReport, mode: DriverMode, turnipSupport: TurnipSupport, onModeChanged: (DriverMode) -> Unit, onInstallDriverBundle: () -> Unit, onCheckForUpdates: () -> Unit, collectionStatus: CollectionStatus) {
+private fun SettingsPage(report: VulkanReport, display: DisplayReport, mode: DriverMode, turnipSupport: TurnipSupport, onModeChanged: (DriverMode) -> Unit, onInstallDriverBundle: () -> Unit, collectionStatus: CollectionStatus) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val uriHandler = LocalUriHandler.current
     val scope = rememberCoroutineScope()
+    val completeReportReady = report.devices.isNotEmpty() && collectionStatus != CollectionStatus.COLLECTING
     var submissionState by remember { mutableStateOf("Ready") }
     var submissionInFlight by remember { mutableStateOf(false) }
     val exportStem = remember(report) { exportFileStem(report) }
     val pendingLegacyExport = remember { mutableStateOf<ExportPayload?>(null) }
+    val pendingSafExport = remember { mutableStateOf<ExportPayload?>(null) }
     val legacyPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val pending = pendingLegacyExport.value
         pendingLegacyExport.value = null
@@ -2944,15 +3062,20 @@ private fun SettingsPage(report: VulkanReport, display: DisplayReport, mode: Dri
         }
     }
     val textLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        writeExport(context, uri, reportToText(context, report, display, mode), "text/plain")
+        val pending = pendingSafExport.value
+        pendingSafExport.value = null
+        if (uri != null && pending != null && pending.mime == "text/plain") writeExport(context, uri, pending.content, pending.mime)
     }
     val htmlLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/html")) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        writeExport(context, uri, reportToHtml(context, report, display, mode), "text/html")
+        val pending = pendingSafExport.value
+        pendingSafExport.value = null
+        if (uri != null && pending != null && pending.mime == "text/html") writeExport(context, uri, pending.content, pending.mime)
     }
     fun exportDocument(filename: String, content: String, mime: String, launcher: ActivityResultLauncher<String>) {
+        val snapshot = ExportPayload(filename, content, mime)
+        pendingSafExport.value = snapshot
         exportWithSafOrDownloads(context, filename, content, mime, launcher) { payload ->
+            pendingSafExport.value = null
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
                 pendingLegacyExport.value = payload
                 legacyPermissionLauncher.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
@@ -2966,8 +3089,18 @@ private fun SettingsPage(report: VulkanReport, display: DisplayReport, mode: Dri
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { SectionCard("Vulkan driver") {
             Text("Choose which Vulkan driver source VulkanScope should request. Driver inspection runs in an isolated probe process, so changing drivers does not restart the UI process.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
-            DriverOption(DriverMode.SYSTEM, mode == DriverMode.SYSTEM, "Uses Android's system Vulkan loader/driver.", enabled = true) { onModeChanged(DriverMode.SYSTEM) }
-            DriverOption(DriverMode.TURNIP, mode == DriverMode.TURNIP, turnipSupportDescription(turnipSupport), enabled = turnipSupport == TurnipSupport.SUPPORTED) { onModeChanged(DriverMode.TURNIP) }
+            DriverOption(
+                DriverMode.SYSTEM,
+                mode == DriverMode.SYSTEM,
+                if (completeReportReady) "Uses Android's system Vulkan loader/driver." else "Waiting for complete Vulkan collection",
+                enabled = completeReportReady
+            ) { onModeChanged(DriverMode.SYSTEM) }
+            DriverOption(
+                DriverMode.TURNIP,
+                mode == DriverMode.TURNIP,
+                if (completeReportReady) turnipSupportDescription(turnipSupport) else "Waiting for complete Vulkan collection",
+                enabled = completeReportReady && turnipSupport == TurnipSupport.SUPPORTED
+            ) { onModeChanged(DriverMode.TURNIP) }
             if (turnipSupport == TurnipSupport.SUPPORTED) {
                 Text("Turnip requires an AdrenoTools-compatible driver package (meta.json + Vulkan .so).", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
             }
@@ -2975,20 +3108,40 @@ private fun SettingsPage(report: VulkanReport, display: DisplayReport, mode: Dri
         if (turnipSupport == TurnipSupport.SUPPORTED && mode == DriverMode.TURNIP) {
             item { SectionCard("Turnip / third-party driver bundle") {
                 KeyValue("Status", if (bundleInstalled) "Bundle installed" else "Not installed")
-                ExpressiveActionButton(title = "Import driver ZIP", subtitle = "Validate and install an AdrenoTools-compatible bundle", icon = R.drawable.ic_action_import, onClick = onInstallDriverBundle)
+                ExpressiveActionButton(
+                    title = "Import driver ZIP",
+                    subtitle = if (completeReportReady) "Validate and install an AdrenoTools-compatible bundle" else "Waiting for complete Vulkan collection",
+                    icon = R.drawable.ic_action_import,
+                    enabled = completeReportReady,
+                    onClick = onInstallDriverBundle
+                )
                 Text("Import an AdrenoTools-compatible Turnip ZIP. The driver remains inside VulkanScope's private storage; Android's system Vulkan driver is never replaced.", color = ComposeColor(0xFF777777), style = MaterialTheme.typography.bodySmall)
+                if (!completeReportReady) Text("Driver source changes and Turnip package selection unlock after the complete Vulkan collection pass finishes.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
             } }
         }
-        item { SectionCard("Application updates") {
-            Text("Check the official VulkanScope GitHub release for a newer build compatible with the installed ABI. The result appears in the same non-modal update banner used at startup and shows the up-to-date result for approximately 8 seconds; update-available and error results retain the existing approximately 10-second banner behavior.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
-            ExpressiveActionButton(title = "Check for updates", subtitle = "Official EFIShell0/VulkanScope GitHub release channel", icon = R.drawable.ic_action_update, onClick = onCheckForUpdates)
-        } }
         item { SectionCard("Export complete report") {
             Text("Export the complete currently collected VulkanScope report, including device properties, detailed Core 1.1/1.2/1.3/1.4 properties when available, features, memory, queues, formats, surface data, extensions, layers and Android/display information.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                ExpressiveActionButton(title = "Export TXT", subtitle = "Plain-text complete report", icon = R.drawable.ic_action_text, modifier = Modifier.weight(1f), compact = true, onClick = { exportDocument("${exportStem}.txt", reportToText(context, report, display, mode), "text/plain", textLauncher) })
-                ExpressiveActionButton(title = "Export HTML", subtitle = "Styled offline complete report", icon = R.drawable.ic_action_html, modifier = Modifier.weight(1f), compact = true, onClick = { exportDocument("${exportStem}.html", reportToHtml(context, report, display, mode), "text/html", htmlLauncher) })
+                ExpressiveActionButton(
+                    title = "Export TXT",
+                    subtitle = if (completeReportReady) "Plain-text complete report" else "Waiting for complete Vulkan collection",
+                    icon = R.drawable.ic_action_text,
+                    modifier = Modifier.weight(1f),
+                    compact = true,
+                    enabled = completeReportReady,
+                    onClick = { if (completeReportReady) exportDocument("${exportStem}.txt", reportToText(context, report, display, mode), "text/plain", textLauncher) }
+                )
+                ExpressiveActionButton(
+                    title = "Export HTML",
+                    subtitle = if (completeReportReady) "Styled offline complete report" else "Waiting for complete Vulkan collection",
+                    icon = R.drawable.ic_action_html,
+                    modifier = Modifier.weight(1f),
+                    compact = true,
+                    enabled = completeReportReady,
+                    onClick = { if (completeReportReady) exportDocument("${exportStem}.html", reportToHtml(context, report, display, mode), "text/html", htmlLauncher) }
+                )
             }
+            if (!completeReportReady) Text("TXT and HTML export remain disabled until the complete Vulkan collection pass has finished, matching the Database completeness gate.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
         } }
         item { SectionCard("VulkanScope Database") {
             Text("Submit the complete technical VulkanScope report to the public database. Capability fields cannot be selectively omitted: a submission contains the complete collected technical report. VulkanScope does not include IMEI, Android ID, device serial, MAC addresses, account data, authentication tokens or private file paths.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
@@ -2996,7 +3149,7 @@ private fun SettingsPage(report: VulkanReport, display: DisplayReport, mode: Dri
                 title = if (submissionInFlight) "Submitting…" else "Submit complete report",
                 subtitle = if (submissionInFlight) "Uploading the complete technical dataset" else "Structured JSON + canonical TXT report",
                 icon = R.drawable.ic_action_database,
-                enabled = !submissionInFlight && report.devices.isNotEmpty() && collectionStatus != CollectionStatus.COLLECTING,
+                enabled = !submissionInFlight && completeReportReady,
                 onClick = {
                     if (!submissionInFlight) {
                         submissionInFlight = true
@@ -3010,7 +3163,14 @@ private fun SettingsPage(report: VulkanReport, display: DisplayReport, mode: Dri
                 }
             )
             Text(submissionState, color = ComposeColor(0xFFAAAAAA), style = MaterialTheme.typography.bodySmall)
-            if (collectionStatus == CollectionStatus.COLLECTING) Text("Wait for the current Vulkan collection pass to finish before submitting.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
+            if (!completeReportReady) Text("Wait for the complete Vulkan collection pass to finish before submitting.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
+            Text("Public database: $OFFICIAL_DATABASE_WEB_URL", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
+            ExpressiveActionButton(
+                title = "Open VulkanScope Database",
+                subtitle = "Browse public VulkanScope hardware reports",
+                icon = R.drawable.ic_action_database,
+                onClick = { uriHandler.openUri(OFFICIAL_DATABASE_WEB_URL) }
+            )
             Text("Submission is explicit and user-initiated. The official VulkanScope Database endpoint is used automatically; no report is uploaded automatically or in the background.", color = ComposeColor(0xFF777777), style = MaterialTheme.typography.bodySmall)
         } }
         item { SectionCard("Important") {
@@ -3706,14 +3866,14 @@ private fun UpdateStatusBanner(status: UpdateStatus, onInstallUpdate: (AppUpdate
                     is UpdateStatus.Available -> {
                         AssistChip(onClick = { onInstallUpdate(status.update) }, label = { Text("Update available") })
                         Text(
-                            "VulkanScope ${status.update.version} is available for ${status.update.assetName}. Download & install?",
+                            "VulkanScope ${status.update.version} is available for ${status.update.downloadAbi}. Review release notes before downloading.",
                             color = ComposeColor(0xFFB8B8B8),
                             style = MaterialTheme.typography.labelMedium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
-                        Button(onClick = { onInstallUpdate(status.update) }) { Text("Install") }
+                        Button(onClick = { onInstallUpdate(status.update) }) { Text("Download") }
                     }
                     is UpdateStatus.Downloading -> {
                         AssistChip(onClick = {}, enabled = false, label = { Text("Downloading update…") })
@@ -3722,6 +3882,61 @@ private fun UpdateStatusBanner(status: UpdateStatus, onInstallUpdate: (AppUpdate
                     is UpdateStatus.Failed -> Text(status.message, color = ComposeColor(0xFFFF8A8A), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
                     UpdateStatus.Hidden -> Unit
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UpdateConfirmationDialog(update: AppUpdate, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = ComposeColor(0xFF121212),
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Download VulkanScope ${update.version}?", fontWeight = FontWeight.SemiBold)
+                Text("Review the target build and release notes before any APK download starts.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Surface(shape = RoundedCornerShape(20.dp), color = ComposeColor(0xFF1A1718)) {
+                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        KeyValue("Installed version", "${update.installedVersion} (versionCode ${update.installedVersionCode})")
+                        KeyValue("Available release", update.version)
+                        KeyValue("Installed ABI", update.installedAbi)
+                        KeyValue("Download ABI", update.downloadAbi)
+                        KeyValue("APK asset", update.assetName)
+                        KeyValue("Downloaded versionCode", "Verified from the APK before installation")
+                    }
+                }
+                Text("Release notes", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Surface(shape = RoundedCornerShape(20.dp), color = ComposeColor(0xFF0D0D0D)) {
+                    ReleaseNotesContent(update.releaseNotes, Modifier.fillMaxWidth().heightIn(max = 360.dp))
+                }
+                Text("The APK is still validated for official release provenance, package identity, signing certificate, versionCode and versionName after download and before Android's installer is opened.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelSmall)
+            }
+        },
+        confirmButton = { Button(onClick = onConfirm) { Text("Download APK") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
+private fun ReleaseNotesContent(markdown: String, modifier: Modifier = Modifier) {
+    val lines = remember(markdown) { markdown.lines() }
+    LazyColumn(modifier = modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        items(lines) { raw ->
+            val line = raw.trimEnd()
+            when {
+                line.isBlank() -> Spacer(Modifier.height(3.dp))
+                line.startsWith("### ") -> Text(line.removePrefix("### "), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = ComposeColor(0xFFF3EDEF))
+                line.startsWith("## ") -> Text(line.removePrefix("## "), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = ComposeColor(0xFFF7F2F3))
+                line.startsWith("# ") -> Text(line.removePrefix("# "), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = ComposeColor.White)
+                line.startsWith("- ") || line.startsWith("* ") -> Text("• " + line.drop(2), color = ComposeColor(0xFFD3CBCD), style = MaterialTheme.typography.bodySmall)
+                line.startsWith("> ") -> Text(line.drop(2), color = ComposeColor(0xFFFFB4BC), style = MaterialTheme.typography.bodySmall)
+                line.startsWith("```") -> Spacer(Modifier.height(1.dp))
+                else -> Text(line, color = ComposeColor(0xFFBEB6B8), style = MaterialTheme.typography.bodySmall)
             }
         }
     }
