@@ -55,6 +55,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.relocation.BringIntoViewRequester
@@ -1818,11 +1820,14 @@ private fun VulkanScopeApp(
     var page by remember { mutableStateOf(Page.Overview) }
     LaunchedEffect(page) { onPageOpened(page) }
 
-    val red = ComposeColor(0xFFF21D2F)
+    val red = ComposeColor(0xFFA41E22)
     MaterialTheme(colorScheme = darkColorScheme(background = ComposeColor.Black, surface = ComposeColor(0xFF101010), surfaceVariant = ComposeColor(0xFF191919), primary = red, onPrimary = ComposeColor.White, secondary = red, tertiary = ComposeColor(0xFFFF6573), onBackground = ComposeColor(0xFFF4F4F4), onSurface = ComposeColor(0xFFF4F4F4))) {
         BackHandler(enabled = page != Page.Overview) { page = Page.Overview }
 
-        val isLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+        val isTelevision = configuration.uiMode and Configuration.UI_MODE_TYPE_MASK == Configuration.UI_MODE_TYPE_TELEVISION
+        val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val useRail = isLandscape || isTelevision
         Scaffold(
             containerColor = ComposeColor.Black,
             topBar = {
@@ -1833,7 +1838,7 @@ private fun VulkanScopeApp(
                 }
             },
             bottomBar = {
-                if (!isLandscape) {
+                if (!useRail) {
                     NavigationBar(containerColor = ComposeColor(0xFF0A0A0A), tonalElevation = 0.dp) {
                         navigationItems().forEach { item ->
                             NavigationBarItem(
@@ -1855,11 +1860,12 @@ private fun VulkanScopeApp(
             }
         ) { padding ->
             Row(Modifier.fillMaxSize().padding(padding)) {
-                if (isLandscape) {
+                if (useRail) {
                     CompactNavigationRail(
                         selectedPage = selectedNavigationPage(page),
                         onPageSelected = { page = it },
-                        red = red
+                        red = red,
+                        requestInitialFocus = isTelevision
                     )
                 }
                 Box(Modifier.weight(1f)) {
@@ -1960,8 +1966,8 @@ private fun PageContent(page: Page, report: VulkanReport, display: DisplayReport
         Page.Properties -> PropertiesPage(device, onRequestQuery)
         Page.Extensions -> ExtensionsPage(report, device)
         Page.Profiles -> ProfilesPage(report, device)
-        Page.Settings -> SettingsPage(report, display, driverMode, turnipSupport, onDriverModeChanged, onInstallDriverBundle, collectionStatus)
-        Page.Info -> InfoPage(report.registryCoverage, onCheckForUpdates)
+        Page.Settings -> SettingsPage(report, driverMode, turnipSupport, onDriverModeChanged, onInstallDriverBundle, collectionStatus)
+        Page.Info -> InfoPage(report, display, driverMode, collectionStatus, onCheckForUpdates)
     }
 }
 
@@ -2146,7 +2152,7 @@ private fun QuickAccessCard(title: String, destination: Page, navigate: (Page) -
                 painterResource(pageIcon(destination)),
                 contentDescription = null,
                 modifier = Modifier.size(19.dp),
-                tint = ComposeColor(0xFFFF7A88)
+                tint = ComposeColor(0xFFE2676A)
             )
             Text(
                 title,
@@ -2163,9 +2169,9 @@ private fun QuickAccessCard(title: String, destination: Page, navigate: (Page) -
 
 
 @Composable
-private fun CompactNavigationRail(selectedPage: Page, onPageSelected: (Page) -> Unit, red: ComposeColor) {
+private fun CompactNavigationRail(selectedPage: Page, onPageSelected: (Page) -> Unit, red: ComposeColor, requestInitialFocus: Boolean) {
     val firstFocusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { firstFocusRequester.requestFocus() }
+    LaunchedEffect(requestInitialFocus) { if (requestInitialFocus) firstFocusRequester.requestFocus() }
     Surface(
         modifier = Modifier.width(80.dp),
         color = ComposeColor(0xFF101010)
@@ -2183,20 +2189,24 @@ private fun CompactNavigationRail(selectedPage: Page, onPageSelected: (Page) -> 
                 val selected = selectedPage == item.page
                 val bringIntoViewRequester = remember { BringIntoViewRequester() }
                 val scope = rememberCoroutineScope()
+                var focused by remember { mutableStateOf(false) }
+                val shape = RoundedCornerShape(18.dp)
                 Card(
                     onClick = { onPageSelected(item.page) },
                     colors = CardDefaults.cardColors(
-                        containerColor = if (selected) red else ComposeColor.Transparent
+                        containerColor = if (selected) red else if (focused) ComposeColor(0xFF2A1517) else ComposeColor.Transparent
                     ),
-                    shape = RoundedCornerShape(18.dp),
+                    shape = shape,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(54.dp)
                         .then(if (index == 0) Modifier.focusRequester(firstFocusRequester) else Modifier)
                         .bringIntoViewRequester(bringIntoViewRequester)
                         .onFocusChanged { state ->
+                            focused = state.isFocused
                             if (state.isFocused) scope.launch { bringIntoViewRequester.bringIntoView() }
                         }
+                        .border(if (focused) 2.dp else 0.dp, if (focused) ComposeColor(0xFFE2676A) else ComposeColor.Transparent, shape)
                 ) {
                     Column(
                         Modifier.fillMaxSize().padding(horizontal = 2.dp, vertical = 4.dp),
@@ -2327,10 +2337,12 @@ private fun HdrTypeCard(type: String) {
         else -> null
     }
     val whiteCard = normalized == "hdr10"
+    val shape = RoundedCornerShape(18.dp)
     Surface(
-        shape = RoundedCornerShape(18.dp),
+        shape = shape,
         color = if (whiteCard) ComposeColor.White else ComposeColor(0xFF111111),
-        border = androidx.compose.foundation.BorderStroke(1.dp, if (whiteCard) ComposeColor(0xFFE0E0E0) else ComposeColor(0xFF2B2B2B))
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (whiteCard) ComposeColor(0xFFE0E0E0) else ComposeColor(0xFF2B2B2B)),
+        modifier = Modifier.then(tvBrowseModifier(shape))
     ) {
         if (logo != null) {
             Image(
@@ -2943,131 +2955,17 @@ private fun ProfilesPage(report: VulkanReport, device: DeviceReport?) {
 }
 
 @Composable
-private fun InfoPage(registryCoverage: RegistryCoverage, onCheckForUpdates: () -> Unit) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val installedAbi = remember { detectInstalledAbi(context) }
-    val packageInfo = remember {
-        runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull()
-    }
-    val versionName = packageInfo?.versionName ?: "Unknown"
-    val versionCode = if (packageInfo != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-        packageInfo.longVersionCode.toString()
-    } else {
-        @Suppress("DEPRECATION")
-        (packageInfo?.versionCode?.toString() ?: "Unknown")
-    }
-    LazyColumn(
-        contentPadding = WindowInsets.navigationBars.asPaddingValues(),
-        modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        item {
-            SectionCard("Developer") {
-                ExpressiveIdentityBlock(
-                    title = "Semih Boran",
-                    subtitle = "EFI Shell · VulkanScope developer",
-                    icon = R.drawable.ic_info
-                )
-                ExpressiveActionButton(
-                    title = "Open GitHub profile",
-                    subtitle = "EFIShell0 · Project source and releases",
-                    icon = R.drawable.ic_action_github,
-                    onClick = {
-                        runCatching {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/EFIShell0")))
-                        }
-                    }
-                )
-            }
-        }
-        item {
-            SectionCard("Application") {
-                ExpressiveVersionBlock(
-                    application = "VulkanScope",
-                    version = versionName,
-                    versionCode = versionCode,
-                    packageName = context.packageName,
-                    abi = installedAbi
-                )
-                ExpressiveActionButton(
-                    title = "Check for updates",
-                    subtitle = "Official EFIShell0/VulkanScope GitHub release channel",
-                    icon = R.drawable.ic_action_update,
-                    onClick = onCheckForUpdates
-                )
-                Text(
-                    "Update checks use the official VulkanScope GitHub release channel. A compatible update is reviewed with release notes, installed/download ABI and version details before any APK is downloaded.",
-                    color = ComposeColor(0xFF8F8F8F),
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-        }
-        item {
-            SectionCard("Device ABI") {
-                KeyValue("Supported ABIs", Build.SUPPORTED_ABIS.joinToString(", "))
-                Text(
-                    "Installed ABI is the native ABI used by this VulkanScope installation; supported ABIs are the ABIs reported by Android for the device.",
-                    color = ComposeColor(0xFF8F8F8F),
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-        }
-        item {
-            SectionCard("Android") {
-                KeyValue("Manufacturer", Build.MANUFACTURER)
-                KeyValue("Model", Build.MODEL)
-                KeyValue("Android", Build.VERSION.RELEASE)
-                KeyValue("SDK", Build.VERSION.SDK_INT.toString())
-            }
-        }
-        item {
-            SectionCard("Vulkan registry / query engine") {
-                KeyValue("Baseline", registryCoverage.baseline)
-                KeyValue("Engine", registryCoverage.mode)
-                KeyValue("Physical-device structs", registryCoverage.implementedPhysicalDeviceStructCount.toString())
-                KeyValue("Validated query groups", registryCoverage.validatedRuntimeQueryGroupCount.toString())
-                KeyValue("Runtime registry tokens", registryCoverage.runtimeExtensionTokenCount.toString())
-                KeyValue("Catalog schema", registryCoverage.catalogSchemaVersion.toString())
-                KeyValue("Report schema", registryCoverage.reportSchema)
-                KeyValue("Header baseline", registryCoverage.headerBaseline)
-                KeyValue("Instance dependency candidates", registryCoverage.instanceDependencyCandidateCount.toString())
-                Text("Registry metadata is build-time/offline. Runtime does not download or parse the Khronos registry. Unknown structures remain unavailable unless a validated native query path exists.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
-            }
-        }
-        item {
-            SectionCard("About") {
-                Text(
-                    "VulkanScope is a Vulkan capability and device inspection utility. It reports information exposed by the Android Vulkan implementation and the selected driver mode.",
-                    color = ComposeColor(0xFFB0B0B0)
-                )
-            }
-        }
-    }
-}
-
-private fun detectInstalledAbi(context: Context): String {
-    val nativeDir = context.applicationInfo.nativeLibraryDir.orEmpty().lowercase()
-    return when {
-        nativeDir.contains("arm64") -> "arm64-v8a"
-        nativeDir.contains("armeabi-v7a") || nativeDir.endsWith("/arm") -> "armeabi-v7a"
-        nativeDir.contains("x86_64") -> "x86_64"
-        nativeDir.contains("x86") -> "x86"
-        else -> Build.SUPPORTED_ABIS.firstOrNull() ?: "Unknown"
-    }
-}
-
-
-private fun turnipSupportDescription(support: TurnipSupport): String = when (support) {
-    TurnipSupport.UNKNOWN -> "Checking the installed Vulkan implementation; Qualcomm Adreno support is not yet known."
-    TurnipSupport.SUPPORTED -> "Uses an installed AdrenoTools-compatible Turnip driver."
-    TurnipSupport.UNSUPPORTED -> "Unavailable: this device does not expose a supported arm64-v8a Qualcomm Adreno Vulkan device."
-}
-
-@Composable
-private fun SettingsPage(report: VulkanReport, display: DisplayReport, mode: DriverMode, turnipSupport: TurnipSupport, onModeChanged: (DriverMode) -> Unit, onInstallDriverBundle: () -> Unit, collectionStatus: CollectionStatus) {
+private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverMode, collectionStatus: CollectionStatus, onCheckForUpdates: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val uriHandler = LocalUriHandler.current
     val scope = rememberCoroutineScope()
+    val installedAbi = remember { detectInstalledAbi(context) }
+    val packageInfo = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull() }
+    val versionName = packageInfo?.versionName ?: "Unknown"
+    val versionCode = if (packageInfo != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) packageInfo.longVersionCode.toString() else {
+        @Suppress("DEPRECATION")
+        packageInfo?.versionCode?.toString() ?: "Unknown"
+    }
     val completeReportReady = report.devices.isNotEmpty() && collectionStatus != CollectionStatus.COLLECTING
     var submissionState by remember { mutableStateOf("Ready") }
     var submissionInFlight by remember { mutableStateOf(false) }
@@ -3078,11 +2976,7 @@ private fun SettingsPage(report: VulkanReport, display: DisplayReport, mode: Dri
         val pending = pendingLegacyExport.value
         pendingLegacyExport.value = null
         if (pending == null) return@rememberLauncherForActivityResult
-        if (granted) {
-            writeExportToDownloads(context, pending.filename, pending.content, pending.mime)
-        } else {
-            android.widget.Toast.makeText(context, "Storage permission is required to save the report.", android.widget.Toast.LENGTH_SHORT).show()
-        }
+        if (granted) writeExportToDownloads(context, pending.filename, pending.content, pending.mime) else android.widget.Toast.makeText(context, "Storage permission is required to save the report.", android.widget.Toast.LENGTH_SHORT).show()
     }
     val textLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         val pending = pendingSafExport.value
@@ -3102,110 +2996,139 @@ private fun SettingsPage(report: VulkanReport, display: DisplayReport, mode: Dri
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
                 pendingLegacyExport.value = payload
                 legacyPermissionLauncher.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
-            } else {
-                writeExportToDownloads(context, payload.filename, payload.content, payload.mime)
-            }
+            } else writeExportToDownloads(context, payload.filename, payload.content, payload.mime)
         }
     }
-    val bundleDir = File(context.filesDir, "turnip")
-    val bundleInstalled = bundleDir.exists() && bundleDir.walkTopDown().any { it.isFile && it.extension.equals("so", true) }
+    val registryCoverage = report.registryCoverage
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item { SectionCard("Vulkan driver") {
-            Text("Choose which Vulkan driver source VulkanScope should request. Driver inspection runs in an isolated probe process, so changing drivers does not restart the UI process.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
-            DriverOption(
-                DriverMode.SYSTEM,
-                mode == DriverMode.SYSTEM,
-                if (completeReportReady) "Uses Android's system Vulkan loader/driver." else "Waiting for complete Vulkan collection",
-                enabled = completeReportReady
-            ) { onModeChanged(DriverMode.SYSTEM) }
-            DriverOption(
-                DriverMode.TURNIP,
-                mode == DriverMode.TURNIP,
-                if (completeReportReady) turnipSupportDescription(turnipSupport) else "Waiting for complete Vulkan collection",
-                enabled = completeReportReady && turnipSupport == TurnipSupport.SUPPORTED
-            ) { onModeChanged(DriverMode.TURNIP) }
-            if (turnipSupport == TurnipSupport.SUPPORTED) {
-                Text("Turnip requires an AdrenoTools-compatible driver package (meta.json + Vulkan .so).", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
+        item {
+            CapabilitySectionCard("Developer") {
+                ExpressiveIdentityBlock("Semih Boran", "EFI Shell · VulkanScope developer", R.drawable.ic_info)
+                ExpressiveActionButton("Open GitHub profile", "EFIShell0 · Projects and public profile", R.drawable.ic_action_github) { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/EFIShell0"))) } }
             }
-        } }
-        if (turnipSupport == TurnipSupport.SUPPORTED && mode == DriverMode.TURNIP) {
-            item { SectionCard("Turnip / third-party driver bundle") {
-                KeyValue("Status", if (bundleInstalled) "Bundle installed" else "Not installed")
-                ExpressiveActionButton(
-                    title = "Import driver ZIP",
-                    subtitle = if (completeReportReady) "Validate and install an AdrenoTools-compatible bundle" else "Waiting for complete Vulkan collection",
-                    icon = R.drawable.ic_action_import,
-                    enabled = completeReportReady,
-                    onClick = onInstallDriverBundle
-                )
-                Text("Import an AdrenoTools-compatible Turnip ZIP. The driver remains inside VulkanScope's private storage; Android's system Vulkan driver is never replaced.", color = ComposeColor(0xFF777777), style = MaterialTheme.typography.bodySmall)
-                if (!completeReportReady) Text("Driver source changes and Turnip package selection unlock after the complete Vulkan collection pass finishes.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
-            } }
         }
-        item { SectionCard("Export complete report") {
-            Text("Export the complete currently collected VulkanScope report, including device properties, detailed Core 1.1/1.2/1.3/1.4 properties when available, features, memory, queues, formats, surface data, extensions, layers and Android/display information.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                ExpressiveActionButton(
-                    title = "Export TXT",
-                    subtitle = if (completeReportReady) "Plain-text complete report" else "Waiting for complete Vulkan collection",
-                    icon = R.drawable.ic_action_text,
-                    modifier = Modifier.weight(1f),
-                    compact = true,
-                    enabled = completeReportReady,
-                    onClick = { if (completeReportReady) exportDocument("${exportStem}.txt", reportToText(context, report, display, mode), "text/plain", textLauncher) }
-                )
-                ExpressiveActionButton(
-                    title = "Export HTML",
-                    subtitle = if (completeReportReady) "Styled offline complete report" else "Waiting for complete Vulkan collection",
-                    icon = R.drawable.ic_action_html,
-                    modifier = Modifier.weight(1f),
-                    compact = true,
-                    enabled = completeReportReady,
-                    onClick = { if (completeReportReady) exportDocument("${exportStem}.html", reportToHtml(context, report, display, mode), "text/html", htmlLauncher) }
-                )
+        item {
+            CapabilitySectionCard("Application") {
+                ExpressiveVersionBlock("VulkanScope", versionName, versionCode, context.packageName, installedAbi)
+                ExpressiveActionButton("Check for updates", "Official EFIShell0/VulkanScope GitHub release channel", R.drawable.ic_action_update, onClick = onCheckForUpdates)
+                ExpressiveActionButton("Open GitHub repository", "Source, releases and project history", R.drawable.ic_action_github) { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/EFIShell0/VulkanScope"))) } }
+                Text("Update checks use the official VulkanScope GitHub release channel. A compatible update is reviewed with release notes, installed/download ABI and version details before any APK is downloaded.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
             }
-            if (!completeReportReady) Text("TXT and HTML export remain disabled until the complete Vulkan collection pass has finished, matching the Database completeness gate.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
-        } }
-        item { SectionCard("VulkanScope Database") {
-            Text("Submit the complete technical VulkanScope report to the public database. Capability fields cannot be selectively omitted: a submission contains the complete collected technical report. VulkanScope does not include IMEI, Android ID, device serial, MAC addresses, account data, authentication tokens or private file paths.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
-            ExpressiveActionButton(
-                title = if (submissionInFlight) "Submitting…" else "Submit complete report",
-                subtitle = if (submissionInFlight) "Uploading the complete technical dataset" else "Structured JSON + canonical TXT report",
-                icon = R.drawable.ic_action_database,
-                enabled = !submissionInFlight && completeReportReady,
-                onClick = {
+        }
+        item {
+            CapabilitySectionCard("Device ABI") {
+                CapabilityKeyValue("Installed ABI", installedAbi)
+                CapabilityKeyValue("Supported ABIs", Build.SUPPORTED_ABIS.joinToString(", "))
+                Text("Installed ABI is the native ABI used by this VulkanScope installation; supported ABIs are the ABIs reported by Android for the device.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        item {
+            CapabilitySectionCard("Android") {
+                CapabilityKeyValue("Manufacturer", Build.MANUFACTURER)
+                CapabilityKeyValue("Model", Build.MODEL)
+                CapabilityKeyValue("Android", Build.VERSION.RELEASE)
+                CapabilityKeyValue("SDK", Build.VERSION.SDK_INT.toString())
+            }
+        }
+        item {
+            CapabilitySectionCard("Vulkan registry / query engine") {
+                CapabilityKeyValue("Baseline", registryCoverage.baseline)
+                CapabilityKeyValue("Engine", registryCoverage.mode)
+                CapabilityKeyValue("Physical-device structs", registryCoverage.implementedPhysicalDeviceStructCount.toString())
+                CapabilityKeyValue("Validated query groups", registryCoverage.validatedRuntimeQueryGroupCount.toString())
+                CapabilityKeyValue("Runtime registry tokens", registryCoverage.runtimeExtensionTokenCount.toString())
+                CapabilityKeyValue("Catalog schema", registryCoverage.catalogSchemaVersion.toString())
+                CapabilityKeyValue("Report schema", registryCoverage.reportSchema)
+                CapabilityKeyValue("Header baseline", registryCoverage.headerBaseline)
+                CapabilityKeyValue("Instance dependency candidates", registryCoverage.instanceDependencyCandidateCount.toString())
+                Text("Registry metadata is build-time/offline. Runtime does not download or parse the Khronos registry. Unknown structures remain unavailable unless a validated native query path exists.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        item {
+            CapabilitySectionCard("About") {
+                Text("VulkanScope is a Vulkan capability and device inspection utility for Android. It reports information exposed by the active Vulkan implementation and selected driver mode while keeping Android display/HDR evidence separate from Vulkan capability claims.", color = ComposeColor(0xFFB0B0B0))
+            }
+        }
+        item {
+            CapabilitySectionCard("Export complete report") {
+                Text("Export the complete currently collected Vulkan, Android display/HDR and surface report. Phones and tablets use Android's Storage Access Framework; Android TV or document-provider launch failure falls back to Downloads.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ExpressiveActionButton("Export TXT", if (completeReportReady) "Plain-text complete report" else "Waiting for complete Vulkan collection", R.drawable.ic_action_text, Modifier.weight(1f), completeReportReady, true) { if (completeReportReady) exportDocument("$exportStem.txt", reportToText(context, report, display, mode), "text/plain", textLauncher) }
+                    ExpressiveActionButton("Export HTML", if (completeReportReady) "Styled offline complete report" else "Waiting for complete Vulkan collection", R.drawable.ic_action_html, Modifier.weight(1f), completeReportReady, true) { if (completeReportReady) exportDocument("$exportStem.html", reportToHtml(context, report, display, mode), "text/html", htmlLauncher) }
+                }
+                if (!completeReportReady) Text("TXT and HTML export remain disabled until the complete Vulkan collection pass has finished, matching the Database completeness gate.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        item {
+            CapabilitySectionCard("VulkanScope Database") {
+                Text("Submit the complete technical VulkanScope report to the public database. Capability fields cannot be selectively omitted, and sensitive device identifiers or private paths are not included.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
+                ExpressiveActionButton(if (submissionInFlight) "Submitting…" else "Submit complete report", if (submissionInFlight) "Uploading the complete technical dataset" else "Structured JSON + canonical TXT report", R.drawable.ic_action_database, enabled = !submissionInFlight && completeReportReady) {
                     if (!submissionInFlight) {
                         submissionInFlight = true
                         submissionState = "Submitting complete technical report…"
                         scope.launch {
-                            val result = submitDatabaseReport(context, report, display, mode)
-                            submissionState = result
+                            submissionState = submitDatabaseReport(context, report, display, mode)
                             submissionInFlight = false
                         }
                     }
                 }
-            )
-            Text(submissionState, color = ComposeColor(0xFFAAAAAA), style = MaterialTheme.typography.bodySmall)
-            if (!completeReportReady) Text("Wait for the complete Vulkan collection pass to finish before submitting.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
-            Text("Public database: $OFFICIAL_DATABASE_WEB_URL", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
-            ExpressiveActionButton(
-                title = "Open VulkanScope Database",
-                subtitle = "Browse public VulkanScope hardware reports",
-                icon = R.drawable.ic_action_database,
-                onClick = { uriHandler.openUri(OFFICIAL_DATABASE_WEB_URL) }
-            )
-            Text("Submission is explicit and user-initiated. The official VulkanScope Database endpoint is used automatically; no report is uploaded automatically or in the background.", color = ComposeColor(0xFF777777), style = MaterialTheme.typography.bodySmall)
-        } }
-        item { SectionCard("Important") {
-            Text("VulkanScope uses libadrenotools for rootless driver loading on modern Android. This avoids the libhardware.so / linker-namespace problem of directly loading libvulkan_freedreno.so.", color = ComposeColor(0xFFAAAAAA), style = MaterialTheme.typography.bodySmall)
-        } }
+                Text(submissionState, color = ComposeColor(0xFFAAAAAA), style = MaterialTheme.typography.bodySmall)
+                if (!completeReportReady) Text("Wait for the complete Vulkan collection pass to finish before submitting.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
+                ExpressiveActionButton("Open VulkanScope Database", "Browse public VulkanScope hardware reports", R.drawable.ic_action_database) { uriHandler.openUri(OFFICIAL_DATABASE_WEB_URL) }
+            }
+        }
+    }
+}
+
+private fun detectInstalledAbi(context: Context): String {
+    val nativeDir = context.applicationInfo.nativeLibraryDir.orEmpty().lowercase()
+    return when {
+        nativeDir.contains("arm64") -> "arm64-v8a"
+        nativeDir.contains("armeabi-v7a") || nativeDir.endsWith("/arm") -> "armeabi-v7a"
+        nativeDir.contains("x86_64") -> "x86_64"
+        nativeDir.contains("x86") -> "x86"
+        else -> Build.SUPPORTED_ABIS.firstOrNull() ?: "Unknown"
+    }
+}
+
+private fun turnipSupportDescription(support: TurnipSupport): String = when (support) {
+    TurnipSupport.UNKNOWN -> "Checking the installed Vulkan implementation; Qualcomm Adreno support is not yet known."
+    TurnipSupport.SUPPORTED -> "Uses an installed AdrenoTools-compatible Turnip driver."
+    TurnipSupport.UNSUPPORTED -> "Unavailable: this device does not expose a supported arm64-v8a Qualcomm Adreno Vulkan device."
+}
+
+@Composable
+private fun SettingsPage(report: VulkanReport, mode: DriverMode, turnipSupport: TurnipSupport, onModeChanged: (DriverMode) -> Unit, onInstallDriverBundle: () -> Unit, collectionStatus: CollectionStatus) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val completeReportReady = report.devices.isNotEmpty() && collectionStatus != CollectionStatus.COLLECTING
+    val bundleDir = File(context.filesDir, "turnip")
+    val bundleInstalled = bundleDir.exists() && bundleDir.walkTopDown().any { it.isFile && it.extension.equals("so", true) }
+    LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        item {
+            CapabilitySectionCard("Vulkan driver") {
+                Text("Choose which Vulkan driver source VulkanScope should request. Driver inspection runs in an isolated probe process, so changing drivers does not restart the UI process.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
+                DriverOption(DriverMode.SYSTEM, mode == DriverMode.SYSTEM, if (completeReportReady) "Uses Android's system Vulkan loader/driver." else "Waiting for complete Vulkan collection", completeReportReady) { onModeChanged(DriverMode.SYSTEM) }
+                DriverOption(DriverMode.TURNIP, mode == DriverMode.TURNIP, if (completeReportReady) turnipSupportDescription(turnipSupport) else "Waiting for complete Vulkan collection", completeReportReady && turnipSupport == TurnipSupport.SUPPORTED) { onModeChanged(DriverMode.TURNIP) }
+                if (turnipSupport == TurnipSupport.SUPPORTED) Text("Turnip requires an AdrenoTools-compatible driver package (meta.json + Vulkan .so).", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        if (turnipSupport == TurnipSupport.SUPPORTED && mode == DriverMode.TURNIP) {
+            item {
+                CapabilitySectionCard("Turnip / third-party driver bundle") {
+                    CapabilityKeyValue("Status", if (bundleInstalled) "Bundle installed" else "Not installed")
+                    ExpressiveActionButton("Import driver ZIP", if (completeReportReady) "Validate and install an AdrenoTools-compatible bundle" else "Waiting for complete Vulkan collection", R.drawable.ic_action_import, enabled = completeReportReady, onClick = onInstallDriverBundle)
+                    Text("Import an AdrenoTools-compatible Turnip ZIP. The driver remains inside VulkanScope's private storage; Android's system Vulkan driver is never replaced.", color = ComposeColor(0xFF777777), style = MaterialTheme.typography.bodySmall)
+                    if (!completeReportReady) Text("Driver source changes and Turnip package selection unlock after the complete Vulkan collection pass finishes.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
     }
 }
 
 @Composable
 private fun DriverOption(option: DriverMode, selected: Boolean, description: String, enabled: Boolean, onClick: () -> Unit) {
     val textColor = if (enabled) ComposeColor(0xFFFFFFFF) else ComposeColor(0xFF666666)
-    Card(onClick = onClick, enabled = enabled, colors = CardDefaults.cardColors(containerColor = if (selected) ComposeColor(0xFF1D1113) else ComposeColor(0xFF111111)), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+    Card(onClick = onClick, enabled = enabled, colors = CardDefaults.cardColors(containerColor = if (selected) ComposeColor(0xFF241012) else ComposeColor(0xFF111111)), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             androidx.compose.material3.RadioButton(selected = selected, enabled = enabled, onClick = onClick)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -3620,7 +3543,7 @@ private fun reportToHtml(context: Context, report: VulkanReport, display: Displa
         }
     }.getOrNull()
     append("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>VulkanScope report</title>")
-    append("<style>body{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;background:#0a0a0b;color:#f4f4f5;margin:0;line-height:1.45}.wrap{max-width:1320px;margin:0 auto;padding:28px}.hero{background:linear-gradient(135deg,#1a1517,#0f1012);border:1px solid #2d2d31;border-radius:26px;padding:30px;box-shadow:0 16px 50px rgba(0,0,0,.28)}h1{margin:0 0 8px;font-size:36px}h2{margin:0 0 14px;font-size:22px}.muted{color:#a7a7ae}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:18px}.metric{background:#121214;border:1px solid #292a2e;border-radius:17px;padding:14px}.section{margin-top:24px;background:#111113;border:1px solid #292a2e;border-radius:22px;padding:18px;overflow:auto}.section h2{position:sticky;left:0}table{border-collapse:collapse;width:100%;min-width:660px}td,th{border-bottom:1px solid #28282c;padding:10px 8px;text-align:left;vertical-align:top}th{color:#cbcad0;font-weight:600}.badge{display:inline-block;border-radius:999px;padding:3px 9px;font-size:11px;font-weight:800;letter-spacing:.03em}.yes{background:#133b28;color:#74e2a6}.available{background:#123044;color:#7cc7ff}.no{background:#49171c;color:#ff8f98}.neutral{background:#403713;color:#ffd76b}.unknown{background:#292a2f;color:#c6c6cc}.code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.small{font-size:13px}.subtle{color:#7f8088}.github-link{color:#7f94d8;text-decoration:none;font-weight:600}.github-link:hover{color:#ff6b74;text-decoration:underline}.github-link:visited{color:#7f94d8}</style></head><body><div class=\"wrap\">")
+    append("<style>body{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;background:#0a0a0b;color:#f4f4f5;margin:0;line-height:1.45}.wrap{max-width:1320px;margin:0 auto;padding:28px}.hero{background:linear-gradient(135deg,#241012,#0f1012);border:1px solid #3a2022;border-radius:26px;padding:30px;box-shadow:0 16px 50px rgba(0,0,0,.28)}h1{margin:0 0 8px;font-size:36px}h2{margin:0 0 14px;font-size:22px}.muted{color:#a7a7ae}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:18px}.metric{background:#141111;border:1px solid #342326;border-radius:17px;padding:14px}.section{margin-top:24px;background:#111113;border:1px solid #302124;border-radius:22px;padding:18px;overflow:auto}.section h2{position:sticky;left:0}table{border-collapse:collapse;width:100%;min-width:660px}td,th{border-bottom:1px solid #2c2022;padding:10px 8px;text-align:left;vertical-align:top}th{color:#cbcad0;font-weight:600}.badge{display:inline-block;border-radius:999px;padding:3px 9px;font-size:11px;font-weight:800;letter-spacing:.03em}.yes{background:#133b28;color:#74e2a6}.available{background:#3a171a;color:#e2676a}.no{background:#49171c;color:#ff8f98}.neutral{background:#403713;color:#ffd76b}.unknown{background:#292a2f;color:#c6c6cc}.code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.small{font-size:13px}.subtle{color:#7f8088}.github-link{color:#d65c60;text-decoration:none;font-weight:600}.github-link:hover{color:#ed8a8d;text-decoration:underline}.github-link:visited{color:#d65c60}</style></head><body><div class=\"wrap\">")
     append("<div class=\"hero\">")
     if (logoData != null) {
         append("<div style=\"display:flex;align-items:center;justify-content:flex-start;margin-bottom:14px;\"><img src=\"data:image/png;base64,$logoData\" alt=\"VulkanScope\" style=\"display:block;width:min(522px,100%);height:auto;max-height:76px;object-fit:contain;object-position:left center;\"></div>")
@@ -4053,19 +3976,35 @@ private fun capabilitySectionIcon(title: String): Int = when {
 }
 
 @Composable
+private fun tvBrowseModifier(shape: RoundedCornerShape): Modifier {
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val isTelevision = configuration.uiMode and Configuration.UI_MODE_TYPE_MASK == Configuration.UI_MODE_TYPE_TELEVISION
+    if (!isTelevision) return Modifier
+    val requester = remember { BringIntoViewRequester() }
+    var focused by remember { mutableStateOf(false) }
+    LaunchedEffect(focused) { if (focused) requester.bringIntoView() }
+    return Modifier
+        .bringIntoViewRequester(requester)
+        .onFocusChanged { state -> focused = state.isFocused }
+        .focusable()
+        .border(if (focused) 2.dp else 0.dp, if (focused) ComposeColor(0xFFE2676A) else ComposeColor.Transparent, shape)
+}
+
+@Composable
 private fun CapabilitySectionCard(title: String, content: @Composable () -> Unit) {
+    val shape = RoundedCornerShape(30.dp)
     Surface(
         color = ComposeColor(0xFF181516),
-        shape = RoundedCornerShape(30.dp),
-        modifier = Modifier.fillMaxWidth()
+        shape = shape,
+        modifier = Modifier.fillMaxWidth().then(tvBrowseModifier(shape))
     ) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Surface(shape = RoundedCornerShape(18.dp), color = ComposeColor(0xFF351B20)) {
+                Surface(shape = RoundedCornerShape(18.dp), color = ComposeColor(0xFF351719)) {
                     Icon(
                         painter = painterResource(capabilitySectionIcon(title)),
                         contentDescription = null,
-                        tint = ComposeColor(0xFFFF7A88),
+                        tint = ComposeColor(0xFFE2676A),
                         modifier = Modifier.padding(10.dp).size(21.dp)
                     )
                 }
@@ -4088,7 +4027,8 @@ private fun CapabilityItemCard(
     containerColor: ComposeColor = ComposeColor(0xFF181516),
     content: @Composable () -> Unit
 ) {
-    Surface(color = containerColor, shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
+    val shape = RoundedCornerShape(24.dp)
+    Surface(color = containerColor, shape = shape, modifier = Modifier.fillMaxWidth().then(tvBrowseModifier(shape))) {
         Column(Modifier.fillMaxWidth()) { content() }
     }
 }
@@ -4096,7 +4036,8 @@ private fun CapabilityItemCard(
 @Composable
 private fun CapabilityKeyValue(key: String, value: String) {
     val stacked = value.length > 54 || value.contains("\n")
-    Surface(color = ComposeColor(0xFF211E1F), shape = RoundedCornerShape(17.dp), modifier = Modifier.fillMaxWidth()) {
+    val shape = RoundedCornerShape(17.dp)
+    Surface(color = ComposeColor(0xFF211E1F), shape = shape, modifier = Modifier.fillMaxWidth().then(tvBrowseModifier(shape))) {
         if (stacked) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(key, color = ComposeColor(0xFF968D8F), style = MaterialTheme.typography.labelSmall)
@@ -4141,7 +4082,8 @@ private fun CapabilityStatusBadge(label: String, positive: Boolean? = null) {
 
 @Composable
 private fun SectionCard(title: String, content: @Composable () -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF121212)), shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
+    val shape = RoundedCornerShape(24.dp)
+    Card(colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF121212)), shape = shape, modifier = Modifier.fillMaxWidth().then(tvBrowseModifier(shape))) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             content()
@@ -4159,17 +4101,19 @@ private fun ExpressiveActionButton(
     compact: Boolean = false,
     onClick: () -> Unit
 ) {
-    val container = if (enabled) ComposeColor(0xFF1A1718) else ComposeColor(0xFF111111)
-    val iconContainer = if (enabled) ComposeColor(0xFF351B20) else ComposeColor(0xFF181818)
-    val accent = if (enabled) ComposeColor(0xFFFF7A88) else ComposeColor(0xFF606064)
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(if (compact) 26.dp else 28.dp)
+    val container = if (!enabled) ComposeColor(0xFF111111) else if (focused) ComposeColor(0xFF2A1517) else ComposeColor(0xFF1A1718)
+    val iconContainer = if (enabled) ComposeColor(0xFF351719) else ComposeColor(0xFF181818)
+    val accent = if (enabled) ComposeColor(0xFFE2676A) else ComposeColor(0xFF606064)
     val titleColor = if (enabled) ComposeColor(0xFFF7F2F3) else ComposeColor(0xFF6C696A)
     val detailColor = if (enabled) ComposeColor(0xFFB6ACAE) else ComposeColor(0xFF5A5758)
     Card(
         onClick = onClick,
         enabled = enabled,
         colors = CardDefaults.cardColors(containerColor = container),
-        shape = RoundedCornerShape(if (compact) 26.dp else 28.dp),
-        modifier = modifier
+        shape = shape,
+        modifier = modifier.onFocusChanged { focused = it.isFocused }.border(if (focused && enabled) 2.dp else 0.dp, if (focused && enabled) ComposeColor(0xFFE2676A) else ComposeColor.Transparent, shape)
     ) {
         if (compact) {
             Column(
@@ -4180,7 +4124,7 @@ private fun ExpressiveActionButton(
                     Surface(shape = RoundedCornerShape(17.dp), color = iconContainer) {
                         Icon(painter = painterResource(icon), contentDescription = null, tint = accent, modifier = Modifier.padding(10.dp).size(21.dp))
                     }
-                    Surface(shape = RoundedCornerShape(999.dp), color = if (enabled) ComposeColor(0xFF28191C) else ComposeColor(0xFF171717)) {
+                    Surface(shape = RoundedCornerShape(999.dp), color = if (enabled) ComposeColor(0xFF291719) else ComposeColor(0xFF171717)) {
                         Text("›", color = accent, fontSize = 21.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp))
                     }
                 }
@@ -4202,7 +4146,7 @@ private fun ExpressiveActionButton(
                     Text(title, color = titleColor, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(subtitle, color = detailColor, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
-                Surface(shape = RoundedCornerShape(999.dp), color = if (enabled) ComposeColor(0xFF28191C) else ComposeColor(0xFF171717)) {
+                Surface(shape = RoundedCornerShape(999.dp), color = if (enabled) ComposeColor(0xFF291719) else ComposeColor(0xFF171717)) {
                     Text("›", color = accent, fontSize = 23.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
                 }
             }
@@ -4218,8 +4162,8 @@ private fun ExpressiveIdentityBlock(title: String, subtitle: String, icon: Int) 
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Surface(shape = RoundedCornerShape(20.dp), color = ComposeColor(0xFF351B20)) {
-                Icon(painter = painterResource(icon), contentDescription = null, tint = ComposeColor(0xFFFF7A88), modifier = Modifier.padding(12.dp).size(24.dp))
+            Surface(shape = RoundedCornerShape(20.dp), color = ComposeColor(0xFF351719)) {
+                Icon(painter = painterResource(icon), contentDescription = null, tint = ComposeColor(0xFFE2676A), modifier = Modifier.padding(12.dp).size(24.dp))
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = ComposeColor(0xFFF7F2F3))
@@ -4234,12 +4178,12 @@ private fun ExpressiveVersionBlock(application: String, version: String, version
     Surface(color = ComposeColor(0xFF181516), shape = RoundedCornerShape(30.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(13.dp)) {
-                Surface(shape = RoundedCornerShape(19.dp), color = ComposeColor(0xFF351B20)) {
-                    Icon(painter = painterResource(R.drawable.ic_info), contentDescription = null, tint = ComposeColor(0xFFFF7A88), modifier = Modifier.padding(11.dp).size(23.dp))
+                Surface(shape = RoundedCornerShape(19.dp), color = ComposeColor(0xFF351719)) {
+                    Icon(painter = painterResource(R.drawable.ic_info), contentDescription = null, tint = ComposeColor(0xFFE2676A), modifier = Modifier.padding(11.dp).size(23.dp))
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                     Text(application, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                    Text("Version $version", color = ComposeColor(0xFFFF9AA5), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                    Text("Version $version", color = ComposeColor(0xFFE98A8C), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                 }
                 Surface(shape = RoundedCornerShape(999.dp), color = ComposeColor(0xFF272224)) {
                     Text("#$versionCode", color = ComposeColor(0xFFC7BEC0), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp))
@@ -4265,10 +4209,11 @@ private fun ExpressiveInfoPill(label: String, value: String, modifier: Modifier 
 
 @Composable
 private fun MetricCard(title: String, value: String, modifier: Modifier) {
-    Surface(color = ComposeColor(0xFF181516), shape = RoundedCornerShape(26.dp), modifier = modifier) {
+    val shape = RoundedCornerShape(26.dp)
+    Surface(color = ComposeColor(0xFF181516), shape = shape, modifier = modifier.then(tvBrowseModifier(shape))) {
         Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Surface(shape = RoundedCornerShape(999.dp), color = ComposeColor(0xFF2A2022)) {
-                Text(title, color = ComposeColor(0xFFFF9AA5), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp))
+                Text(title, color = ComposeColor(0xFFE98A8C), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp))
             }
             Text(value, color = ComposeColor(0xFFF7F2F3), fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
@@ -4277,7 +4222,8 @@ private fun MetricCard(title: String, value: String, modifier: Modifier) {
 
 @Composable
 private fun KeyValue(key: String, value: String) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+    val shape = RoundedCornerShape(12.dp)
+    Row(Modifier.fillMaxWidth().then(tvBrowseModifier(shape)), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
         Text(key, color = ComposeColor(0xFF8F8F8F), modifier = Modifier.weight(0.9f))
         Text(value, modifier = Modifier.weight(1.1f), textAlign = androidx.compose.ui.text.style.TextAlign.End)
     }
@@ -4285,7 +4231,8 @@ private fun KeyValue(key: String, value: String) {
 
 @Composable
 private fun DataRow(name: String, state: String, positive: Boolean) {
-    Row(Modifier.fillMaxWidth().background(ComposeColor(0xFF111111), RoundedCornerShape(16.dp)).padding(15.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+    val shape = RoundedCornerShape(16.dp)
+    Row(Modifier.fillMaxWidth().then(tvBrowseModifier(shape)).background(ComposeColor(0xFF111111), shape).padding(15.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Text(name, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(state, color = if (positive) ComposeColor(0xFFFFFFFF) else ComposeColor(0xFF777777), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelSmall)
     }

@@ -4,7 +4,7 @@
 
 Database: https://efishell0.github.io/VulkanScope_database/
 
-**Current version: 0.33.3**
+**Current version: 0.33.4**
 
 > VulkanScope reports what the active Vulkan implementation actually exposes. It does not infer support from the Android version, GPU model, or Vulkan API version alone.
 
@@ -50,20 +50,20 @@ A capability that was not queried or could not be determined is not silently con
 # Screenshots
 
 <p align="center">
-  <img src="screenshots/1-0.33.3.jpg" width="200">
-  <img src="screenshots/properties.jpg" width="200">
-  <img src="screenshots/vulkan.jpg" width="200">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/overview.jpg" width="200">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/properties.jpg" width="200">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/vulkan.jpg" width="200">
 </p>
 
 <p align="center">
-  <img src="screenshots/4-0.33.3.jpg" width="200">
-  <img src="screenshots/5-0.33.3.jpg" width="200">
-  <img src="screenshots/6.0.33.3.jpg" width="200">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/surface.jpg" width="200">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/display.jpg" width="200">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/extensions.jpg" width="200">
 </p>
 
 <p align="center">
-  <img src="screenshots/7-0.33.3.png" width="500">
-  <img src="screenshots/database_new.png" width="500">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/mumuplayer.png" width="500">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/database_0.35.6.png" width="500">
 </p>
 
 **NOTE: The first landscape image was taken from MuMuPlayer, and VM (hypervisor) software like BlueStacks, MuMuPlayer, LDPlayer, QEMU etc. is not supported.**

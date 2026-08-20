@@ -1,4 +1,8 @@
-# VulkanScope 0.33.3
+## VulkanScope 0.33.4
+
+Info/settings parity, official Vulkan red theming, HTML report visual parity, and Android TV D-pad browse improvements.
+
+# VulkanScope 0.33.4
 
 Full application engineering audit release.
 

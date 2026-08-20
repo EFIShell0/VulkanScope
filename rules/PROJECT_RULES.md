@@ -236,3 +236,11 @@
 - Current upstream terminology must distinguish the published Khronos Vulkan specification from VulkanScope's independently pinned staging producer/query baseline. As checked on 2026-08-20, the published specification is Vulkan 1.4.358; VulkanScope's project baseline remains the separately validated header/query staging revision 1.4.360.
 - No Turnip/SAF implementation change is introduced by this audit. The 0.32.4-restored Turnip/SAF internals and the 0.33.1 collection-state UI gate remain intact.
 
+
+## 0.33.4 Info, theme and Android TV parity requirements
+- Info owns Developer, Application, Device ABI, Android, Vulkan registry/query engine, About, complete TXT/HTML export, and VulkanScope Database actions in the same information architecture used by the companion OpenGLESScope application.
+- Settings contains only Vulkan driver source selection and the Turnip ZIP import workflow; report export and Database submission are not Settings responsibilities.
+- The primary VulkanScope accent is the official Khronos Vulkan dark red, RGB 164,30,34 / #A41E22. Derived focus and decorative tones may be lighter or darker only to preserve contrast and state visibility.
+- HTML report presentation uses the same self-contained responsive report shell quality as OpenGLESScope while deriving hero, borders, available-state accent and links from the Vulkan red family.
+- Android TV uses the navigation rail in portrait and landscape. Read-only capability section, item and key/value surfaces are focusable browse targets on television devices and request bring-into-view when focused.
+- Television read-only browse focus must never imply clickability or mutate report state when Enter/Center is pressed.

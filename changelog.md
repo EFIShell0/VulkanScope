@@ -1,4 +1,11 @@
-# 0.33.3
+## 0.33.4
+- Moved complete TXT/HTML export and VulkanScope Database actions from Settings to Info.
+- Aligned Info information architecture with OpenGLESScope while preserving Vulkan-specific registry/query evidence.
+- Settings now contains only System/Turnip driver selection and Turnip ZIP import.
+- Adopted the official Khronos Vulkan #A41E22 primary accent and Vulkan-red HTML report shell.
+- Added Android TV read-only D-pad browse focus and portrait navigation rail behavior.
+
+# 0.33.4
 
 - Full application/reporting/lifecycle audit against PROJECT_RULES and VulkanScope Database 0.35.3.
 - Fixed isolated probe service Surface parcel lifetime cleanup.
@@ -8,7 +15,7 @@
 - Preserved finite 0.0 HDR luminance instead of misclassifying it as unavailable; only Android's invalid luminance sentinel/non-finite values are treated as not exposed.
 - Corrected HTML Surface diagnostic booleans so scalar true/false values are not mislabeled Supported/Unsupported.
 - Corrected the present-mode safety bound and current Khronos published-spec wording.
-- Updated stale README/source-baseline metadata to the 0.33.3/current pinned staging baseline.
+- Updated stale README/source-baseline metadata to the 0.33.4/current pinned staging baseline.
 - Turnip/SAF behavior remains unchanged from the restored 0.32.4 implementation plus the 0.33.1 collection gate.
 
 # 0.33.2
