@@ -141,13 +141,14 @@ import org.json.JSONObject
 private data class DisplayReport(
     val resolution: String,
     val refreshRate: String,
-    val wideGamut: Boolean,
+    val wideGamut: Boolean?,
     val preferredWideGamut: String,
     val hdrTypes: List<String>,
     val minLuminance: String,
     val maxLuminance: String,
     val averageLuminance: String,
-    val modes: List<String>
+    val modes: List<String>,
+    val hdrCapabilityStatus: String = "unavailable"
 )
 
 private data class ExtensionEntry(val name: String, val scope: String, val specVersion: Int, val supported: Boolean = true)
@@ -444,7 +445,7 @@ class MainActivity : ComponentActivity() {
         if (!isTurnipPlatformEligible()) turnipSupport = TurnipSupport.UNSUPPORTED
         setContent {
             VulkanScopeApp(
-                displayReport = displayReportState ?: DisplayReport("Unknown", "Unknown", false, "Not exposed", emptyList(), "Not exposed", "Not exposed", "Not exposed", emptyList()),
+                displayReport = displayReportState ?: DisplayReport("Unknown", "Unknown", null, "Not exposed", emptyList(), "Not exposed", "Not exposed", "Not exposed", emptyList()),
                 report = latestReport,
                 loading = reportLoading,
                 collectionStatus = collectionStatus,
@@ -1006,7 +1007,7 @@ class MainActivity : ComponentActivity() {
     @Suppress("DEPRECATION")
     private fun displayReport(): DisplayReport {
         val display = getSystemService(DisplayManager::class.java).getDisplay(android.view.Display.DEFAULT_DISPLAY)
-            ?: return DisplayReport("Unknown", "Unknown", false, "Not exposed", emptyList(), "Not exposed", "Not exposed", "Not exposed", emptyList())
+            ?: return DisplayReport("Unknown", "Unknown", null, "Not exposed", emptyList(), "Not exposed", "Not exposed", "Not exposed", emptyList())
         val mode = display.mode
         val hdr = display.hdrCapabilities
         val hdrTypes = if (android.os.Build.VERSION.SDK_INT >= 34) {
@@ -1016,8 +1017,9 @@ class MainActivity : ComponentActivity() {
         }
         val hdrNames = hdrTypes.map { hdrTypeName(it) }
         val modes = display.supportedModes.map { "${it.physicalWidth} × ${it.physicalHeight} · ${formatHz(it.refreshRate)}" }.distinct().sorted()
-        val wideGamut = android.os.Build.VERSION.SDK_INT >= 26 && display.isWideColorGamut
+        val wideGamut = if (android.os.Build.VERSION.SDK_INT >= 26) display.isWideColorGamut else null
         val preferred = if (android.os.Build.VERSION.SDK_INT >= 29) display.preferredWideGamutColorSpace?.name ?: "Not exposed" else "Not exposed"
+        val hdrCapabilityStatus = if (hdrNames.isNotEmpty()) "available" else "unavailable"
         return DisplayReport(
             "${mode.physicalWidth} × ${mode.physicalHeight}",
             formatHz(mode.refreshRate),
@@ -1027,7 +1029,8 @@ class MainActivity : ComponentActivity() {
             hdr?.let { formatLuminance(it.desiredMinLuminance) } ?: "Not exposed",
             hdr?.let { formatLuminance(it.desiredMaxLuminance) } ?: "Not exposed",
             hdr?.let { formatLuminance(it.desiredMaxAverageLuminance) } ?: "Not exposed",
-            modes
+            modes,
+            hdrCapabilityStatus
         )
     }
 
@@ -1216,11 +1219,15 @@ class MainActivity : ComponentActivity() {
         val result = withContext(Dispatchers.IO) {
             var value: String? = null
             var partialCandidate: String? = null
+            var lastObservedLength = -1L
+            var lastObservedModified = -1L
+            var lastCheckpointReadAt = 0L
             try {
                 withTimeout(timeoutMs) {
                     while (value == null) {
                         if (resultFile.isFile) {
                             val resultLength = resultFile.length()
+                            val resultModified = resultFile.lastModified()
                             if (resultLength > maxProbeResultBytes) {
                                 value = if (group == "base") {
                                     "{\"status\":\"unavailable\",\"reason\":\"The Vulkan probe result exceeded the safety size limit.\",\"devices\":[]}"
@@ -1230,7 +1237,13 @@ class MainActivity : ComponentActivity() {
                                 stopVulkanProbeProcess()
                                 continue
                             }
-                            if (resultLength > 0L) {
+                            val now = android.os.SystemClock.elapsedRealtime()
+                            val checkpointChanged = resultLength != lastObservedLength || resultModified != lastObservedModified
+                            val periodicRefreshDue = now - lastCheckpointReadAt >= 500L
+                            if (resultLength > 0L && (checkpointChanged || periodicRefreshDue)) {
+                                lastObservedLength = resultLength
+                                lastObservedModified = resultModified
+                                lastCheckpointReadAt = now
                                 val candidate = runCatching { resultFile.readText() }.getOrElse { error ->
                                     if (group == "base") {
                                         "{\"status\":\"unavailable\",\"reason\":${JSONObject.quote(error.message ?: "Unable to read Vulkan probe result")},\"devices\":[]}"
@@ -1253,6 +1266,8 @@ class MainActivity : ComponentActivity() {
                                         if (crashMarkerFile.isFile && partialCandidate != null) value = partialCandidate
                                     }
                                 }
+                            } else {
+                                kotlinx.coroutines.delay(40L)
                             }
                         } else {
                             kotlinx.coroutines.delay(60L)
@@ -1291,7 +1306,7 @@ private fun hdrTypeName(type: Int): String = when (type) {
 }
 
 private fun formatHz(value: Float): String = String.format(java.util.Locale.US, "%.2f Hz", value)
-private fun formatLuminance(value: Float): String = if (value <= 0f || value.isNaN()) "Not exposed" else String.format(java.util.Locale.US, "%.3f cd/m²", value)
+private fun formatLuminance(value: Float): String = if (!value.isFinite() || value == android.view.Display.HdrCapabilities.INVALID_LUMINANCE) "Not exposed" else String.format(java.util.Locale.US, "%.3f cd/m²", value)
 
 private fun apiAtLeast(value: String, major: Int, minor: Int): Boolean {
     val parts = value.trim().split('.')
@@ -1960,7 +1975,7 @@ private fun OverviewPage(report: VulkanReport, device: DeviceReport?, display: D
         }
         if (report.error != null) {
             item {
-                SectionCard("Vulkan inspection error") {
+                CapabilitySectionCard("Vulkan inspection error") {
                     Text(report.error, color = ComposeColor(0xFFFF6B6B))
                     Text(
                         "The driver mode is shown separately from the inspection result.",
@@ -1981,11 +1996,11 @@ private fun OverviewPage(report: VulkanReport, device: DeviceReport?, display: D
         }
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MetricCard("HDR", if (display.hdrTypes.isEmpty()) "No" else "${display.hdrTypes.size} types", Modifier.weight(1f))
-                MetricCard("Wide gamut", if (display.wideGamut) "Supported" else "Not exposed", Modifier.weight(1f))
+                MetricCard("HDR", if (display.hdrCapabilityStatus == "available") "${display.hdrTypes.size} types" else "Unavailable", Modifier.weight(1f))
+                MetricCard("Wide gamut", when (display.wideGamut) { true -> "Supported"; false -> "Unsupported"; null -> "Unavailable" }, Modifier.weight(1f))
             }
         }
-        item { SectionCard("Quick access") {
+        item { CapabilitySectionCard("Quick access") {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     QuickAccessCard("Vulkan", Page.Vulkan, navigate, Modifier.weight(1f))
@@ -2001,15 +2016,15 @@ private fun OverviewPage(report: VulkanReport, device: DeviceReport?, display: D
                 }
             }
         } }
-        item { SectionCard("Capability snapshot") {
-            KeyValue("GPU", device?.name ?: "Unknown")
-            KeyValue("Driver", device?.driverVersionText ?: device?.driverVersion ?: "Unknown")
-            KeyValue("Vendor ID", device?.vendorId ?: "Unknown")
-            KeyValue("Device ID", device?.deviceId ?: "Unknown")
-            KeyValue("Device type", device?.deviceType ?: "Unknown")
-            KeyValue("Loader API", report.loaderVersion)
-            KeyValue("Instance extensions", report.instanceExtensions.size.toString())
-            KeyValue("Device extensions", device?.extensions?.size?.toString() ?: "0")
+        item { CapabilitySectionCard("Capability snapshot") {
+            CapabilityKeyValue("GPU", device?.name ?: "Unknown")
+            CapabilityKeyValue("Driver", device?.driverVersionText ?: device?.driverVersion ?: "Unknown")
+            CapabilityKeyValue("Vendor ID", device?.vendorId ?: "Unknown")
+            CapabilityKeyValue("Device ID", device?.deviceId ?: "Unknown")
+            CapabilityKeyValue("Device type", device?.deviceType ?: "Unknown")
+            CapabilityKeyValue("Loader API", report.loaderVersion)
+            CapabilityKeyValue("Instance extensions", report.instanceExtensions.size.toString())
+            CapabilityKeyValue("Device extensions", device?.extensions?.size?.toString() ?: "0")
         } }
     }
 }
@@ -2019,15 +2034,15 @@ private fun OverviewPage(report: VulkanReport, device: DeviceReport?, display: D
 @Composable
 private fun VulkanPage(report: VulkanReport, device: DeviceReport?, turnipSupported: Boolean) {
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item { SectionCard("Vulkan API") {
-            KeyValue("Loader / instance API", report.loaderVersion)
-            KeyValue("Device API", device?.apiVersion ?: "Unknown")
-            KeyValue("Driver", device?.driverVersionText ?: device?.driverVersion ?: "Unknown")
-            KeyValue("Device type", device?.deviceType ?: "Unknown")
-            KeyValue("Vendor ID", device?.vendorId ?: "Unknown")
-            KeyValue("Device ID", device?.deviceId ?: "Unknown")
+        item { CapabilitySectionCard("Vulkan API") {
+            CapabilityKeyValue("Loader / instance API", report.loaderVersion)
+            CapabilityKeyValue("Device API", device?.apiVersion ?: "Unknown")
+            CapabilityKeyValue("Driver", device?.driverVersionText ?: device?.driverVersion ?: "Unknown")
+            CapabilityKeyValue("Device type", device?.deviceType ?: "Unknown")
+            CapabilityKeyValue("Vendor ID", device?.vendorId ?: "Unknown")
+            CapabilityKeyValue("Device ID", device?.deviceId ?: "Unknown")
         } }
-        item { SectionCard("Instance layers") {
+        item { CapabilitySectionCard("Instance layers") {
             if (report.instanceLayers.isEmpty()) {
                 Text("No instance layers are exposed by the active Vulkan implementation.")
                 Text("This is normal on many Android production/driver configurations; validation layers are optional and are not bundled by VulkanScope.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
@@ -2040,7 +2055,7 @@ private fun VulkanPage(report: VulkanReport, device: DeviceReport?, turnipSuppor
                 }
             }
         } }
-        item { SectionCard("Device layers") {
+        item { CapabilitySectionCard("Device layers") {
             if (device?.deviceLayers.isNullOrEmpty()) {
                 Text("No device layers are exposed.")
                 Text("Device layers are legacy functionality; modern Vulkan uses instance layers.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
@@ -2054,41 +2069,41 @@ private fun VulkanPage(report: VulkanReport, device: DeviceReport?, turnipSuppor
                 }
             }
         } }
-        item { SectionCard("Instance extensions") {
+        item { CapabilitySectionCard("Instance extensions") {
             report.instanceExtensions.sortedBy { it.name }.forEach { ext -> Text("${ext.name} · spec ${ext.specVersion}") }
         } }
-        item { SectionCard("Operating system") {
-            KeyValue("Architecture", Build.SUPPORTED_ABIS.firstOrNull() ?: "Unknown")
-            KeyValue("Version", Build.VERSION.RELEASE)
-            KeyValue("Codename", Build.VERSION.CODENAME)
-            KeyValue("SDK", Build.VERSION.SDK_INT.toString())
-            KeyValue("Build ID", Build.ID)
-            KeyValue("Build incremental", Build.VERSION.INCREMENTAL)
-            KeyValue("Security patch", Build.VERSION.SECURITY_PATCH)
-            KeyValue("Brand", Build.BRAND)
-            KeyValue("Manufacturer", Build.MANUFACTURER)
-            KeyValue("Product", Build.PRODUCT)
-            KeyValue("Device", Build.DEVICE)
-            KeyValue("Board", Build.BOARD)
-            KeyValue("Hardware", Build.HARDWARE)
-            KeyValue("Fingerprint", Build.FINGERPRINT)
+        item { CapabilitySectionCard("Operating system") {
+            CapabilityKeyValue("Architecture", Build.SUPPORTED_ABIS.firstOrNull() ?: "Unknown")
+            CapabilityKeyValue("Version", Build.VERSION.RELEASE)
+            CapabilityKeyValue("Codename", Build.VERSION.CODENAME)
+            CapabilityKeyValue("SDK", Build.VERSION.SDK_INT.toString())
+            CapabilityKeyValue("Build ID", Build.ID)
+            CapabilityKeyValue("Build incremental", Build.VERSION.INCREMENTAL)
+            CapabilityKeyValue("Security patch", Build.VERSION.SECURITY_PATCH)
+            CapabilityKeyValue("Brand", Build.BRAND)
+            CapabilityKeyValue("Manufacturer", Build.MANUFACTURER)
+            CapabilityKeyValue("Product", Build.PRODUCT)
+            CapabilityKeyValue("Device", Build.DEVICE)
+            CapabilityKeyValue("Board", Build.BOARD)
+            CapabilityKeyValue("Hardware", Build.HARDWARE)
+            CapabilityKeyValue("Fingerprint", Build.FINGERPRINT)
         } }
-        item { SectionCard("Android runtime") {
-            KeyValue("Architecture", Build.SUPPORTED_ABIS.joinToString(", "))
-            KeyValue("Manufacturer", Build.MANUFACTURER)
-            KeyValue("Model", Build.MODEL)
-            KeyValue("Android", Build.VERSION.RELEASE)
-            KeyValue("SDK", Build.VERSION.SDK_INT.toString())
-            KeyValue("Build ID", Build.ID)
-            KeyValue("Build incremental", Build.VERSION.INCREMENTAL)
-            KeyValue("Turnip eligibility", if (turnipSupported) "arm64-v8a + Qualcomm Adreno detected" else "Unknown / not eligible")
+        item { CapabilitySectionCard("Android runtime") {
+            CapabilityKeyValue("Architecture", Build.SUPPORTED_ABIS.joinToString(", "))
+            CapabilityKeyValue("Manufacturer", Build.MANUFACTURER)
+            CapabilityKeyValue("Model", Build.MODEL)
+            CapabilityKeyValue("Android", Build.VERSION.RELEASE)
+            CapabilityKeyValue("SDK", Build.VERSION.SDK_INT.toString())
+            CapabilityKeyValue("Build ID", Build.ID)
+            CapabilityKeyValue("Build incremental", Build.VERSION.INCREMENTAL)
+            CapabilityKeyValue("Turnip eligibility", if (turnipSupported) "arm64-v8a + Qualcomm Adreno detected" else "Unknown / not eligible")
         } }
-        item { SectionCard("Feature coverage") {
+        item { CapabilitySectionCard("Feature coverage") {
             val supported = device?.features?.count { it.supported } ?: 0
             val total = device?.features?.size ?: 0
-            KeyValue("Queried feature fields", "$supported / $total supported")
-            KeyValue("Instance extensions", report.instanceExtensions.size.toString())
-            KeyValue("Device extensions", device?.extensions?.size?.toString() ?: "0")
+            CapabilityKeyValue("Queried feature fields", "$supported / $total supported")
+            CapabilityKeyValue("Instance extensions", report.instanceExtensions.size.toString())
+            CapabilityKeyValue("Device extensions", device?.extensions?.size?.toString() ?: "0")
         } }
     }
 }
@@ -2097,8 +2112,8 @@ private fun VulkanPage(report: VulkanReport, device: DeviceReport?, turnipSuppor
 
 @Composable
 private fun HeroCard(device: DeviceReport?, report: VulkanReport, driverMode: DriverMode) {
-    Card(colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF171717)), shape = RoundedCornerShape(28.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Surface(color = ComposeColor(0xFF181516), shape = RoundedCornerShape(32.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 VendorLogo(device?.vendorIdRaw, Modifier.size(82.dp))
                 Spacer(Modifier.width(14.dp))
@@ -2118,8 +2133,8 @@ private fun HeroCard(device: DeviceReport?, report: VulkanReport, driverMode: Dr
 private fun QuickAccessCard(title: String, destination: Page, navigate: (Page) -> Unit, modifier: Modifier) {
     Card(
         onClick = { navigate(destination) },
-        colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF171717)),
-        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF1A1718)),
+        shape = RoundedCornerShape(22.dp),
         modifier = modifier.height(72.dp)
     ) {
         Column(
@@ -2131,7 +2146,7 @@ private fun QuickAccessCard(title: String, destination: Page, navigate: (Page) -
                 painterResource(pageIcon(destination)),
                 contentDescription = null,
                 modifier = Modifier.size(19.dp),
-                tint = ComposeColor(0xFFF21D2F)
+                tint = ComposeColor(0xFFFF7A88)
             )
             Text(
                 title,
@@ -2213,7 +2228,7 @@ private fun CompactNavigationRail(selectedPage: Page, onPageSelected: (Page) -> 
 
 @Composable
 private fun ExploreCard(onNavigate: (Page) -> Unit) {
-    SectionCard("Explore") {
+    CapabilitySectionCard("Explore") {
         Text("Detailed Vulkan inspection areas", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(Page.Features, Page.Memory, Page.Queues, Page.Formats, Page.Properties).forEach { page ->
@@ -2268,13 +2283,13 @@ private fun AppHeader(page: Page, onBack: () -> Unit, onSettings: () -> Unit, on
 @Composable
 private fun DisplayPage(display: DisplayReport, device: DeviceReport?) {
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item { SectionCard("Display") {
-            KeyValue("Physical mode", display.resolution)
-            KeyValue("Current refresh", display.refreshRate)
-            KeyValue("Wide color gamut", if (display.wideGamut) "YES" else "NO / NOT EXPOSED")
-            KeyValue("Preferred wide gamut color space", display.preferredWideGamut)
+        item { CapabilitySectionCard("Display") {
+            CapabilityKeyValue("Physical mode", display.resolution)
+            CapabilityKeyValue("Current refresh", display.refreshRate)
+            CapabilityKeyValue("Wide color gamut", when (display.wideGamut) { true -> "SUPPORTED"; false -> "UNSUPPORTED"; null -> "UNAVAILABLE" })
+            CapabilityKeyValue("Preferred wide-gamut color space", display.preferredWideGamut)
         } }
-        item { SectionCard("HDR capabilities") {
+        item { CapabilitySectionCard("HDR capabilities") {
             if (display.hdrTypes.isEmpty()) {
                 Surface(shape = RoundedCornerShape(999.dp), color = ComposeColor(0xFF4A3211)) {
                     Text("UNAVAILABLE", color = ComposeColor(0xFFFFC857), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp))
@@ -2285,14 +2300,14 @@ private fun DisplayPage(display: DisplayReport, device: DeviceReport?) {
                 }
             }
             HorizontalDivider(Modifier.padding(vertical = 8.dp), color = ComposeColor(0xFF303030))
-            KeyValue("Minimum luminance", display.minLuminance)
-            KeyValue("Maximum luminance", display.maxLuminance)
-            KeyValue("Maximum average luminance", display.averageLuminance)
+            CapabilityKeyValue("Minimum luminance", display.minLuminance)
+            CapabilityKeyValue("Maximum luminance", display.maxLuminance)
+            CapabilityKeyValue("Maximum average luminance", display.averageLuminance)
         } }
-        item { SectionCard("Supported display modes") { display.modes.forEach { Text(it) } } }
-        item { SectionCard("Display ↔ Vulkan interpretation") {
-            KeyValue("Android wide gamut", if (display.wideGamut) "Reported" else "Not reported")
-            KeyValue("Vulkan surface data", if (device?.surfaceAvailable == true) "Queried from VkSurfaceKHR" else "Unavailable")
+        item { CapabilitySectionCard("Supported display modes") { display.modes.forEach { Text(it) } } }
+        item { CapabilitySectionCard("Display ↔ Vulkan interpretation") {
+            CapabilityKeyValue("Android wide gamut", when (display.wideGamut) { true -> "Supported"; false -> "Unsupported"; null -> "Unavailable" })
+            CapabilityKeyValue("Vulkan surface data", if (device?.surfaceAvailable == true) "Queried from VkSurfaceKHR" else "Unavailable")
             Text("A Vulkan color-space capability is not treated as a measurement of the panel's physical gamut.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
         } }
     }
@@ -2352,39 +2367,39 @@ private fun SurfacePage(device: DeviceReport?) {
         }
     }
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { SectionCard("VkSurfaceKHR") {
-            KeyValue("Status", if (device?.surfaceAvailable == true) "Available" else "Not available")
-            KeyValue("Presentation support", when {
+        item { CapabilitySectionCard("VkSurfaceKHR") {
+            CapabilityKeyValue("Status", if (device?.surfaceAvailable == true) "Available" else "Not available")
+            CapabilityKeyValue("Presentation support", when {
                 device?.surfacePresentationSupported == true -> "Supported"
                 device?.surfaceAvailable == true -> "Not supported by this Vulkan device"
                 else -> "Unavailable"
             })
-            KeyValue("Surface format query", when (device?.surfaceFormatQueryResult) { 0 -> "VK_SUCCESS"; 5 -> "VK_INCOMPLETE"; null, -1 -> "Unavailable"; else -> device.surfaceFormatQueryResult.toString() })
-            KeyValue("Second format query", when {
+            CapabilityKeyValue("Surface format query", when (device?.surfaceFormatQueryResult) { 0 -> "VK_SUCCESS"; 5 -> "VK_INCOMPLETE"; null, -1 -> "Unavailable"; else -> device.surfaceFormatQueryResult.toString() })
+            CapabilityKeyValue("Second format query", when {
                 device?.surfaceFormatQuerySecondAttempted == true && device.surfaceFormatQueryResultSecond == 0 -> "VK_SUCCESS"
                 device?.surfaceFormatQuerySecondAttempted == true && device.surfaceFormatQueryResultSecond == 5 -> "VK_INCOMPLETE"
                 device?.surfaceFormatQuerySecondAttempted == true -> device.surfaceFormatQueryResultSecond.toString()
                 device?.surfaceFormatQuerySafetyRejected == true -> "Skipped: safety cap"
                 else -> "Unavailable"
             })
-            KeyValue("Returned format pairs", device?.surfaceFormats?.size?.toString() ?: "Unavailable")
-            device?.surfaceCapabilities?.forEach { KeyValue(it.first, it.second) }
+            CapabilityKeyValue("Returned format pairs", device?.surfaceFormats?.size?.toString() ?: "Unavailable")
+            device?.surfaceCapabilities?.forEach { CapabilityKeyValue(it.first, it.second) }
         } }
-        item { SectionCard("Search surface formats / color spaces") {
-            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, placeholder = { Text("Search BT.709, BT.2020, P3, HDR10, format…") })
+        item { CapabilitySectionCard("Search surface formats / color spaces") {
+            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(22.dp), placeholder = { Text("Search BT.709, BT.2020, P3, HDR10, format…") })
             Spacer(Modifier.height(6.dp))
             SupportFilterRow(filter) { filter = it }
             Text("${filtered.size} entries", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelMedium)
         } }
-        item { SectionCard("HDR / wide-color surface detection") {
-            KeyValue("VK_EXT_swapchain_colorspace", when { device?.surfaceColorSpaceExtensionEnabled == true -> "Enabled"; device?.surfaceColorSpaceExtensionAvailable == true -> "Available but not enabled"; else -> "Not exposed" })
+        item { CapabilitySectionCard("HDR / wide-color surface detection") {
+            CapabilityKeyValue("VK_EXT_swapchain_colorspace", when { device?.surfaceColorSpaceExtensionEnabled == true -> "Enabled"; device?.surfaceColorSpaceExtensionAvailable == true -> "Available but not enabled"; else -> "Not exposed" })
             val hdrPairs = device?.surfaceFormats?.count { it.classification == "HDR10 / PQ" || it.classification == "HDR10 / HLG" || it.classification == "Dolby Vision" } ?: 0
             val wideColorPairs = device?.surfaceFormats?.count { it.classification == "Display-P3" || it.classification == "Display-P3 / Linear" || it.classification == "BT.2020" || it.classification == "scRGB" || it.classification == "scRGB / Linear" } ?: 0
-            KeyValue("HDR color-space pairs", if (device?.surfacePresentationSupported != true) "Unavailable" else hdrPairs.toString())
-            KeyValue("Wide-color pairs", if (device?.surfacePresentationSupported != true) "Unavailable" else wideColorPairs.toString())
+            CapabilityKeyValue("HDR color-space pairs", if (device?.surfacePresentationSupported != true) "Unavailable" else hdrPairs.toString())
+            CapabilityKeyValue("Wide-color pairs", if (device?.surfacePresentationSupported != true) "Unavailable" else wideColorPairs.toString())
             Text(if (device?.surfaceFormatQuerySecondAttempted == true && device.surfaceFormatQueryResultSecond == 0) "Supported entries are returned directly by the completed surface-format enumeration. Catalog entries absent from that complete result are shown as not supported for this surface." else "Surface-format enumeration was not confirmed complete, so VulkanScope shows only returned entries and does not infer unsupported format/color-space pairs from missing results.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
         } }
-        item { SectionCard("Format + color-space pairs") {
+        item { CapabilitySectionCard("Format + color-space pairs") {
             if (filtered.isEmpty()) Text("No matching entries")
             filtered.forEach { format ->
                 Column(Modifier.padding(vertical = 5.dp)) {
@@ -2395,8 +2410,8 @@ private fun SurfacePage(device: DeviceReport?) {
                 }
             }
         } }
-        item { SectionCard("Present modes") { device?.presentModes?.forEach { Text(it) } } }
-        item { SectionCard("Presentation support") { device?.presentationQueues?.forEach { Text("Queue family ${it.first}: ${if (it.second) "PRESENT" else "NO PRESENT"}") } } }
+        item { CapabilitySectionCard("Present modes") { device?.presentModes?.forEach { Text(it) } } }
+        item { CapabilitySectionCard("Presentation support") { device?.presentationQueues?.forEach { Text("Queue family ${it.first}: ${if (it.second) "PRESENT" else "NO PRESENT"}") } } }
     }
 }
 
@@ -2449,22 +2464,24 @@ private fun FeaturesPage(device: DeviceReport?) {
     }
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
-            Text("Runtime feature support. Core 1.0, promoted core versions and extension-provided feature blocks remain distinguishable.", style = MaterialTheme.typography.bodySmall, color = ComposeColor(0xFF8F8F8F))
-            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), label = { Text("Search features") }, singleLine = true)
+            CapabilitySectionCard("Feature explorer") {
+            Text("Runtime feature support. Core 1.0, promoted core versions and extension-provided feature blocks remain distinguishable.", style = MaterialTheme.typography.bodySmall, color = ComposeColor(0xFFB6ACAE))
+            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), label = { Text("Search features") }, singleLine = true, shape = RoundedCornerShape(22.dp))
             SupportFilterRow(filter) { filter = it }
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 sources.forEach { source -> FilterChip(selected = sourceFilter == source, onClick = { sourceFilter = source }, label = { Text(source) }) }
             }
-            Text("${filtered.size} features", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(vertical = 6.dp))
+            Text("${filtered.size} features", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(vertical = 6.dp))
+            }
         }
         itemsIndexed(filtered, key = { index, feature -> "feature:${feature.name}:$index" }) { _, feature ->
-            Card(colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF111111)), shape = RoundedCornerShape(16.dp)) {
+            CapabilityItemCard {
                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(featureNameOnly(feature.name), fontWeight = FontWeight.Medium)
                         Text(featureSource(feature.name), color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelSmall)
                     }
-                    Text(if (feature.supported) "SUPPORTED" else "NOT SUPPORTED", fontWeight = FontWeight.SemiBold, color = if (feature.supported) ComposeColor(0xFF73C991) else ComposeColor(0xFFFF6B6B), style = MaterialTheme.typography.labelSmall)
+                    CapabilityStatusBadge(if (feature.supported) "SUPPORTED" else "NOT SUPPORTED", feature.supported)
                 }
             }
         }
@@ -2475,23 +2492,23 @@ private fun FeaturesPage(device: DeviceReport?) {
 @Composable
 private fun MemoryPage(device: DeviceReport?) {
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item { SectionCard("Memory heaps") {
+        item { CapabilitySectionCard("Memory heaps") {
             if (device?.heaps.isNullOrEmpty()) EmptyState("Memory heap data unavailable")
             device?.heaps?.forEach { heap ->
                 Column(Modifier.padding(vertical = 5.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text("Heap ${heap.index}", fontWeight = FontWeight.SemiBold)
-                    KeyValue("Size", formatBytes(heap.size))
-                    KeyValue("Flags", memoryHeapFlags(heap.flags))
+                    CapabilityKeyValue("Size", formatBytes(heap.size))
+                    CapabilityKeyValue("Flags", memoryHeapFlags(heap.flags))
                 }
             }
         } }
-        item { SectionCard("Memory types") {
+        item { CapabilitySectionCard("Memory types") {
             if (device?.memoryTypes.isNullOrEmpty()) EmptyState("Memory type data unavailable")
             device?.memoryTypes?.forEach { type ->
                 Column(Modifier.padding(vertical = 5.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text("Type ${type.index}", fontWeight = FontWeight.SemiBold)
-                    KeyValue("Heap", type.heap.toString())
-                    KeyValue("Properties", memoryTypeFlags(type.flags))
+                    CapabilityKeyValue("Heap", type.heap.toString())
+                    CapabilityKeyValue("Properties", memoryTypeFlags(type.flags))
                 }
             }
         } }
@@ -2502,22 +2519,22 @@ private fun MemoryPage(device: DeviceReport?) {
 private fun QueuesPage(device: DeviceReport?) {
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         items(device?.queues ?: emptyList(), key = { it.index }) { queue ->
-            SectionCard("Queue family ${queue.index}") {
-                KeyValue("Queue count", queue.count.toString())
-                KeyValue("Timestamp valid bits", queue.timestampBits.toString())
-                KeyValue("Capabilities", queueCapabilityFlags(queue.flags))
-                KeyValue("Graphics", if (queue.graphics) "YES" else "NO")
-                KeyValue("Compute", if (queue.compute) "YES" else "NO")
-                KeyValue("Transfer", if (queue.transfer) "YES" else "NO")
-                KeyValue("Sparse binding", if (queue.sparse) "YES" else "NO")
-                KeyValue("Protected", if (queue.protected) "YES" else "NO")
-                KeyValue("Video decode", if (queue.videoDecode) "YES" else "NO")
-                KeyValue("Video encode", if (queue.videoEncode) "YES" else "NO")
-                KeyValue("Optical flow", if (queue.opticalFlow) "YES" else "NO")
-                KeyValue("Data graph", if (queue.dataGraph) "YES" else "NO")
-                KeyValue("Min image transfer granularity", queue.granularity)
-                if (queue.unknownFlags != 0L) KeyValue("Unknown queue flag bits", "0x${queue.unknownFlags.toString(16).uppercase()}")
-                if (queue.videoCodecOperations != 0L) KeyValue("Video codec operations", videoCodecOperationsName(queue.videoCodecOperations))
+            CapabilitySectionCard("Queue family ${queue.index}") {
+                CapabilityKeyValue("Queue count", queue.count.toString())
+                CapabilityKeyValue("Timestamp valid bits", queue.timestampBits.toString())
+                CapabilityKeyValue("Capabilities", queueCapabilityFlags(queue.flags))
+                CapabilityKeyValue("Graphics", if (queue.graphics) "YES" else "NO")
+                CapabilityKeyValue("Compute", if (queue.compute) "YES" else "NO")
+                CapabilityKeyValue("Transfer", if (queue.transfer) "YES" else "NO")
+                CapabilityKeyValue("Sparse binding", if (queue.sparse) "YES" else "NO")
+                CapabilityKeyValue("Protected", if (queue.protected) "YES" else "NO")
+                CapabilityKeyValue("Video decode", if (queue.videoDecode) "YES" else "NO")
+                CapabilityKeyValue("Video encode", if (queue.videoEncode) "YES" else "NO")
+                CapabilityKeyValue("Optical flow", if (queue.opticalFlow) "YES" else "NO")
+                CapabilityKeyValue("Data graph", if (queue.dataGraph) "YES" else "NO")
+                CapabilityKeyValue("Min image transfer granularity", queue.granularity)
+                if (queue.unknownFlags != 0L) CapabilityKeyValue("Unknown queue flag bits", "0x${queue.unknownFlags.toString(16).uppercase()}")
+                if (queue.videoCodecOperations != 0L) CapabilityKeyValue("Video codec operations", videoCodecOperationsName(queue.videoCodecOperations))
             }
         }
         if (device?.queues.isNullOrEmpty()) item { EmptyState("Queue family data unavailable") }
@@ -2531,18 +2548,20 @@ private fun FormatsPage(device: DeviceReport?) {
     val filtered = remember(query, formats) { if (query.isBlank()) formats else formats.filter { it.name.contains(query, true) } }
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
-            Text("Implementation-reported format capabilities. Bitmasks are expanded to canonical Vulkan feature names; unknown bits remain visible in hexadecimal.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
-            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true, placeholder = { Text("Search formats…") })
-            Text("${filtered.size} formats", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(vertical = 6.dp))
+            CapabilitySectionCard("Format explorer") {
+            Text("Implementation-reported format capabilities. Bitmasks are expanded to canonical Vulkan feature names; unknown bits remain visible in hexadecimal.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
+            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true, shape = RoundedCornerShape(22.dp), placeholder = { Text("Search formats…") })
+            Text("${filtered.size} formats", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(vertical = 6.dp))
+            }
         }
         itemsIndexed(filtered, key = { index, format -> "format:${format.name}:$index" }) { _, format ->
-            Card(colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF111111)), shape = RoundedCornerShape(18.dp)) {
+            CapabilityItemCard {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(format.name, fontWeight = FontWeight.Medium)
-                    KeyValue("Status", if (format.supported) "SUPPORTED" else "NOT SUPPORTED")
-                    KeyValue("Linear", formatFeatureFlags(format.linear))
-                    KeyValue("Optimal", formatFeatureFlags(format.optimal))
-                    KeyValue("Buffer", formatFeatureFlags(format.buffer))
+                    CapabilityKeyValue("Status", if (format.supported) "SUPPORTED" else "NOT SUPPORTED")
+                    CapabilityKeyValue("Linear", formatFeatureFlags(format.linear))
+                    CapabilityKeyValue("Optimal", formatFeatureFlags(format.optimal))
+                    CapabilityKeyValue("Buffer", formatFeatureFlags(format.buffer))
                 }
             }
         }
@@ -2570,15 +2589,17 @@ private fun PropertiesPage(device: DeviceReport?, onRequestQuery: (String) -> Un
     }
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
-            Text("Physical-device properties and limits are shown only from runtime Vulkan queries. Advanced query groups keep their explicit availability state.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
-            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true, placeholder = { Text("Search properties and limits…") })
+            CapabilitySectionCard("Properties & limits explorer") {
+            Text("Physical-device properties and limits are shown only from runtime Vulkan queries. Advanced query groups keep their explicit availability state.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
+            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true, shape = RoundedCornerShape(22.dp), placeholder = { Text("Search properties and limits…") })
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 sections.forEach { section -> FilterChip(selected = filter == section, onClick = { filter = section }, label = { Text(section) }) }
+            }
             }
         }
         if (filter == "Limits") {
             limitGroups.toSortedMap().forEach { (category, entries) ->
-                item { SectionCard(category) {
+                item { CapabilitySectionCard(category) {
                     val visible = entries.filter { query.isBlank() || it.first.contains(query, true) || it.second.contains(query, true) }
                     if (visible.isEmpty()) Text("No matching limits", color = ComposeColor(0xFF9E9E9E))
                     visible.forEach { (name, value) ->
@@ -2598,7 +2619,7 @@ private fun PropertiesPage(device: DeviceReport?, onRequestQuery: (String) -> Un
                     else -> "Vulkan 1.4 properties were queried from the active physical device."
                 }
                 if (properties.none { it.section == "Core 1.4" }) {
-                    item { SectionCard("Vulkan 1.4 status") { Text(message, color = ComposeColor(0xFFFFC857)) } }
+                    item { CapabilitySectionCard("Vulkan 1.4 status") { Text(message, color = ComposeColor(0xFFFFC857)) } }
                 }
             }
             item {
@@ -2606,7 +2627,7 @@ private fun PropertiesPage(device: DeviceReport?, onRequestQuery: (String) -> Un
                 Text("${filtered.size} query results · $uniqueNames unique property names", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelMedium)
             }
             itemsIndexed(filtered, key = { index, property -> "${property.section}:${property.name}:$index" }) { _, property ->
-                Card(colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF111111)), shape = RoundedCornerShape(16.dp)) {
+                CapabilityItemCard {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text(property.name, fontWeight = FontWeight.Medium)
                         Text(property.section, color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelSmall)
@@ -2893,26 +2914,28 @@ private fun ProfilesPage(report: VulkanReport, device: DeviceReport?) {
     val filtered = results.filter { it.name.contains(query, true) }
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
-            Text("Profile support is evaluated only from runtime Vulkan values. Missing query data is UNKNOWN, never inferred as unsupported.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
-            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true, placeholder = { Text("Search profiles…") })
+            CapabilitySectionCard("Profile explorer") {
+            Text("Profile support is evaluated only from runtime Vulkan values. Missing query data is UNKNOWN, never inferred as unsupported.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
+            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true, shape = RoundedCornerShape(22.dp), placeholder = { Text("Search profiles…") })
+            }
         }
         items(filtered) { result ->
             val req = profiles.first { it.name == result.name }
-            Card(colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF111111)), shape = RoundedCornerShape(16.dp)) {
+            CapabilityItemCard {
                 Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(result.name, modifier = Modifier.weight(1f), fontWeight = FontWeight.Medium)
-                        Text(result.status, fontWeight = FontWeight.Bold, color = when (result.status) { "PASS" -> ComposeColor(0xFF73C991); "FAIL" -> ComposeColor(0xFFFF6B6B); else -> ComposeColor(0xFFFFC857) })
+                        CapabilityStatusBadge(result.status, when (result.status) { "PASS" -> true; "FAIL" -> false; else -> null })
                     }
                     Text("${req.revision} · Vulkan ${req.minApiMinor}.0 minimum", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium)
                     Text(profileSummary(result), style = MaterialTheme.typography.bodySmall)
-                    if (result.missingExtensions.isNotEmpty()) KeyValue("Missing extensions", result.missingExtensions.joinToString(", "))
-                    if (result.missingFeatures.isNotEmpty()) KeyValue("Unsupported features", result.missingFeatures.joinToString(", "))
-                    if (result.unknownFeatures.isNotEmpty()) KeyValue("Unavailable feature queries", result.unknownFeatures.joinToString(", "))
-                    if (result.failingLimits.isNotEmpty()) KeyValue("Failing limits", result.failingLimits.joinToString("; "))
-                    if (result.unknownLimits.isNotEmpty()) KeyValue("Unavailable limits", result.unknownLimits.joinToString(", "))
-                    if (result.failingBooleanLimits.isNotEmpty()) KeyValue("Failing boolean limits", result.failingBooleanLimits.joinToString("; "))
-                    if (result.unknownBooleanLimits.isNotEmpty()) KeyValue("Unavailable boolean limits", result.unknownBooleanLimits.joinToString(", "))
+                    if (result.missingExtensions.isNotEmpty()) CapabilityKeyValue("Missing extensions", result.missingExtensions.joinToString(", "))
+                    if (result.missingFeatures.isNotEmpty()) CapabilityKeyValue("Unsupported features", result.missingFeatures.joinToString(", "))
+                    if (result.unknownFeatures.isNotEmpty()) CapabilityKeyValue("Unavailable feature queries", result.unknownFeatures.joinToString(", "))
+                    if (result.failingLimits.isNotEmpty()) CapabilityKeyValue("Failing limits", result.failingLimits.joinToString("; "))
+                    if (result.unknownLimits.isNotEmpty()) CapabilityKeyValue("Unavailable limits", result.unknownLimits.joinToString(", "))
+                    if (result.failingBooleanLimits.isNotEmpty()) CapabilityKeyValue("Failing boolean limits", result.failingBooleanLimits.joinToString("; "))
+                    if (result.unknownBooleanLimits.isNotEmpty()) CapabilityKeyValue("Unavailable boolean limits", result.unknownBooleanLimits.joinToString(", "))
                 }
             }
         }
@@ -3214,18 +3237,20 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
     val total = filteredSupported.size + filteredCatalog.size
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         item {
-            Text("Runtime-enumerated extensions are shown exactly as reported. Registry references are never labeled unsupported.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
+            CapabilitySectionCard("Extension explorer") {
+            Text("Runtime-enumerated extensions are shown exactly as reported. Registry references are never labeled unsupported.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
             if (device != null && device.deviceExtensionStatus != "available") {
                 Text("Device extension enumeration: ${device.deviceExtensionStatus.uppercase()}${if (device.deviceExtensionReason.isBlank()) "" else " — ${device.deviceExtensionReason}"}", color = ComposeColor(0xFFFFD76B), style = MaterialTheme.typography.bodySmall)
             }
-            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true, placeholder = { Text("Search Vulkan extension names") })
+            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true, shape = RoundedCornerShape(22.dp), placeholder = { Text("Search Vulkan extension names") })
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("All", "Supported", "Not enumerated").forEach { value -> FilterChip(selected = filter == value, onClick = { filter = value }, label = { Text(value) }) }
             }
-            Text("$total entries", modifier = Modifier.padding(vertical = 6.dp), color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelMedium)
+            Text("$total entries", modifier = Modifier.padding(vertical = 6.dp), color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.labelMedium)
+            }
         }
         items(filteredSupported, key = { "supported:${it.scope}:${it.name}:${it.specVersion}" }) { extension ->
-            Card(colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF111111)), shape = RoundedCornerShape(18.dp)) {
+            CapabilityItemCard {
                 Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(extension.name, fontWeight = FontWeight.SemiBold)
                     Text("SUPPORTED · ${extension.scope} · spec ${extension.specVersion}", color = ComposeColor(0xFF73C991), style = MaterialTheme.typography.labelSmall)
@@ -3233,7 +3258,7 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
             }
         }
         items(filteredCatalog, key = { "catalog:$it" }) { name ->
-            Card(colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF17130A)), shape = RoundedCornerShape(18.dp)) {
+            CapabilityItemCard(containerColor = ComposeColor(0xFF211B12)) {
                 Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(name, fontWeight = FontWeight.SemiBold)
                     Text("NOT ENUMERATED · registry reference only", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.labelSmall)
@@ -3255,9 +3280,11 @@ private fun technicalReportJson(context: Context, report: VulkanReport, display:
     put("display", JSONObject().apply {
         put("resolution", display.resolution)
         put("refreshRate", display.refreshRate)
-        put("wideGamut", display.wideGamut)
+        put("wideGamut", display.wideGamut ?: JSONObject.NULL)
         put("preferredWideGamut", display.preferredWideGamut)
+        put("preferredWideGamutColorSpace", display.preferredWideGamut)
         put("hdrTypes", JSONArray(display.hdrTypes))
+        put("hdrCapabilityStatus", display.hdrCapabilityStatus)
         put("minLuminance", display.minLuminance)
         put("maxLuminance", display.maxLuminance)
         put("averageLuminance", display.averageLuminance)
@@ -3515,9 +3542,10 @@ private fun reportToText(context: Context, report: VulkanReport, display: Displa
     appendLine("Driver mode: ${mode.label}")
     appendLine("Loader / instance API: ${report.loaderVersion}")
     appendLine("Display: ${display.resolution} @ ${display.refreshRate}")
-    appendLine("Wide gamut: ${display.wideGamut}")
-    appendLine("Preferred wide gamut: ${display.preferredWideGamut}")
-    appendLine("HDR types: ${display.hdrTypes.joinToString(", ")}")
+    appendLine("Wide gamut: ${display.wideGamut?.toString() ?: "Unavailable"}")
+    appendLine("Preferred wide-gamut color space: ${display.preferredWideGamut}")
+    appendLine("HDR capability status: ${display.hdrCapabilityStatus}")
+    appendLine("HDR types: ${display.hdrTypes.joinToString(", ").ifBlank { "Unavailable" }}")
     appendLine("HDR luminance: min=${display.minLuminance}, max=${display.maxLuminance}, average=${display.averageLuminance}")
     appendLine("Display modes: ${display.modes.joinToString(" | ").ifBlank { "Not exposed" }}")
     appendLine("Android: ${Build.MANUFACTURER} ${Build.MODEL}, ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
@@ -3605,7 +3633,7 @@ private fun reportToHtml(context: Context, report: VulkanReport, display: Displa
     metric("Driver", mode.label)
     metric("Loader / instance API", report.loaderVersion)
     metric("Display", "${display.resolution} @ ${display.refreshRate}")
-    metric("HDR", display.hdrTypes.joinToString(", ").ifBlank { "Not exposed" })
+    metric("HDR", display.hdrTypes.joinToString(", ").ifBlank { "Unavailable" })
     append("</div>")
     if (report.error != null) append("<p><span class=\"badge no\">ERROR</span> ${htmlEscape(report.error)}</p>")
     append("</div>")
@@ -3643,8 +3671,8 @@ private fun reportToHtml(context: Context, report: VulkanReport, display: Displa
     table("Android / display", "<th>Property</th><th>Value</th>", listOf(
         "Manufacturer" to htmlEscape(Build.MANUFACTURER), "Model" to htmlEscape(Build.MODEL), "Android" to htmlEscape(Build.VERSION.RELEASE),
         "SDK" to Build.VERSION.SDK_INT.toString(), "Resolution" to htmlEscape(display.resolution),
-        "Refresh rate" to htmlEscape(display.refreshRate), "Wide gamut" to statusBadge(display.wideGamut.toString()),
-        "Preferred wide gamut" to htmlEscape(display.preferredWideGamut), "HDR types" to htmlEscape(display.hdrTypes.joinToString(", ").ifBlank { "Not exposed" }),
+        "Refresh rate" to htmlEscape(display.refreshRate), "Wide gamut" to statusBadge(display.wideGamut?.toString() ?: "Unavailable"),
+        "Preferred wide-gamut color space" to htmlEscape(display.preferredWideGamut), "HDR capability status" to statusBadge(display.hdrCapabilityStatus), "HDR types" to htmlEscape(display.hdrTypes.joinToString(", ").ifBlank { "Unavailable" }),
         "HDR min luminance" to htmlEscape(display.minLuminance), "HDR max luminance" to htmlEscape(display.maxLuminance), "HDR average luminance" to htmlEscape(display.averageLuminance),
         "Display modes" to htmlEscape(display.modes.joinToString(" | ").ifBlank { "Not exposed" })
     ))
@@ -3699,11 +3727,11 @@ private fun reportToHtml(context: Context, report: VulkanReport, display: Displa
             "Surface available" to statusBadge(if (d.surfaceAvailable) "AVAILABLE" else "UNAVAILABLE"),
             "Presentation supported" to statusBadge(if (d.surfacePresentationSupported) "SUPPORTED" else "NOT SUPPORTED"),
             "Color-space extension available" to statusBadge(if (d.surfaceColorSpaceExtensionAvailable) "AVAILABLE" else "UNAVAILABLE"),
-            "Color-space extension enabled" to statusBadge(if (d.surfaceColorSpaceExtensionEnabled) "SUPPORTED" else "NOT SUPPORTED"),
+            "Color-space extension enabled" to htmlEscape(d.surfaceColorSpaceExtensionEnabled.toString()),
             "Format query first result" to htmlEscape(d.surfaceFormatQueryResult.toString()),
             "Format query second result" to htmlEscape(d.surfaceFormatQueryResultSecond.toString()),
-            "Second query attempted" to statusBadge(d.surfaceFormatQuerySecondAttempted.toString()),
-            "Safety rejected" to statusBadge(d.surfaceFormatQuerySafetyRejected.toString())
+            "Second query attempted" to htmlEscape(d.surfaceFormatQuerySecondAttempted.toString()),
+            "Safety rejected" to htmlEscape(d.surfaceFormatQuerySafetyRejected.toString())
         ) + d.surfaceCapabilities.map { it.first to htmlEscape(it.second) })
         table("Surface formats / color spaces", "<th>Format / color space</th><th>Status / description</th>", d.surfaceFormats.map { "${it.format} / ${it.colorSpace}" to "${statusBadge(if (it.supported) "SUPPORTED" else "NOT SUPPORTED")} ${htmlEscape("${it.classification}; ${it.description}")}" })
         table("Present modes", "<th>Mode</th><th>Status</th>", d.presentModes.map { it to statusBadge("SUPPORTED") })
@@ -3717,10 +3745,10 @@ private enum class SupportFilter { ALL, SUPPORTED, UNSUPPORTED }
 
 @Composable
 private fun SupportFilterRow(selected: SupportFilter, onSelected: (SupportFilter) -> Unit) {
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(selected = selected == SupportFilter.ALL, onClick = { onSelected(SupportFilter.ALL) }, label = { Text("All") })
-        FilterChip(selected = selected == SupportFilter.SUPPORTED, onClick = { onSelected(SupportFilter.SUPPORTED) }, label = { Text("Supported") })
-        FilterChip(selected = selected == SupportFilter.UNSUPPORTED, onClick = { onSelected(SupportFilter.UNSUPPORTED) }, label = { Text("Not supported") })
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(selected = selected == SupportFilter.ALL, onClick = { onSelected(SupportFilter.ALL) }, shape = RoundedCornerShape(999.dp), label = { Text("All") })
+        FilterChip(selected = selected == SupportFilter.SUPPORTED, onClick = { onSelected(SupportFilter.SUPPORTED) }, shape = RoundedCornerShape(999.dp), label = { Text("Supported") })
+        FilterChip(selected = selected == SupportFilter.UNSUPPORTED, onClick = { onSelected(SupportFilter.UNSUPPORTED) }, shape = RoundedCornerShape(999.dp), label = { Text("Not supported") })
     }
 }
 
@@ -4009,6 +4037,108 @@ private fun EmptyState(message: String) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(message) }
 }
 
+private fun capabilitySectionIcon(title: String): Int = when {
+    title.contains("quick access", true) || title.contains("explore", true) -> R.drawable.ic_home
+    title.contains("snapshot", true) || title.contains("inspection", true) -> R.drawable.ic_vulkan
+    title.startsWith("Vulkan", true) -> R.drawable.ic_vulkan
+    title.contains("display", true) || title.contains("HDR", true) -> R.drawable.ic_display
+    title.contains("surface", true) || title.contains("present", true) -> R.drawable.ic_surface
+    title.contains("feature", true) -> R.drawable.ic_features
+    title.contains("memory", true) || title.startsWith("Heap", true) -> R.drawable.ic_memory
+    title.contains("queue", true) -> R.drawable.ic_queues
+    title.contains("format", true) || title.contains("color space", true) -> R.drawable.ic_formats
+    title.contains("extension", true) || title.contains("layer", true) || title.contains("profile", true) -> R.drawable.ic_extensions
+    title.contains("property", true) || title.contains("limit", true) || title.contains("runtime", true) || title.contains("operating system", true) -> R.drawable.ic_properties
+    else -> R.drawable.ic_info
+}
+
+@Composable
+private fun CapabilitySectionCard(title: String, content: @Composable () -> Unit) {
+    Surface(
+        color = ComposeColor(0xFF181516),
+        shape = RoundedCornerShape(30.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Surface(shape = RoundedCornerShape(18.dp), color = ComposeColor(0xFF351B20)) {
+                    Icon(
+                        painter = painterResource(capabilitySectionIcon(title)),
+                        contentDescription = null,
+                        tint = ComposeColor(0xFFFF7A88),
+                        modifier = Modifier.padding(10.dp).size(21.dp)
+                    )
+                }
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = ComposeColor(0xFFF7F2F3),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            HorizontalDivider(color = ComposeColor(0xFF2A2527))
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { content() }
+        }
+    }
+}
+
+@Composable
+private fun CapabilityItemCard(
+    containerColor: ComposeColor = ComposeColor(0xFF181516),
+    content: @Composable () -> Unit
+) {
+    Surface(color = containerColor, shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth()) { content() }
+    }
+}
+
+@Composable
+private fun CapabilityKeyValue(key: String, value: String) {
+    val stacked = value.length > 54 || value.contains("\n")
+    Surface(color = ComposeColor(0xFF211E1F), shape = RoundedCornerShape(17.dp), modifier = Modifier.fillMaxWidth()) {
+        if (stacked) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(key, color = ComposeColor(0xFF968D8F), style = MaterialTheme.typography.labelSmall)
+                Text(value, color = ComposeColor(0xFFE7DFE1), style = MaterialTheme.typography.bodySmall)
+            }
+        } else {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                Text(key, color = ComposeColor(0xFF968D8F), style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(0.92f))
+                Text(
+                    value,
+                    color = ComposeColor(0xFFE7DFE1),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                    modifier = Modifier.weight(1.08f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CapabilityStatusBadge(label: String, positive: Boolean? = null) {
+    val background = when (positive) {
+        true -> ComposeColor(0xFF173421)
+        false -> ComposeColor(0xFF3A1D20)
+        null -> ComposeColor(0xFF332A16)
+    }
+    val foreground = when (positive) {
+        true -> ComposeColor(0xFF73C991)
+        false -> ComposeColor(0xFFFF8A8A)
+        null -> ComposeColor(0xFFFFC857)
+    }
+    Surface(shape = RoundedCornerShape(999.dp), color = background) {
+        Text(label, color = foreground, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp))
+    }
+}
+
 @Composable
 private fun SectionCard(title: String, content: @Composable () -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF121212)), shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
@@ -4135,10 +4265,12 @@ private fun ExpressiveInfoPill(label: String, value: String, modifier: Modifier 
 
 @Composable
 private fun MetricCard(title: String, value: String, modifier: Modifier) {
-    Card(colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF121212)), shape = RoundedCornerShape(22.dp), modifier = modifier) {
-        Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(title, color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelMedium)
-            Text(value, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Surface(color = ComposeColor(0xFF181516), shape = RoundedCornerShape(26.dp), modifier = modifier) {
+        Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Surface(shape = RoundedCornerShape(999.dp), color = ComposeColor(0xFF2A2022)) {
+                Text(title, color = ComposeColor(0xFFFF9AA5), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp))
+            }
+            Text(value, color = ComposeColor(0xFFF7F2F3), fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }

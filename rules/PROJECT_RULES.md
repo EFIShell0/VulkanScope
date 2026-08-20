@@ -215,3 +215,24 @@
 - Driver and package controls become interactive again only after the complete Vulkan collection pass has finished.
 - The disabled state must be visually explicit and must not synthesize a different Turnip support result; it is a temporary collection-state gate only.
 - This rule supersedes only the 0.33.0 Settings enablement clause. The underlying 0.32.4 Turnip/SAF behavior remains the reference implementation.
+
+
+## Release 0.33.2 capability-page Material 3 Expressive redesign
+- The earlier Info/Settings-only visual-scope restriction is superseded for Overview, Vulkan, Display & HDR, Surface, Features, Memory, Queues, Formats, Properties & Limits, Extensions, and Profiles by the explicit 0.33.2 redesign request.
+- Info and Settings remain the visual reference and must not lose their established action hierarchy, touch targets, or content.
+- Capability pages must use the same dark neutral + rose/red Material 3 Expressive language: rounded expressive containers, clear icon/title hierarchy, readable grouped values, compact status treatments, and consistent spacing.
+- Visual redesign must not remove, truncate from the underlying data model, synthesize, merge, or reinterpret any Vulkan/Android capability information. Long technical values must remain fully available through wrapping rather than destructive omission.
+- Supported, unsupported, available, unavailable/not applicable, and unknown/not queried remain semantically distinct. Styling must never change capability meaning.
+- Search, filter, navigation, collection, export, Database, Turnip/SAF, update, and native query behavior are outside the redesign and must remain functionally unchanged.
+- Shared top app bar and navigation geometry remain stable; the redesign applies to destination content surfaces.
+
+## Release 0.33.3 full application audit
+- VulkanScope Database 0.35.3 remains the current consumer compatibility target. Existing schema-v2 envelope and schema-v3 technicalReport fields must remain backward-compatible; additive fields may clarify semantics without removing legacy keys.
+- Android display capability states must preserve evidence: `Display.isWideColorGamut == false` is Unsupported, not Unavailable/Not exposed. An empty reported HDR type list remains Unavailable to match VulkanScope Database 0.35.3 semantics; it must not be promoted to Unsupported without a separate explicit support-state signal.
+- The structured display object keeps legacy `preferredWideGamut` and additionally emits `preferredWideGamutColorSpace`; it also emits `hdrCapabilityStatus` so future consumers need not infer HDR availability from an empty list.
+- A `Surface` parcel received by the isolated Vulkan probe service is owned by that service-side parcel and must be released after the queued native probe completes, succeeds, or fails. The Activity-owned SurfaceView surface must never be released by the service rule.
+- Probe checkpoint polling must not repeatedly read and parse an unchanged potentially large JSON checkpoint. File length/mtime changes gate parsing; polling waits when unchanged.
+- Present-mode enumeration uses its dedicated bounded count and must not accidentally reuse the larger surface-format bound.
+- Current upstream terminology must distinguish the published Khronos Vulkan specification from VulkanScope's independently pinned staging producer/query baseline. As checked on 2026-08-20, the published specification is Vulkan 1.4.358; VulkanScope's project baseline remains the separately validated header/query staging revision 1.4.360.
+- No Turnip/SAF implementation change is introduced by this audit. The 0.32.4-restored Turnip/SAF internals and the 0.33.1 collection-state UI gate remain intact.
+

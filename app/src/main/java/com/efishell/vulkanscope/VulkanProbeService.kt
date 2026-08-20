@@ -75,6 +75,7 @@ class VulkanProbeService : Service() {
                     "{\"status\":\"unavailable\",\"group\":${org.json.JSONObject.quote(group)},\"reason\":${org.json.JSONObject.quote(t.message ?: "Vulkan query failed")},\"devices\":[]}"
                 })
             } finally {
+                surface?.release()
                 stopSelfResult(startId)
             }
         }
@@ -93,6 +94,7 @@ class VulkanProbeService : Service() {
                 Files.move(temp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
             }
         }.onFailure { error ->
+            runCatching { File(path + ".tmp").delete() }
             Log.e("VulkanProbeWork", "Unable to publish Vulkan probe result", error)
         }
     }

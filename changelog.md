@@ -1,3 +1,23 @@
+# 0.33.3
+
+- Full application/reporting/lifecycle audit against PROJECT_RULES and VulkanScope Database 0.35.3.
+- Fixed isolated probe service Surface parcel lifetime cleanup.
+- Reduced repeated checkpoint JSON parsing/allocation while collection is still running.
+- Corrected wide-gamut and HDR unavailable/unsupported semantics across UI, TXT, HTML and structured Database reports, including API 24-25 where wide-gamut capability cannot be queried.
+- Added additive display semantic fields for Database consumers while preserving existing schema-v3 keys.
+- Preserved finite 0.0 HDR luminance instead of misclassifying it as unavailable; only Android's invalid luminance sentinel/non-finite values are treated as not exposed.
+- Corrected HTML Surface diagnostic booleans so scalar true/false values are not mislabeled Supported/Unsupported.
+- Corrected the present-mode safety bound and current Khronos published-spec wording.
+- Updated stale README/source-baseline metadata to the 0.33.3/current pinned staging baseline.
+- Turnip/SAF behavior remains unchanged from the restored 0.32.4 implementation plus the 0.33.1 collection gate.
+
+# 0.33.2
+
+- Extended the Material 3 Expressive visual system from Info/Settings to all capability pages.
+- Added expressive icon-led section headers, grouped key/value surfaces, refined overview metrics/quick access, and consistent dense-record cards.
+- Preserved full technical values with wrapping and kept all capability-state semantics unchanged.
+- No intentional query/report/Turnip/SAF/export/update/Database behavior changes.
+
 # VulkanScope 0.33.1
 
 - System/Turnip driver selection and Turnip ZIP import are now disabled until the complete Vulkan collection pass finishes, matching TXT/HTML/Database report gating.

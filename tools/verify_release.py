@@ -8,8 +8,8 @@ errors = []
 gradle = (root / 'app/build.gradle.kts').read_text(encoding='utf-8')
 version = re.search(r'versionName\s*=\s*"([^"]+)"', gradle)
 code = re.search(r'versionCode\s*=\s*(\d+)', gradle)
-if not version or version.group(1) != '0.33.1': errors.append('versionName mismatch')
-if not code or code.group(1) != '331': errors.append('versionCode mismatch')
+if not version or version.group(1) != '0.33.3': errors.append('versionName mismatch')
+if not code or code.group(1) != '333': errors.append('versionCode mismatch')
 abi_line = re.search(r'abiFilters \+= listOf\(([^\n]+)\)', gradle)
 if not abi_line or any(x not in abi_line.group(1) for x in ['arm64-v8a', 'armeabi-v7a', 'x86_64']): errors.append('required ABI set is incomplete')
 if '"x86"' in gradle: errors.append('x86 ABI must remain excluded')
@@ -179,6 +179,21 @@ if 'getPhysicalDeviceProperties(devices[i], raw.data())' in cpp or 'getPhysicalD
     errors.append('physical-device properties must use canonical VkPhysicalDeviceProperties storage')
 
 probe_service = (root / 'app/src/main/java/com/efishell/vulkanscope/VulkanProbeService.kt').read_text(encoding='utf-8')
+
+for needle in [
+    'val hdrCapabilityStatus: String = "unavailable"',
+    'val wideGamut: Boolean?',
+    'Display.HdrCapabilities.INVALID_LUMINANCE',
+    'periodicRefreshDue',
+    'put("hdrCapabilityStatus", display.hdrCapabilityStatus)',
+    'put("preferredWideGamutColorSpace", display.preferredWideGamut)',
+    'resultLength != lastObservedLength || resultModified != lastObservedModified'
+]:
+    if needle not in kt: errors.append(f'missing 0.33.3 reporting/runtime audit fix: {needle}')
+if 'surface?.release()' not in probe_service:
+    errors.append('isolated probe Surface parcel must be released deterministically')
+if 'pmc <= kMaxPresentModeEntries' not in cpp:
+    errors.append('present-mode enumeration must use the dedicated safety bound')
 if 'ATOMIC_MOVE' not in probe_service and 'renameTo(file)' not in probe_service:
     errors.append('probe result publication must be atomic')
 if 'VK_MAX_MEMORY_HEAPS' not in cpp or 'VK_MAX_MEMORY_TYPES' not in cpp:

@@ -2190,7 +2190,7 @@ std::string collect(jobject surfaceObject, JNIEnv* env, const char* driverMode, 
             out << ",\"presentModes\":[";
             uint32_t pmc = 0;
             VkResult pmr = api.getPhysicalDeviceSurfacePresentModesKHR ? api.getPhysicalDeviceSurfacePresentModesKHR(device, liveSurface, &pmc, nullptr) : VK_ERROR_EXTENSION_NOT_PRESENT;
-            if ((pmr == VK_SUCCESS || pmr == VK_INCOMPLETE) && pmc <= kMaxSurfaceFormatEntries) {
+            if ((pmr == VK_SUCCESS || pmr == VK_INCOMPLETE) && pmc <= kMaxPresentModeEntries) {
                 std::vector<VkPresentModeKHR> modes(pmc);
                 if (pmc > 0) pmr = api.getPhysicalDeviceSurfacePresentModesKHR(device, liveSurface, &pmc, modes.data());
                 for (uint32_t mi = 0; mi < pmc && mi < modes.size(); ++mi) {

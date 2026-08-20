@@ -1,15 +1,16 @@
-# VulkanScope 0.33.1
+# VulkanScope 0.33.3
 
-## Complete-collection driver gate
+Full application engineering audit release.
 
-System Vulkan driver selection, Turnip / third-party driver selection, and Turnip ZIP import now remain disabled while the complete Vulkan collection pass is active. They unlock together with TXT, HTML, and Database complete-report actions once collection finishes.
+## Fixes
+- Deterministic cleanup of the service-side Surface parcel used by isolated Vulkan probes.
+- Lower CPU/RAM churn while waiting for large base-report checkpoints: unchanged checkpoint files are no longer repeatedly read and parsed.
+- Correct Android display semantics: on API 26+ wide-gamut `false` is Unsupported, while API 24-25 where the API is unavailable remains Unavailable; empty reported HDR type sets remain Unavailable to match Database 0.35.3 semantics.
+- UI, TXT, HTML and schema-v3 Database payload now preserve the same display/HDR state model.
+- Added `hdrCapabilityStatus` and `preferredWideGamutColorSpace` additively while keeping fields consumed by VulkanScope Database 0.35.3.
+- Android HDR luminance uses the explicit invalid sentinel rather than dropping a valid finite 0.0 value.
+- HTML Surface diagnostic booleans stay literal scalar values instead of being mislabeled as support states.
+- Present-mode enumeration uses the dedicated safety bound.
+- Documentation now distinguishes the currently published Khronos Vulkan 1.4.358 specification from VulkanScope's independently pinned/validated 1.4.360 producer/query staging baseline.
 
-This is an interactivity gate only: the restored 0.32.4 Turnip/SAF implementation itself remains unchanged.
-
-## Turnip / SAF full restoration
-
-This release restores the complete Turnip/SAF path to the known-working VulkanScope 0.32.4 implementation. The restoration covers the Storage Access Framework picker, ZIP import flow, driver-mode switching, installed Turnip library discovery, and the Settings driver/import controls.
-
-The native Turnip loader integration was already identical to 0.32.4 and remains unchanged.
-
-Later independent improvements are preserved: Vulkan 1.4.360 query coverage, HDR logo/capability presentation, update confirmation, exact structured report data, TXT/HTML complete-report gating, and VulkanScope Database compatibility.
+Turnip/SAF internals are unchanged.
