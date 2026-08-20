@@ -28,7 +28,15 @@ The native collector queries the installed Android Vulkan loader and physical de
 
 <p align="center">
   <img src="screenshots/7.png" width="500">
+  <img src="screenshots/0.22.7-7.png" width="500">
+  <img src="screenshots/database.png" width="500">
 </p>
+
+**NOTE: The first landscape image was taken from BlueStacks, and VM (hypervisor) software like BlueStacks, MuMuPlayer, LDPlayer, QEMU etc. is not supported.**
+
+**NOTE 2: The last landscape photo is a screenshot of the database website.**
+
+Database link: https://efishell0.github.io/VulkanScope_database/
 
 
 The Surface page reports exact format and color-space pairs, present modes, surface capabilities and queue-family presentation support. The Display & HDR page separately reports Android display HDR types, luminance, wide-color capability, preferred wide-gamut color space and display modes.
