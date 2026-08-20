@@ -51,8 +51,8 @@ A capability that was not queried or could not be determined is not silently con
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/1-0.33.3.jpg" width="200">
-  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/2-0.33.3.jpg" width="200">
-  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/3-0.33.3.jpg" width="200">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/properties.jpg" width="200">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/vulkan.jpg" width="200">
 </p>
 
 <p align="center">
