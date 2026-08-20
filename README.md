@@ -51,8 +51,8 @@ A capability that was not queried or could not be determined is not silently con
 
 <p align="center">
   <img src="screenshots/1-0.33.3.jpg" width="200">
-  <img src="screenshots/2-0.33.3.jpg" width="200">
-  <img src="screenshots/3-0.33.3.jpg" width="200">
+  <img src="screenshots/properties.jpg" width="200">
+  <img src="screenshots/vulkan.jpg" width="200">
 </p>
 
 <p align="center">
