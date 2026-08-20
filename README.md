@@ -50,20 +50,20 @@ A capability that was not queried or could not be determined is not silently con
 # Screenshots
 
 <p align="center">
-  <img src="screenshots/0.22.7-1.jpg" width="200">
-  <img src="screenshots/0.22.7-2.jpg" width="200">
-  <img src="screenshots/0.22.7-3.jpg" width="200">
+  <img src="screenshots/1-0.33.3.jpg" width="200">
+  <img src="screenshots/2-0.33.3.jpg" width="200">
+  <img src="screenshots/3-0.33.3-3.jpg" width="200">
 </p>
 
 <p align="center">
-  <img src="screenshots/0.22.7-4.jpg" width="200">
-  <img src="screenshots/0.22.7-5.jpg" width="200">
-  <img src="screenshots/0.22.7-6.jpg" width="200">
+  <img src="screenshots/4-0.33.3.jpg" width="200">
+  <img src="screenshots/5-0.33.3.jpg" width="200">
+  <img src="screenshots/6.0.33.3.jpg" width="200">
 </p>
 
 <p align="center">
-  <img src="screenshots/0.22.7-7.png" width="500">
-  <img src="screenshots/database.png" width="500">
+  <img src="screenshots/7-0.33.3.png" width="500">
+  <img src="screenshots/database_new.png" width="500">
 </p>
 
 **NOTE: The first landscape image was taken from BlueStacks, and VM (hypervisor) software like BlueStacks, MuMuPlayer, LDPlayer, QEMU etc. is not supported.**
