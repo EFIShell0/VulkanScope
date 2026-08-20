@@ -50,20 +50,20 @@ A capability that was not queried or could not be determined is not silently con
 # Screenshots
 
 <p align="center">
-  <img src="screenshots/1-0.33.3.jpg" width="200">
-  <img src="screenshots/2-0.33.3.jpg" width="200">
-  <img src="screenshots/3-0.33.3.jpg" width="200">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/1-0.33.3.jpg" width="200">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/2-0.33.3.jpg" width="200">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/3-0.33.3.jpg" width="200">
 </p>
 
 <p align="center">
-  <img src="screenshots/4-0.33.3.jpg" width="200">
-  <img src="screenshots/5-0.33.3.jpg" width="200">
-  <img src="screenshots/6.0.33.3.jpg" width="200">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/4-0.33.3.jpg" width="200">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/5-0.33.3.jpg" width="200">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/6-0.33.3.jpg" width="200">
 </p>
 
 <p align="center">
-  <img src="screenshots/7-0.33.3.png" width="500">
-  <img src="screenshots/database_new.png" width="500">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/7-0.33.3.png" width="500">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/database_new.png" width="500">
 </p>
 
 **NOTE: The first landscape image was taken from MuMuPlayer, and VM (hypervisor) software like BlueStacks, MuMuPlayer, LDPlayer, QEMU etc. is not supported.**
