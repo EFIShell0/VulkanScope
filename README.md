@@ -63,7 +63,7 @@ A capability that was not queried or could not be determined is not silently con
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/mumuplayer.png" width="500">
-  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/database_0.35.6.png" width="500">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/database_0.36.0.png" width="500">
 </p>
 
 **NOTE: The first landscape image was taken from MuMuPlayer, and VM (hypervisor) software like BlueStacks, MuMuPlayer, LDPlayer, QEMU etc. is not supported.**
