@@ -8,8 +8,8 @@ errors = []
 gradle = (root / 'app/build.gradle.kts').read_text(encoding='utf-8')
 version = re.search(r'versionName\s*=\s*"([^"]+)"', gradle)
 code = re.search(r'versionCode\s*=\s*(\d+)', gradle)
-if not version or version.group(1) != '0.33.3': errors.append('versionName mismatch')
-if not code or code.group(1) != '333': errors.append('versionCode mismatch')
+if not version or version.group(1) != '0.33.10': errors.append('versionName mismatch')
+if not code or code.group(1) != '340': errors.append('versionCode mismatch')
 abi_line = re.search(r'abiFilters \+= listOf\(([^\n]+)\)', gradle)
 if not abi_line or any(x not in abi_line.group(1) for x in ['arm64-v8a', 'armeabi-v7a', 'x86_64']): errors.append('required ABI set is incomplete')
 if '"x86"' in gradle: errors.append('x86 ABI must remain excluded')
@@ -24,13 +24,14 @@ if manifest_json.get('baseline') != 'Vulkan 1.4.360': errors.append('generated m
 if snapshot.get('baseline') != 'Vulkan 1.4.360': errors.append('coverage snapshot baseline mismatch')
 cpp = (root / 'app/src/main/cpp/vulkanscope.cpp').read_text(encoding='utf-8')
 kt = (root / 'app/src/main/java/com/efishell/vulkanscope/MainActivity.kt').read_text(encoding='utf-8')
+if 'import androidx.compose.ui.text.style.TextAlign' not in kt: errors.append('TextAlign import missing for update dialog key/value alignment')
 for needle in ['reportToText', 'reportToHtml', 'registryCoverage', 'instanceExtensions', 'deviceExtensions']:
     if needle not in kt + cpp: errors.append(f'missing report/export path: {needle}')
 if re.search(r'\bTODO\b|\bFIXME\b', cpp + kt): errors.append('TODO/FIXME marker remains in production source')
 if 'android:usesCleartextTraffic="false"' not in manifest: errors.append('cleartext traffic must be disabled')
 for needle in ['packageSigningCertificatesMatch', 'archiveVersionCode <= installedVersionCode', 'toHttpUrlOrNull', 'baseUrl.username.isNotEmpty()', 'target.parentFile?.canonicalFile']:
     if needle not in kt: errors.append(f'missing update/network hardening: {needle}')
-if 'private fun InfoPage(registryCoverage: RegistryCoverage, onCheckForUpdates: () -> Unit)' not in kt or 'Page.Info -> InfoPage(report.registryCoverage, onCheckForUpdates)' not in kt:
+if 'private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverMode, collectionStatus: CollectionStatus, onCheckForUpdates: () -> Unit)' not in kt or 'Page.Info -> InfoPage(report, display, driverMode, collectionStatus, onCheckForUpdates)' not in kt:
     errors.append('manual update callback is not exposed from the Info destination')
 if 'OFFICIAL_DATABASE_API_ENDPOINT = "https://vulkanscope-database-api.vulkanscope.workers.dev"' not in kt:
     errors.append('official VulkanScope Database endpoint is missing')
@@ -47,13 +48,13 @@ for needle in [
     'UpdateConfirmationDialog',
     'releaseNotes = json.optString("body")',
     'installedVersionCode()',
-    'downloadAbi = selectedAbi',
+    'downloadAbi = if (exact != null) abi else "universal"',
     'OFFICIAL_DATABASE_WEB_URL = "https://efishell0.github.io/VulkanScope_database/"',
     'enabled = completeReportReady',
     'if (showProgress && result is UpdateCheckResult.Available)'
 ]:
     if needle not in kt: errors.append(f'missing 0.32.5 update/export UX requirement: {needle}')
-if kt.count('enabled = completeReportReady') < 2:
+if not re.search(r'ExpressiveActionButton\("Export TXT"[^\n]+completeReportReady', kt) or not re.search(r'ExpressiveActionButton\("Export HTML"[^\n]+completeReportReady', kt):
     errors.append('TXT and HTML must both use the complete-report collection gate')
 if 'Download APK' not in kt or 'Downloaded versionCode' not in kt:
     errors.append('update confirmation must expose explicit download approval and APK version verification state')
@@ -77,16 +78,16 @@ for forbidden in [
 
 # 0.33.1 changes only Settings interactivity: the restored 0.32.4 Turnip/SAF internals remain intact.
 for needle in [
-    'enabled = completeReportReady && turnipSupport == TurnipSupport.SUPPORTED',
+    'completeReportReady && turnipSupport == TurnipSupport.SUPPORTED',
     'if (completeReportReady) "Uses Android\'s system Vulkan loader/driver." else "Waiting for complete Vulkan collection"',
-    'title = "Import driver ZIP"',
-    'subtitle = if (completeReportReady) "Validate and install an AdrenoTools-compatible bundle" else "Waiting for complete Vulkan collection"'
+    'ExpressiveActionButton("Import driver ZIP"',
+    'if (completeReportReady) "Validate and install an AdrenoTools-compatible bundle" else "Waiting for complete Vulkan collection"'
 ]:
     if needle not in kt: errors.append(f'missing 0.33.1 collection driver gate: {needle}')
 
 if 'SectionCard("Application updates")' in kt:
     errors.append('manual update control must no longer be hosted in Settings')
-if kt.count('title = "Check for updates"') != 1:
+if kt.count('ExpressiveActionButton("Check for updates"') != 1:
     errors.append('manual update action must appear exactly once in Info')
 
 cmake = (root / 'app/src/main/cpp/CMakeLists.txt').read_text(encoding='utf-8')
@@ -177,6 +178,38 @@ if 'std::vector<int32_t> copySrc' in cpp or 'std::vector<int32_t> copyDst' in cp
     errors.append('Vulkan 1.4 copy-layout arrays must use VkImageLayout')
 if 'getPhysicalDeviceProperties(devices[i], raw.data())' in cpp or 'getPhysicalDeviceProperties(device, properties.data())' in cpp:
     errors.append('physical-device properties must use canonical VkPhysicalDeviceProperties storage')
+
+
+for needle in [
+    'registerDisplayListener(displayListener, null)',
+    'unregisterDisplayListener(displayListener)',
+    'hdrTypes.filter { it != -1 }',
+    'else -> "Android HDR type $type"',
+    'Content-Security-Policy',
+    'no-referrer',
+    '.sortedWith { a, b -> -compareVersions(a.second, b.second) }',
+    'compareVersions(candidate, current) > 0',
+    'baseUrl.host != "vulkanscope-database-api.vulkanscope.workers.dev"',
+    'if (filter == "Limits" || filter == "All")'
+]:
+    if needle not in kt: errors.append(f'missing 0.33.7 full-audit requirement: {needle}')
+if kt.count('metric("GPU", report.devices.firstOrNull()?.name ?: "Unknown")') != 1:
+    errors.append('HTML report GPU hero metric must appear exactly once')
+
+for needle in [
+    'val visibleLimits = remember(query, device?.limits)',
+    'val propertyResultCount = filtered.size',
+    'val uniquePropertyNames = filtered.asSequence().map { it.name }.distinct().count()',
+    'val limitResultCount = visibleLimits.size',
+    '"Limits" -> "$limitResultCount limits"',
+    '"All" -> "$propertyResultCount query results · $uniquePropertyNames unique property names · $limitResultCount limits"',
+    'else -> "$propertyResultCount query results · $uniquePropertyNames unique property names"'
+]:
+    if needle not in kt: errors.append(f'missing 0.33.10 Properties & Limits summary-semantics requirement: {needle}')
+if 'filtered.size + visibleLimits.size' in kt:
+    errors.append('All summary must not merge property query results with limit rows')
+if '(filtered.asSequence().map { it.name } + visibleLimits.asSequence().map { it.first })' in kt:
+    errors.append('unique property names must never include limit names')
 
 probe_service = (root / 'app/src/main/java/com/efishell/vulkanscope/VulkanProbeService.kt').read_text(encoding='utf-8')
 

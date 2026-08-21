@@ -121,6 +121,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -405,6 +406,11 @@ class MainActivity : ComponentActivity() {
     private var currentSurface: Surface? = null
     private var latestReport by mutableStateOf<VulkanReport?>(null)
     private var displayReportState by mutableStateOf<DisplayReport?>(null)
+    private val displayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) { refreshDisplayReport() }
+        override fun onDisplayRemoved(displayId: Int) { refreshDisplayReport() }
+        override fun onDisplayChanged(displayId: Int) { refreshDisplayReport() }
+    }
     private var reportLoading by mutableStateOf(true)
     private var collectionStatus by mutableStateOf(CollectionStatus.IDLE)
     private var updateStatus by mutableStateOf<UpdateStatus>(UpdateStatus.Hidden)
@@ -420,9 +426,20 @@ class MainActivity : ComponentActivity() {
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val requestedQueryGroups = Collections.synchronizedSet(mutableSetOf<String>())
 
+    override fun onStart() {
+        super.onStart()
+        getSystemService(DisplayManager::class.java).registerDisplayListener(displayListener, null)
+        refreshDisplayReport()
+    }
+
+    override fun onStop() {
+        getSystemService(DisplayManager::class.java).unregisterDisplayListener(displayListener)
+        super.onStop()
+    }
+
     override fun onResume() {
         super.onResume()
-        displayReportState = displayReport()
+        refreshDisplayReport()
         val pending = pendingUpdateApk
         if (pending != null && pending.exists() && (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls())) {
             pendingUpdateApk = null
@@ -842,9 +859,9 @@ class MainActivity : ComponentActivity() {
                 .filter { !it.optBoolean("draft", false) }
                 .mapNotNull { release ->
                     val version = release.optString("tag_name").trim().removePrefix("v")
-                    if (version.isBlank() || !version.matches(Regex("\\d+(?:\\.\\d+){1,3}(?:[-+][0-9A-Za-z.-]+)?"))) null else release to version
+                    if (version.isBlank() || !version.matches(Regex("\\d+(?:\\.\\d+){1,3}(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?"))) null else release to version
                 }
-                .sortedWith { a, b -> -compareVersions(a.second.substringBefore('-'), b.second.substringBefore('-')) }
+                .sortedWith { a, b -> -compareVersions(a.second, b.second) }
             val candidate = candidates.firstOrNull { isNewerVersion(it.second, current) } ?: return null
             val json = candidate.first
             val latest = candidate.second
@@ -886,17 +903,39 @@ class MainActivity : ComponentActivity() {
     }.getOrDefault(0L)
 
     private fun compareVersions(first: String, second: String): Int {
-        val a = first.split('.').map { it.toIntOrNull() ?: 0 }
-        val b = second.split('.').map { it.toIntOrNull() ?: 0 }
-        repeat(maxOf(a.size, b.size)) { index ->
-            val left = a.getOrElse(index) { 0 }
-            val right = b.getOrElse(index) { 0 }
+        fun parse(value: String): Pair<List<Int>, List<String>?> {
+            val withoutBuild = value.substringBefore('+')
+            val core = withoutBuild.substringBefore('-').split('.').map { it.toIntOrNull() ?: 0 }
+            val suffix = withoutBuild.substringAfter('-', "").takeIf { it.isNotEmpty() }?.split('.')
+            return core to suffix
+        }
+        val (aCore, aPre) = parse(first)
+        val (bCore, bPre) = parse(second)
+        repeat(maxOf(aCore.size, bCore.size)) { index ->
+            val left = aCore.getOrElse(index) { 0 }
+            val right = bCore.getOrElse(index) { 0 }
             if (left != right) return left.compareTo(right)
+        }
+        if (aPre == null && bPre != null) return 1
+        if (aPre != null && bPre == null) return -1
+        if (aPre == null || bPre == null) return 0
+        repeat(maxOf(aPre.size, bPre.size)) { index ->
+            val left = aPre.getOrNull(index) ?: return -1
+            val right = bPre.getOrNull(index) ?: return 1
+            val leftNumber = left.toIntOrNull()
+            val rightNumber = right.toIntOrNull()
+            val result = when {
+                leftNumber != null && rightNumber != null -> leftNumber.compareTo(rightNumber)
+                leftNumber != null -> -1
+                rightNumber != null -> 1
+                else -> left.compareTo(right)
+            }
+            if (result != 0) return result
         }
         return 0
     }
 
-    private fun isNewerVersion(candidate: String, current: String): Boolean = compareVersions(candidate.substringBefore('-'), current.substringBefore('-')) > 0
+    private fun isNewerVersion(candidate: String, current: String): Boolean = compareVersions(candidate, current) > 0
 
     private fun downloadAndInstallUpdate(update: AppUpdate) {
         if (updateStatus is UpdateStatus.Downloading) return
@@ -1016,9 +1055,20 @@ class MainActivity : ComponentActivity() {
         return root.walkTopDown().firstOrNull { it.isFile && it.extension.equals("so", true) && it.length() > 0L }
     }
 
+    private fun refreshDisplayReport() {
+        displayReportState = displayReport()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun activeDisplay(): android.view.Display? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        display ?: getSystemService(DisplayManager::class.java).getDisplay(android.view.Display.DEFAULT_DISPLAY)
+    } else {
+        windowManager.defaultDisplay
+    }
+
     @Suppress("DEPRECATION")
     private fun displayReport(): DisplayReport {
-        val display = getSystemService(DisplayManager::class.java).getDisplay(android.view.Display.DEFAULT_DISPLAY)
+        val display = activeDisplay()
             ?: return DisplayReport("Unknown", "Unknown", null, "Not exposed", emptyList(), "Not exposed", "Not exposed", "Not exposed", emptyList())
         val mode = display.mode
         val hdr = display.hdrCapabilities
@@ -1027,7 +1077,7 @@ class MainActivity : ComponentActivity() {
         } else {
             hdr?.supportedHdrTypes ?: intArrayOf()
         }
-        val hdrNames = hdrTypes.map { hdrTypeName(it) }
+        val hdrNames = hdrTypes.filter { it != -1 }.map { hdrTypeName(it) }.distinct()
         val modes = display.supportedModes.map { "${it.physicalWidth} × ${it.physicalHeight} · ${formatHz(it.refreshRate)}" }.distinct().sorted()
         val wideGamut = if (android.os.Build.VERSION.SDK_INT >= 26) display.isWideColorGamut else null
         val preferred = if (android.os.Build.VERSION.SDK_INT >= 29) display.preferredWideGamutColorSpace?.name ?: "Not exposed" else "Not exposed"
@@ -1314,7 +1364,7 @@ private fun hdrTypeName(type: Int): String = when (type) {
     3 -> "HLG"
     4 -> "HDR10+"
     6 -> "HLG+"
-    else -> "Unknown ($type)"
+    else -> "Android HDR type $type"
 }
 
 private fun formatHz(value: Float): String = String.format(java.util.Locale.US, "%.2f Hz", value)
@@ -2609,6 +2659,14 @@ private fun PropertiesPage(device: DeviceReport?, onRequestQuery: (String) -> Un
                 (query.isBlank() || it.name.contains(query, true) || it.value.contains(query, true) || it.section.contains(query, true))
         }
     }
+    val visibleLimits = remember(query, device?.limits) {
+        (device?.limits ?: emptyList()).filter {
+            query.isBlank() || it.first.contains(query, true) || it.second.contains(query, true)
+        }
+    }
+    val propertyResultCount = filtered.size
+    val uniquePropertyNames = filtered.asSequence().map { it.name }.distinct().count()
+    val limitResultCount = visibleLimits.size
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             CapabilitySectionCard("Properties & limits explorer") {
@@ -2619,10 +2677,18 @@ private fun PropertiesPage(device: DeviceReport?, onRequestQuery: (String) -> Un
             }
             }
         }
-        if (filter == "Limits") {
+        item {
+            val summary = when (filter) {
+                "Limits" -> "$limitResultCount limits"
+                "All" -> "$propertyResultCount query results · $uniquePropertyNames unique property names · $limitResultCount limits"
+                else -> "$propertyResultCount query results · $uniquePropertyNames unique property names"
+            }
+            Text(summary, color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelMedium)
+        }
+        if (filter == "Limits" || filter == "All") {
             limitGroups.toSortedMap().forEach { (category, entries) ->
                 item { CapabilitySectionCard(category) {
-                    val visible = entries.filter { query.isBlank() || it.first.contains(query, true) || it.second.contains(query, true) }
+                    val visible = entries.filter { it in visibleLimits }
                     if (visible.isEmpty()) Text("No matching limits", color = ComposeColor(0xFF9E9E9E))
                     visible.forEach { (name, value) ->
                         Column(Modifier.padding(vertical = 4.dp)) {
@@ -2632,7 +2698,8 @@ private fun PropertiesPage(device: DeviceReport?, onRequestQuery: (String) -> Un
                     }
                 } }
             }
-        } else {
+        }
+        if (filter != "Limits") {
                 if (filter == "Core 1.4") {
                 val status = device?.vulkan14Status ?: "unavailable"
                 val message = when (status) {
@@ -2643,10 +2710,6 @@ private fun PropertiesPage(device: DeviceReport?, onRequestQuery: (String) -> Un
                 if (properties.none { it.section == "Core 1.4" }) {
                     item { CapabilitySectionCard("Vulkan 1.4 status") { Text(message, color = ComposeColor(0xFFFFC857)) } }
                 }
-            }
-            item {
-                val uniqueNames = filtered.asSequence().map { it.name }.distinct().count()
-                Text("${filtered.size} query results · $uniqueNames unique property names", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelMedium)
             }
             itemsIndexed(filtered, key = { index, property -> "${property.section}:${property.name}:$index" }) { _, property ->
                 CapabilityItemCard {
@@ -3339,7 +3402,7 @@ private fun databaseSubmissionJson(context: Context, report: VulkanReport, displ
 
 private suspend fun submitDatabaseReport(context: Context, report: VulkanReport, display: DisplayReport, mode: DriverMode): String = withContext(Dispatchers.IO) {
     val baseUrl = OFFICIAL_DATABASE_API_ENDPOINT.toHttpUrlOrNull() ?: return@withContext "The official VulkanScope Database endpoint is invalid."
-    if (baseUrl.scheme != "https" || baseUrl.host.isBlank() || baseUrl.username.isNotEmpty() || baseUrl.password.isNotEmpty() || baseUrl.query != null || baseUrl.fragment != null || baseUrl.encodedPath != "/") return@withContext "The official VulkanScope Database endpoint is invalid."
+    if (baseUrl.scheme != "https" || baseUrl.host != "vulkanscope-database-api.vulkanscope.workers.dev" || baseUrl.username.isNotEmpty() || baseUrl.password.isNotEmpty() || baseUrl.query != null || baseUrl.fragment != null || baseUrl.encodedPath != "/") return@withContext "The official VulkanScope Database endpoint is invalid."
     val submissionUrl = baseUrl.newBuilder().addPathSegments("v1/reports").build()
     val payload = databaseSubmissionJson(context, report, display, mode).toByteArray(Charsets.UTF_8)
     if (payload.size > 2 * 1024 * 1024) return@withContext "Submission rejected locally: the complete report exceeds the current VulkanScope Database 2 MiB transport limit. No data was truncated."
@@ -3552,7 +3615,7 @@ private fun reportToHtml(context: Context, report: VulkanReport, display: Displa
             Base64.encodeToString(input.readBytes(), Base64.NO_WRAP)
         }
     }.getOrNull()
-    append("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>VulkanScope report</title>")
+    append("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"referrer\" content=\"no-referrer\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; object-src 'none'\"><title>VulkanScope report</title>")
     append("<style>body{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;background:#0a0a0b;color:#f4f4f5;margin:0;line-height:1.45}.wrap{max-width:1320px;margin:0 auto;padding:28px}.hero{background:linear-gradient(135deg,#241012,#0f1012);border:1px solid #3a2022;border-radius:26px;padding:30px;box-shadow:0 16px 50px rgba(0,0,0,.28)}h1{margin:0 0 8px;font-size:36px}h2{margin:0 0 14px;font-size:22px}.muted{color:#a7a7ae}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:18px}.metric{background:#141111;border:1px solid #342326;border-radius:17px;padding:14px}.section{margin-top:24px;background:#111113;border:1px solid #302124;border-radius:22px;padding:18px;overflow:auto}.section h2{position:sticky;left:0}table{border-collapse:collapse;width:100%;min-width:660px}td,th{border-bottom:1px solid #2c2022;padding:10px 8px;text-align:left;vertical-align:top}th{color:#cbcad0;font-weight:600}.badge{display:inline-block;border-radius:999px;padding:3px 9px;font-size:11px;font-weight:800;letter-spacing:.03em}.yes{background:#133b28;color:#74e2a6}.available{background:#3a171a;color:#e2676a}.no{background:#49171c;color:#ff8f98}.neutral{background:#403713;color:#ffd76b}.unknown{background:#292a2f;color:#c6c6cc}.code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.small{font-size:13px}.subtle{color:#7f8088}.github-link{color:#d65c60;text-decoration:none;font-weight:600}.github-link:hover{color:#ed8a8d;text-decoration:underline}.github-link:visited{color:#d65c60}</style></head><body><div class=\"wrap\">")
     append("<div class=\"hero\">")
     if (logoData != null) {
@@ -3835,6 +3898,15 @@ private fun UpdateStatusBanner(status: UpdateStatus, onInstallUpdate: (AppUpdate
 }
 
 @Composable
+private fun UpdateDialogKeyValue(key: String, value: String) {
+    val shape = RoundedCornerShape(12.dp)
+    Row(Modifier.fillMaxWidth().then(tvBrowseModifier(shape)), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+        Text(key, color = ComposeColor(0xFF8F8F8F), modifier = Modifier.weight(0.9f), style = MaterialTheme.typography.bodySmall)
+        Text(value.ifBlank { "Unavailable" }, modifier = Modifier.weight(1.1f), textAlign = TextAlign.End, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
 private fun UpdateConfirmationDialog(update: AppUpdate, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -3849,19 +3921,19 @@ private fun UpdateConfirmationDialog(update: AppUpdate, onDismiss: () -> Unit, o
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Surface(shape = RoundedCornerShape(20.dp), color = ComposeColor(0xFF1A1718)) {
                     Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                        KeyValue("Installed version", "${update.installedVersion} (versionCode ${update.installedVersionCode})")
-                        KeyValue("Available release", update.version)
-                        KeyValue("Installed ABI", update.installedAbi)
-                        KeyValue("Download ABI", update.downloadAbi)
-                        KeyValue("APK asset", update.assetName)
-                        KeyValue("Downloaded versionCode", "Verified from the APK before installation")
+                        UpdateDialogKeyValue("Installed version", "${update.installedVersion} (versionCode ${update.installedVersionCode})")
+                        UpdateDialogKeyValue("Available release", update.version)
+                        UpdateDialogKeyValue("Installed ABI", update.installedAbi)
+                        UpdateDialogKeyValue("Download ABI", update.downloadAbi)
+                        UpdateDialogKeyValue("APK asset", update.assetName)
+                        UpdateDialogKeyValue("Downloaded versionCode", "Verified from the APK before installation")
                     }
                 }
                 Text("Release notes", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Surface(shape = RoundedCornerShape(20.dp), color = ComposeColor(0xFF0D0D0D)) {
                     ReleaseNotesContent(update.releaseNotes, Modifier.fillMaxWidth().heightIn(max = 360.dp))
                 }
-                Text("The APK is still validated for official release provenance, package identity, signing certificate, versionCode and versionName after download and before Android's installer is opened.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelSmall)
+                Text("The APK is validated for official release provenance, package identity, signing certificate, versionCode and versionName before Android's installer is opened.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelSmall)
             }
         },
         confirmButton = { Button(onClick = onConfirm) { Text("Download APK") } },

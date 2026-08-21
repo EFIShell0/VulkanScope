@@ -253,3 +253,54 @@
 - Release metadata response materialization remains bounded to 2 MiB.
 - APK assets remain ABI-specific with universal fallback and must pass strict HTTPS `github.com/EFIShell0/VulkanScope/releases/download/` URL validation with no user-info, query or fragment components.
 - The manual up-to-date banner must match the companion OpenGLESScope visual structure: green `UP TO DATE` capability badge followed by neutral explanatory text, using the same spacing and enter/exit timing.
+
+
+## Release 0.33.6 update-dialog parity requirements
+- Application version is 0.33.6 with versionCode 336.
+- The update status banner keeps the established 0.33.5 parity: identical enter/exit timing, spacing, progress presentation, UP TO DATE badge geometry, Review action hierarchy and 8-second/10-second visibility behavior used by OpenGLESScope, with VulkanScope identity text and Vulkan brand accent where branding is required.
+- The update confirmation dialog uses the same layout geometry, key/value body-small typography, 0.9/1.1 label-value weight split, release-notes scrolling bounds, button labels and explanatory/security wording as OpenGLESScope, substituting only VulkanScope identity and brand-specific accent color where applicable.
+- Manual checks that discover a compatible newer release open the same confirmation flow; startup checks remain non-modal and never automatically open the dialog.
+- These parity changes must not weaken official-release URL validation, ABI selection, package/signing/version verification, bounded downloads, private-cache confinement, Vulkan collection semantics, Turnip handling or Database behavior.
+
+
+## Release 0.33.7 full producer/report/display audit
+- Application version is 0.33.7 with versionCode 337.
+- The current published Khronos Vulkan specification checked for this release is Vulkan 1.4.359 dated 2026-08-07. VulkanScope keeps its independently pinned Vulkan-Headers/query staging baseline at 1.4.360; the staging number must not be described as the current published Khronos specification.
+- The Vulkan 1.4.359 registry delta, including VK_EXT_cooperative_matrix_maintenance1 and vkGetPhysicalDeviceCooperativeMatrixProperties2EXT, remains part of automatic validated runtime query coverage. VK_EXT_image_tiling_control from the preceding registry delta remains covered. No validated native query group, feature, property, limit, extension, format, memory, queue, Surface/WSI, Vulkan Video, Profile or registry-coverage field may be removed by this release.
+- Android display evidence is refreshed while the Activity is started by DisplayManager.DisplayListener and on lifecycle resume. The active application display is preferred over a permanently pinned DEFAULT_DISPLAY so foldable/external-display changes cannot silently leave exports or Database submissions with stale display metadata.
+- Android API 34+ mode-specific HDR types use Display.Mode.getSupportedHdrTypes. HDR_TYPE_INVALID (-1) is never rendered or submitted as a capability. Unknown future non-invalid HDR values remain visible with their raw Android numeric value and are never mapped to a known HDR type without Android documentation.
+- API levels where wide-gamut state is not queryable remain Unavailable rather than Unsupported. Display HDR/wide-gamut data remains separate from Vulkan Surface format/color-space support.
+- Update version ordering follows semantic pre-release precedence for VulkanScope numeric tags: a stable release outranks a pre-release with the same numeric core, later pre-release identifiers outrank earlier ones, and build metadata does not affect precedence. Drafts remain ineligible and only strictly newer validated releases may be offered.
+- Self-contained HTML reports carry a restrictive local-only Content Security Policy and no-referrer policy. Report-derived text remains HTML-escaped. The report hero exposes the GPU metric exactly once.
+- Properties & Limits "All" view must expose both limits and detailed property/query records; selecting All must not silently hide limits that are available in the report model.
+- The official VulkanScope Database API endpoint is defense-in-depth pinned to the exact HTTPS host vulkanscope-database-api.vulkanscope.workers.dev and API root. Submission remains explicit, complete-report-only, 2 MiB bounded and schema-v2/schema-v3 compatible with VulkanScope Database 0.35.6.
+- Release verification scripts must validate the actual release version and the pinned Vulkan-Headers 1.4.360 baseline rather than obsolete 0.33.3/1.4.357 values.
+- These corrections must not weaken native probe isolation, bounded enumeration, Vulkan handle ownership/destruction order, Turnip bundle validation, Surface lifecycle synchronization, ABI policy, APK signature/package/version validation, IPv6-first fast fallback, or capability-state semantics.
+
+
+## Release 0.33.8 Kotlin release-build repair
+- Application version is 0.33.8 with versionCode 338.
+- The update confirmation dialog uses `TextAlign.End` for value-column alignment, so `androidx.compose.ui.text.style.TextAlign` must remain explicitly imported in `MainActivity.kt`.
+- Release verification must fail if the required `TextAlign` import is absent while the dialog still uses `TextAlign.End`.
+- This release is a build-correctness repair only. Vulkan collection, registry/query coverage, TXT/HTML exports, Database schema/submission, Display/HDR semantics, update behavior, Turnip/SAF behavior and security policy must remain unchanged from 0.33.7.
+- Warnings originating inside the pinned third-party libadrenotools dependency are not VulkanScope Kotlin compile failures and must not be misreported as the cause of this release build failure.
+
+
+## Release 0.33.9 Properties & Limits summary parity
+- Application version is 0.33.9 with versionCode 339.
+- Properties & Limits must show `query results` and `unique property names` summary counts immediately below the explorer controls for every filter, including All and Limits.
+- The All summary counts every currently visible detailed-property row plus every currently visible limit row after the active search query is applied.
+- The Limits summary counts only currently visible limit rows after the active search query is applied.
+- Unique-name counts are computed from the same rows represented by the corresponding result count and must not exclude limits from the All view.
+- This release changes presentation/summary accounting only. Vulkan collection, native queries, TXT/HTML reports, Database submission/schema, Display/HDR semantics, update behavior, Turnip/SAF behavior and security policy remain unchanged from 0.33.8.
+
+
+## Release 0.33.10 Properties & Limits summary semantics
+- Application version is 0.33.10 with versionCode 340.
+- The 0.33.9 requirement that All merge property rows and limit rows into one `query results` count is superseded. Property-query counts and limit counts are different data classes and must never be combined under a property/query label.
+- In the All filter, the summary must show three independent values: currently visible detailed-property query results, unique property names derived only from those visible property rows, and currently visible limit rows.
+- In the Limits filter, the summary must show only the currently visible limit-row count; it must not label limits as property query results or include limit names in `unique property names`.
+- In every property-section filter, `query results` and `unique property names` are derived only from the currently visible detailed-property rows after the active search query is applied.
+- Search continues to filter properties and limits independently, and every displayed count must describe exactly the visible data class it labels.
+- This release changes UI summary semantics only. Vulkan collection/native queries, detailedProperties/limits report data, TXT/HTML export, Database submission/schema, Display/HDR, update, Turnip/SAF and security behavior remain unchanged from 0.33.9.
+
