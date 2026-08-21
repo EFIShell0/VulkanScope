@@ -112,7 +112,7 @@
 ## Application updates
 - Startup update checks must be asynchronous and must never block Vulkan collection, Surface lifecycle, navigation or first-frame UI.
 - Update metadata must come only from the official EFIShell0/VulkanScope GitHub Releases API over HTTPS.
-- Only published latest-release APK assets are eligible.
+- Update discovery uses a bounded list of official EFIShell0/VulkanScope GitHub Releases so pre-release builds remain discoverable when no stable latest release exists. Draft releases are never eligible. Only validated newer-version APK assets from that official release list are eligible.
 - ABI-specific APK selection must prefer the application's installed ABI; a clearly named universal APK may be used only as a compatible fallback.
 - Update availability UI must use the existing VulkanScope banner visual language and remain non-modal. The explicit up-to-date result must leave the interface after approximately 8 seconds; update-available and failure results retain the existing approximately 10-second behavior when no download is in progress.
 - APK download and installation require explicit user action. Silent installation is forbidden.
@@ -244,3 +244,12 @@
 - HTML report presentation uses the same self-contained responsive report shell quality as OpenGLESScope while deriving hero, borders, available-state accent and links from the Vulkan red family.
 - Android TV uses the navigation rail in portrait and landscape. Read-only capability section, item and key/value surfaces are focusable browse targets on television devices and request bring-into-view when focused.
 - Television read-only browse focus must never imply clickability or mutate report state when Enter/Center is pressed.
+
+
+## 0.33.5 update discovery and banner parity requirements
+- VulkanScope update discovery must use the bounded official EFIShell0/VulkanScope GitHub Releases list rather than depending on `/releases/latest`, because GitHub excludes pre-releases from that endpoint and may return 404 when only pre-release builds exist.
+- Draft releases are ignored. Stable and pre-release entries are eligible only when their tag parses as a valid numeric VulkanScope version newer than the installed version.
+- Candidate releases are compared numerically and must not be trusted merely because of GitHub list position.
+- Release metadata response materialization remains bounded to 2 MiB.
+- APK assets remain ABI-specific with universal fallback and must pass strict HTTPS `github.com/EFIShell0/VulkanScope/releases/download/` URL validation with no user-info, query or fragment components.
+- The manual up-to-date banner must match the companion OpenGLESScope visual structure: green `UP TO DATE` capability badge followed by neutral explanatory text, using the same spacing and enter/exit timing.

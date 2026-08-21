@@ -1,20 +1,30 @@
-# VulkanScope 0.33.4 build audit
+# VulkanScope 0.33.5 build audit
 
-## Requested parity work
-- Info now owns Developer, Application, Device ABI, Android, Vulkan registry/query engine, About, complete TXT/HTML export, and VulkanScope Database actions.
-- Settings contains only System/Turnip driver selection and the conditional Turnip ZIP import workflow.
-- Application primary accent is Khronos Vulkan dark red #A41E22 (RGB 164, 30, 34).
-- HTML report shell uses Vulkan-red hero, border, available-state and link tones while preserving semantic status colors and self-contained offline behavior.
-- Android TV uses the navigation rail regardless of orientation and read-only capability surfaces participate in D-pad focus traversal with bring-into-view behavior.
+## Scope
 
-## Static checks
-- Version: 0.33.4 / versionCode 334.
-- Old primary #F21D2F removed from MainActivity.
-- Old soft accent #FF7A88 removed from MainActivity.
-- Settings contains no export or Database section.
-- Info contains all requested sections and repository/update actions.
-- TV browse modifier is attached to capability section, item, key/value, metric, legacy section/key-value/data row and HDR surfaces.
-- No new source comments were added.
+- GitHub update discovery changed from `/releases/latest` to the bounded official `EFIShell0/VulkanScope` release list.
+- Draft releases are excluded; stable and pre-release tags are considered only when their numeric version is newer than the installed build.
+- Official release APK URL validation remains HTTPS-only and restricted to the VulkanScope GitHub Releases download path.
+- Installed-ABI APK selection and universal fallback remain intact.
+- Update-status banner now matches the OpenGLESScope visual structure, including the green `UP TO DATE` badge, neutral status text, spacing and animation timing.
+- Vulkan collection, Turnip/SAF, report, Database and native query behavior were not changed.
 
-## Build environment limitation
-A Gradle Kotlin compilation was attempted with `./gradlew :app:compileDebugKotlin --no-daemon`. The wrapper could not download Gradle 9.7.0 because the execution environment cannot resolve `services.gradle.org` (`UnknownHostException`). No APK build success is claimed.
+## Static validation
+
+- Version: 0.33.5 / versionCode 335: PASS
+- Old application `/releases/latest` endpoint removed: PASS
+- Official release-list endpoint with `per_page=20`: PASS
+- Draft exclusion: PASS
+- Stable/pre-release numeric version selection: PASS
+- 2 MiB release-metadata response bound: PASS
+- Strict official GitHub APK URL validation: PASS
+- ABI-specific selection with universal fallback preserved: PASS
+- OpenGLESScope-parity `UP TO DATE` badge colors and geometry: PASS
+- Update banner enter/exit timing parity: PASS
+- `PROJECT_RULES.md` updated: PASS
+
+## Build attempt
+
+A Gradle compile attempt was made, but the execution environment could not resolve `services.gradle.org` while the wrapper attempted to obtain Gradle 9.7.0. The failure was `java.net.UnknownHostException: services.gradle.org` before project compilation began.
+
+Therefore this audit does not claim a successful APK compilation in the assistant environment.

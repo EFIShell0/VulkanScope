@@ -1,20 +1,19 @@
-## VulkanScope 0.33.4
+# VulkanScope 0.33.5
 
-Info/settings parity, official Vulkan red theming, HTML report visual parity, and Android TV D-pad browse improvements.
+VulkanScope 0.33.5 fixes GitHub update discovery for pre-release builds and aligns the update-status banner with OpenGLESScope.
 
-# VulkanScope 0.33.4
+## Changes
 
-Full application engineering audit release.
+- Replaced the `/releases/latest` dependency with a bounded official GitHub release-list query.
+- Added controlled pre-release discovery while ignoring drafts.
+- Selects only a valid numerically newer VulkanScope version.
+- Preserves ABI-specific APK selection with universal fallback.
+- Strengthened official GitHub release-asset URL validation.
+- Matched the `UP TO DATE`, update-available, checking and downloading banner presentation to OpenGLESScope.
+- Capability collection, reporting, Turnip handling and database schema behavior are unchanged.
 
-## Fixes
-- Deterministic cleanup of the service-side Surface parcel used by isolated Vulkan probes.
-- Lower CPU/RAM churn while waiting for large base-report checkpoints: unchanged checkpoint files are no longer repeatedly read and parsed.
-- Correct Android display semantics: on API 26+ wide-gamut `false` is Unsupported, while API 24-25 where the API is unavailable remains Unavailable; empty reported HDR type sets remain Unavailable to match Database 0.35.3 semantics.
-- UI, TXT, HTML and schema-v3 Database payload now preserve the same display/HDR state model.
-- Added `hdrCapabilityStatus` and `preferredWideGamutColorSpace` additively while keeping fields consumed by VulkanScope Database 0.35.3.
-- Android HDR luminance uses the explicit invalid sentinel rather than dropping a valid finite 0.0 value.
-- HTML Surface diagnostic booleans stay literal scalar values instead of being mislabeled as support states.
-- Present-mode enumeration uses the dedicated safety bound.
-- Documentation now distinguishes the currently published Khronos Vulkan 1.4.358 specification from VulkanScope's independently pinned/validated 1.4.360 producer/query staging baseline.
+## Version
 
-Turnip/SAF internals are unchanged.
+- Version: `0.33.5`
+- versionCode: `335`
+- Vulkan query/header staging baseline: `1.4.360`

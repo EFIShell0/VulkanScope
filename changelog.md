@@ -1,3 +1,11 @@
+## 0.33.5
+
+- Fixed GitHub update checks for repositories where the newest published VulkanScope build is a pre-release by replacing `/releases/latest` with bounded official release-list discovery.
+- Draft releases are excluded; stable and pre-release tags are compared numerically and only a newer valid VulkanScope version is eligible.
+- Hardened official release-asset URL validation while preserving installed-ABI selection and universal fallback.
+- Matched the update-status banner to OpenGLESScope, including the green `UP TO DATE` badge, neutral status text, spacing and animation timing.
+- Bumped versionName to 0.33.5 and versionCode to 335.
+
 ## 0.33.4
 - Moved complete TXT/HTML export and VulkanScope Database actions from Settings to Info.
 - Aligned Info information architecture with OpenGLESScope while preserving Vulkan-specific registry/query evidence.

@@ -827,44 +827,53 @@ class MainActivity : ComponentActivity() {
 
     private fun fetchLatestCompatibleUpdate(): AppUpdate? {
         val request = Request.Builder()
-            .url("https://api.github.com/repos/EFIShell0/VulkanScope/releases/latest")
+            .url("https://api.github.com/repos/EFIShell0/VulkanScope/releases?per_page=20")
             .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
             .header("User-Agent", "VulkanScope/${installedVersionName()}")
             .get()
             .build()
         return ipv6PreferredHttpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) error("Update check failed (HTTP ${response.code}).")
-                val body = readResponseTextLimited(response.body, 1024 * 1024)
-                val json = JSONObject(body)
-                val latest = json.optString("tag_name").trim().removePrefix("v")
-                if (!isNewerVersion(latest, installedVersionName())) return null
-                val abi = detectInstalledAbi(this)
-                val assets = json.optJSONArray("assets") ?: return null
-                val apkAssets = (0 until assets.length()).mapNotNull { assets.optJSONObject(it) }.filter { it.optString("name").endsWith(".apk", true) }
-                val abiTokens = when (abi) {
-                    "arm64-v8a" -> listOf("arm64-v8a", "arm64_v8a", "arm64")
-                    "armeabi-v7a" -> listOf("armeabi-v7a", "armeabi_v7a", "armv7")
-                    "x86_64" -> listOf("x86_64", "x86-64")
-                    else -> listOf(abi.lowercase())
+            if (!response.isSuccessful) error("Update check failed (HTTP ${response.code}).")
+            val releases = JSONArray(readResponseTextLimited(response.body, 2 * 1024 * 1024))
+            val current = installedVersionName()
+            val candidates = (0 until releases.length())
+                .mapNotNull { releases.optJSONObject(it) }
+                .filter { !it.optBoolean("draft", false) }
+                .mapNotNull { release ->
+                    val version = release.optString("tag_name").trim().removePrefix("v")
+                    if (version.isBlank() || !version.matches(Regex("\\d+(?:\\.\\d+){1,3}(?:[-+][0-9A-Za-z.-]+)?"))) null else release to version
                 }
-                val exact = apkAssets.firstOrNull { asset -> abiTokens.any { asset.optString("name").lowercase().contains(it) } }
-                val universal = apkAssets.firstOrNull { it.optString("name").lowercase().contains("universal") }
-                val selected = exact ?: universal ?: error("A newer VulkanScope release exists, but it has no APK compatible with the installed ABI ($abi).")
-                val selectedAbi = if (exact != null) abi else "universal"
-                val url = selected.optString("browser_download_url")
-                if (!url.startsWith("https://github.com/EFIShell0/VulkanScope/releases/download/")) error("The release APK URL is not an official VulkanScope GitHub release asset.")
-                val releaseNotes = json.optString("body").trim().ifBlank { "No release notes were provided for this GitHub release." }
-                AppUpdate(
-                    version = latest,
-                    assetName = selected.optString("name"),
-                    downloadUrl = url,
-                    releaseNotes = releaseNotes,
-                    installedAbi = abi,
-                    downloadAbi = selectedAbi,
-                    installedVersion = installedVersionName(),
-                    installedVersionCode = installedVersionCode()
-                )
+                .sortedWith { a, b -> -compareVersions(a.second.substringBefore('-'), b.second.substringBefore('-')) }
+            val candidate = candidates.firstOrNull { isNewerVersion(it.second, current) } ?: return null
+            val json = candidate.first
+            val latest = candidate.second
+            val assets = json.optJSONArray("assets") ?: error("A newer VulkanScope release exists, but its asset list is unavailable.")
+            val apkAssets = (0 until assets.length()).mapNotNull { assets.optJSONObject(it) }.filter { it.optString("name").endsWith(".apk", true) }
+            val abi = detectInstalledAbi(this)
+            val abiTokens = when (abi) {
+                "arm64-v8a" -> listOf("arm64-v8a", "arm64_v8a", "arm64")
+                "armeabi-v7a" -> listOf("armeabi-v7a", "armeabi_v7a", "armv7")
+                "x86_64" -> listOf("x86_64", "x86-64")
+                else -> listOf(abi.lowercase())
             }
+            val exact = apkAssets.firstOrNull { asset -> abiTokens.any { asset.optString("name").lowercase().contains(it) } }
+            val universal = apkAssets.firstOrNull { it.optString("name").lowercase().contains("universal") }
+            val selected = exact ?: universal ?: error("A newer VulkanScope release exists, but it has no APK compatible with the installed ABI ($abi).")
+            val url = selected.optString("browser_download_url")
+            val parsedUrl = url.toHttpUrlOrNull()
+            if (parsedUrl == null || parsedUrl.scheme != "https" || parsedUrl.host != "github.com" || parsedUrl.username.isNotEmpty() || parsedUrl.password.isNotEmpty() || parsedUrl.query != null || parsedUrl.fragment != null || !parsedUrl.encodedPath.startsWith("/EFIShell0/VulkanScope/releases/download/")) error("The release APK URL is not an official VulkanScope GitHub release asset.")
+            AppUpdate(
+                version = latest,
+                assetName = selected.optString("name"),
+                downloadUrl = url,
+                releaseNotes = json.optString("body").trim().ifBlank { "No release notes were provided for this GitHub release." },
+                installedAbi = abi,
+                downloadAbi = if (exact != null) abi else "universal",
+                installedVersion = current,
+                installedVersionCode = installedVersionCode()
+            )
+        }
     }
 
     private fun installedVersionName(): String = runCatching {
@@ -876,17 +885,18 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) info.longVersionCode else info.versionCode.toLong()
     }.getOrDefault(0L)
 
-    private fun isNewerVersion(candidate: String, current: String): Boolean {
-        fun parts(value: String) = value.substringBefore('-').split('.').map { it.toIntOrNull() ?: 0 }
-        val a = parts(candidate)
-        val b = parts(current)
-        repeat(maxOf(a.size, b.size)) { i ->
-            val av = a.getOrElse(i) { 0 }
-            val bv = b.getOrElse(i) { 0 }
-            if (av != bv) return av > bv
+    private fun compareVersions(first: String, second: String): Int {
+        val a = first.split('.').map { it.toIntOrNull() ?: 0 }
+        val b = second.split('.').map { it.toIntOrNull() ?: 0 }
+        repeat(maxOf(a.size, b.size)) { index ->
+            val left = a.getOrElse(index) { 0 }
+            val right = b.getOrElse(index) { 0 }
+            if (left != right) return left.compareTo(right)
         }
-        return false
+        return 0
     }
+
+    private fun isNewerVersion(candidate: String, current: String): Boolean = compareVersions(candidate.substringBefore('-'), current.substringBefore('-')) > 0
 
     private fun downloadAndInstallUpdate(update: AppUpdate) {
         if (updateStatus is UpdateStatus.Downloading) return
@@ -3796,40 +3806,26 @@ private fun VendorLogo(vendorId: Long?, modifier: Modifier) {
 }
 
 @Composable
+private fun UpdateStatusBadge(label: String) {
+    Surface(shape = RoundedCornerShape(999.dp), color = ComposeColor(0xFF163D24)) {
+        Text(label, color = ComposeColor(0xFF55D98A), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp))
+    }
+}
+
+@Composable
 private fun UpdateStatusBanner(status: UpdateStatus, onInstallUpdate: (AppUpdate) -> Unit) {
     AnimatedVisibility(
         visible = status !is UpdateStatus.Hidden,
-        enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(260)) + expandVertically(animationSpec = androidx.compose.animation.core.tween(260)),
-        exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(420)) + shrinkVertically(animationSpec = androidx.compose.animation.core.tween(420))
+        enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(220)) + expandVertically(animationSpec = androidx.compose.animation.core.tween(220)),
+        exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(360)) + shrinkVertically(animationSpec = androidx.compose.animation.core.tween(360))
     ) {
         Surface(modifier = Modifier.fillMaxWidth(), color = ComposeColor(0xFF111111), tonalElevation = 0.dp) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 when (status) {
-                    UpdateStatus.Checking -> {
-                        AssistChip(onClick = {}, enabled = false, label = { Text("Checking for updates…") })
-                        LinearProgressIndicator(Modifier.weight(1f))
-                    }
-                    UpdateStatus.UpToDate -> Text("VulkanScope is up to date.", color = ComposeColor(0xFFB8B8B8), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
-                    is UpdateStatus.Available -> {
-                        AssistChip(onClick = { onInstallUpdate(status.update) }, label = { Text("Update available") })
-                        Text(
-                            "VulkanScope ${status.update.version} is available for ${status.update.downloadAbi}. Review release notes before downloading.",
-                            color = ComposeColor(0xFFB8B8B8),
-                            style = MaterialTheme.typography.labelMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Button(onClick = { onInstallUpdate(status.update) }) { Text("Download") }
-                    }
-                    is UpdateStatus.Downloading -> {
-                        AssistChip(onClick = {}, enabled = false, label = { Text("Downloading update…") })
-                        LinearProgressIndicator(Modifier.weight(1f))
-                    }
+                    UpdateStatus.Checking -> { LinearProgressIndicator(Modifier.width(72.dp)); Text("Checking for updates…", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)) }
+                    UpdateStatus.UpToDate -> { UpdateStatusBadge("UP TO DATE"); Text("VulkanScope is up to date.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)) }
+                    is UpdateStatus.Available -> { UpdateStatusBadge("UPDATE"); Text("VulkanScope ${status.update.version} available", modifier = Modifier.weight(1f)); TextButton(onClick = { onInstallUpdate(status.update) }) { Text("Review") } }
+                    is UpdateStatus.Downloading -> { LinearProgressIndicator(Modifier.width(72.dp)); Text("Downloading update…", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)) }
                     is UpdateStatus.Failed -> Text(status.message, color = ComposeColor(0xFFFF8A8A), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
                     UpdateStatus.Hidden -> Unit
                 }
