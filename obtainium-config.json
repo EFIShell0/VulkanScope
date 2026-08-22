@@ -1,0 +1,13 @@
+{
+  "apps": [
+    {
+      "id": "com.efishell.vulkanscope",
+      "url": "https://github.com/EFIShell0/VulkanScope",
+      "author": "EFIShell0",
+      "name": "VulkanScope",
+      "preferredApkIndex": 0,
+      "additionalSettings": "{\"includePrereleases\":false,\"fallbackToOlderReleases\":false,\"apkFilterRegEx\":\"(?i).*universal.*\\\\.apk$\",\"invertAPKFilter\":false,\"autoApkFilterByArch\":false,\"trackOnly\":false,\"appName\":\"VulkanScope\"}",
+      "overrideSource": "GitHub"
+    }
+  ]
+}

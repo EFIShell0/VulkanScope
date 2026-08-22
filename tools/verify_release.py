@@ -8,8 +8,8 @@ errors = []
 gradle = (root / 'app/build.gradle.kts').read_text(encoding='utf-8')
 version = re.search(r'versionName\s*=\s*"([^"]+)"', gradle)
 code = re.search(r'versionCode\s*=\s*(\d+)', gradle)
-if not version or version.group(1) != '0.34.4': errors.append('versionName mismatch')
-if not code or code.group(1) != '345': errors.append('versionCode mismatch')
+if not version or version.group(1) != '0.34.7': errors.append('versionName mismatch')
+if not code or code.group(1) != '348': errors.append('versionCode mismatch')
 abi_line = re.search(r'abiFilters \+= listOf\(([^\n]+)\)', gradle)
 if not abi_line or any(x not in abi_line.group(1) for x in ['arm64-v8a', 'armeabi-v7a', 'x86_64']): errors.append('required ABI set is incomplete')
 if '"x86"' in gradle: errors.append('x86 ABI must remain excluded')
@@ -294,6 +294,26 @@ if 'appendProperty(out, first, "Core 1.4", "pCopySrcLayouts"' not in cpp_text: e
 if 'appendProperty(out, first, "Core 1.4", "pCopyDstLayouts"' not in cpp_text: errors.append('missing canonical Core 1.4 pCopyDstLayouts report name')
 if 'appendProperty(out, first, "Core 1.4", "copySrcLayouts"' in cpp_text or 'appendProperty(out, first, "Core 1.4", "copyDstLayouts"' in cpp_text: errors.append('legacy noncanonical Core 1.4 Host Image Copy pointer member name')
 
+
+kt_current = (root / 'app/src/main/java/com/efishell/vulkanscope/MainActivity.kt').read_text(encoding='utf-8')
+for needle in [
+    'Direct GitHub updates are currently disabled. Obtainium can manage updates externally, or direct updates can be enabled in Settings.',
+    'may duplicate update notifications.'
+]:
+    if needle not in kt_current: errors.append(f'missing 0.34.7 Obtainium requirement: {needle}')
+if 'Add to Obtainium' in kt_current or 'obtainium://app/' in kt_current or 'openInObtainium' in kt_current:
+    errors.append('runtime source still exposes removed Add to Obtainium action')
+if 'IzzyOnDroid' in kt_current:
+    errors.append('current VulkanScope runtime source must not retain IzzyOnDroid-specific messaging')
+obtainium_config = root / 'obtainium-config.json'
+if not obtainium_config.is_file():
+    errors.append('missing obtainium-config.json')
+else:
+    import json
+    obtainium_data = json.loads(obtainium_config.read_text(encoding='utf-8'))
+    obtainium_settings = json.loads(obtainium_data['apps'][0]['additionalSettings'])
+    if obtainium_settings.get('apkFilterRegEx') != r'(?i).*universal.*\.apk$' or obtainium_settings.get('autoApkFilterByArch') is not False:
+        errors.append('obtainium-config.json must preserve universal APK selection')
 if errors:
     for error in errors: print(f'FAIL: {error}')
     raise SystemExit(1)

@@ -1,3 +1,24 @@
+# 0.34.7
+
+- Direct GitHub updates are now enabled by default on fresh installations so users receive release checks without prior setup.
+- Existing users' saved update preference is preserved; disabling Direct GitHub updates still stops startup checks.
+- Obtainium remains an optional external update manager and its informational guidance and portable configuration are retained.
+- The Add to Obtainium button remains removed.
+
+# 0.34.6
+
+- Removed the Add to Obtainium action from Settings to keep update controls minimal.
+- Kept Direct GitHub updates opt-in and disabled by default.
+- Kept Obtainium guidance as informational text and retained the portable obtainium-config.json.
+
+# 0.34.5
+
+- Replaced IzzyOnDroid-specific update messaging with Obtainium-oriented update management.
+- Added one-tap Obtainium import configured to select the universal APK from official GitHub Releases.
+- Kept the built-in updater opt-in and disabled by default.
+- Updated first-install and consent messaging to avoid duplicate update-manager notifications.
+- Added `obtainium-config.json`.
+
 # 0.34.4
 
 - Added a one-time seven-second first-install information banner for the default-disabled direct GitHub updater, reusing the existing update-status banner design.

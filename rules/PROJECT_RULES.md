@@ -351,3 +351,36 @@
 - The one-time notice must not perform a network request and must not appear on ordinary application upgrades.
 - The separate consent that names the official GitHub Releases source and explains the IzzyOnDroid repository scanning/verification bypass remains mandatory before direct updates can be enabled.
 - Vulkan 1.4.360 collection, report completeness, Database submission and capability-state semantics must not regress.
+
+
+## Release 0.34.5 Obtainium update-management integration
+- Application version is 0.34.5 with versionCode 346.
+- The built-in direct GitHub updater remains disabled by default and performs no startup network request until explicitly enabled.
+- Runtime UI must not claim an IzzyOnDroid-specific security or repository relationship. Obtainium is presented only as an optional external update manager.
+- Settings exposes an Add to Obtainium action using Obtainium's documented `obtainium://app/` import path.
+- The generated Obtainium configuration targets the official EFIShell0/VulkanScope GitHub repository and filters release assets to filenames containing `universal` and ending in `.apk`; architecture auto-filtering is disabled so the universal release asset is selected deterministically.
+- If Obtainium is unavailable, the action falls back to the official Obtainium project page instead of silently failing.
+- Enabling the built-in updater must explain that, when Obtainium is also used, both update managers can check the same official GitHub Releases source and duplicate update notifications.
+- The first-install seven-second information banner keeps the established update-banner visual language and now recommends Obtainium as the external update-management path without performing a network request.
+- Existing APK package/signing/version/ABI validation, explicit installation consent, Vulkan 1.4.360 capability collection and complete UI/TXT/HTML/Database reporting must not regress.
+
+## Release 0.34.6 Obtainium UI simplification
+- Application version is 0.34.6 with versionCode 347.
+- The Direct GitHub updates setting remains present, opt-in and disabled by default.
+- Settings must not expose an Add to Obtainium button or invoke an Obtainium deep link; Obtainium remains an optional external update manager described by informational text only.
+- The portable obtainium-config.json remains in the source release and continues to target the official application GitHub repository with a universal-APK filter.
+- When Direct GitHub updates are disabled, no startup update discovery request is performed by the application.
+- Existing direct-update provenance, package identity, signing-certificate, version and ABI validation remains mandatory when the built-in updater is enabled.
+- Graphics capability collection, reporting, export and Database behavior must not regress.
+
+## Release 0.34.7 default-enabled direct GitHub updates
+- Application version is 0.34.7 with versionCode 348.
+- This release supersedes the default-off/opt-in-by-default clauses of releases 0.34.3 through 0.34.6; their security validation and explicit APK install-action requirements remain in force.
+- Direct GitHub updates are enabled by default only when no saved `direct_updates_enabled` preference exists. Existing users' explicit saved choice must be preserved across upgrades.
+- A fresh installation may perform the existing non-blocking startup update check against the fixed official EFIShell0/VulkanScope GitHub Releases API endpoint.
+- Disabling Direct GitHub updates must persist `false`, stop future startup update discovery, hide pending update UI and prevent update APK download until the user explicitly enables the setting again.
+- Obtainium remains optional external update-management guidance only; no Add to Obtainium runtime button or deep-link action is reintroduced.
+- The portable `obtainium-config.json` remains source metadata and continues to select the official universal APK release asset.
+- Update APK download and installation remain explicit user actions. Existing official-release provenance, HTTPS, package identity, signing-certificate, versionCode/versionName and ABI validation requirements remain mandatory.
+- Vulkan collection, report/export completeness, Database submission, Display/HDR semantics and capability-state semantics must not regress.
+
