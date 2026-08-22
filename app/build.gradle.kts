@@ -11,8 +11,8 @@ android {
         applicationId = "com.efishell.vulkanscope"
         minSdk = 24
         targetSdk = 37
-        versionCode = 348
-        versionName = "0.34.7"
+        versionCode = 349
+        versionName = "0.34.8"
         
         
         ndkVersion = "29.0.14206865"

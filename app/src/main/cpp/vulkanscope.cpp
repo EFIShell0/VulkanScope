@@ -3490,7 +3490,7 @@ std::string collectVulkanAdvancedGroup(const char* driverMode, const char* drive
             addDevicePrefix(i);
             out << ",\"properties\":[";
             bool firstProp = true;
-            const bool formatFeatureFlags2 = VK_API_VERSION_MINOR(apiVersion) >= 3 || hasExt("VK_KHR_format_feature_flags2");
+            const bool formatFeatureFlags2 = apiVersion >= VK_API_VERSION_1_3 || hasExt("VK_KHR_format_feature_flags2");
             for (VkFormat fmt : knownFormatValues()) {
                 if (!shouldQueryFormat(fmt, apiVersion, devExts)) continue;
                 VkFormatProperties3 p3{}; p3.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3; p3.pNext = nullptr;
@@ -3499,7 +3499,7 @@ std::string collectVulkanAdvancedGroup(const char* driverMode, const char* drive
                     if (!firstProp) out << ',';
                     firstProp = false;
                     std::ostringstream value;
-                    value << "linear=0x" << std::hex << p2.formatProperties.linearTilingFeatures << ", optimal=0x" << p2.formatProperties.optimalTilingFeatures << ", buffer=0x" << p2.formatProperties.bufferFeatures << ", featureFlags2 linear=0x" << (formatFeatureFlags2 ? p3.linearTilingFeatures : 0) << " optimal=0x" << (formatFeatureFlags2 ? p3.optimalTilingFeatures : 0) << " buffer=0x" << (formatFeatureFlags2 ? p3.bufferFeatures : 0);
+                    value << "linear=0x" << std::hex << p2.formatProperties.linearTilingFeatures << ", optimal=0x" << p2.formatProperties.optimalTilingFeatures << ", buffer=0x" << p2.formatProperties.bufferFeatures << ", featureFlags2Available=" << (formatFeatureFlags2 ? "true" : "false") << ", featureFlags2 linear=0x" << (formatFeatureFlags2 ? p3.linearTilingFeatures : 0) << " optimal=0x" << (formatFeatureFlags2 ? p3.optimalTilingFeatures : 0) << " buffer=0x" << (formatFeatureFlags2 ? p3.bufferFeatures : 0);
                     out << "{\"section\":\"Format Properties2\",\"name\":" << jsonString(formatName(fmt)) << ",\"value\":" << jsonString(value.str()) << '}';
                 }
             }

@@ -384,3 +384,12 @@
 - Update APK download and installation remain explicit user actions. Existing official-release provenance, HTTPS, package identity, signing-certificate, versionCode/versionName and ABI validation requirements remain mandatory.
 - Vulkan collection, report/export completeness, Database submission, Display/HDR semantics and capability-state semantics must not regress.
 
+## Release 0.34.8 FormatFeatureFlags2 and expressive navigation icons
+- Application version is 0.34.8 with versionCode 349.
+- When Vulkan 1.3 or `VK_KHR_format_feature_flags2` makes `VkFormatProperties3` available, the main Formats model must consume its 64-bit `linearTilingFeatures`, `optimalTilingFeatures`, and `bufferFeatures` values; the legacy `VkFormatProperties` masks are fallback-only in that case.
+- FormatFeatureFlags2 availability must be carried explicitly from the native query result so a legitimate all-zero 64-bit mask is never confused with an unavailable query path.
+- 64-bit format-feature masks must be parsed and rendered as unsigned bit patterns and preserved losslessly through UI, structured JSON, TXT, and HTML consumers, including unknown future bits.
+- Core FormatFeatureFlags2 eligibility must use a full packed Vulkan API-version comparison against Vulkan 1.3 rather than comparing only the minor version.
+- Settings and Info icons use rounded Material 3 Expressive-aligned vector geometry while preserving semantic identity, existing app-bar/navigation placement, touch targets, tint behavior, accessibility descriptions, and VulkanScope visual hierarchy.
+- No database schema or submission behavior change is introduced by this release.
+

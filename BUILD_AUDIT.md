@@ -1,20 +1,22 @@
-# VulkanScope 0.34.7 Build Audit
+# VulkanScope 0.34.8 Build Audit
 
-- Application version: 0.34.7
-- versionCode: 348
+- Application version: 0.34.8
+- versionCode: 349
 - Vulkan query/header baseline: 1.4.360
 - Release verifier: PASS
 - Manifest parse: PASS
 - Obtainium config static verification: PASS
-- Add to Obtainium runtime action: removed
-- Obtainium informational guidance: retained
-- Universal-APK filter: `(?i).*universal.*\.apk$`
-- Obtainium architecture auto-filter: disabled
 - Built-in direct updater: enabled by default on fresh installs
-- Disabled-state first-install information banner logic is retained; a normal fresh install with the default-enabled updater proceeds directly to the non-blocking update check
-- Current runtime source contains no IzzyOnDroid-specific messaging
-- Existing package/signature/version/ABI update verification remains present
-- Vulkan capability/report/Database behavior was not changed by this release
+- Obtainium informational guidance: retained
+- Add to Obtainium runtime action: absent
+- `VkFormatProperties3` / `VkFormatFeatureFlags2` native query path: retained
+- FormatFeatureFlags2 availability evidence: explicit
+- Main Formats model consumes 64-bit Flags2 masks when available: PASS
+- Legacy 32-bit format masks remain fallback-only: PASS
+- Unsigned 64-bit mask parsing and unknown-bit rendering: PASS
+- Settings and Info rounded Material 3 Expressive-aligned vector icons: PASS
+- Settings/Info navigation geometry and accessibility descriptions: unchanged
+- Database schema/submission behavior: unchanged
+- Gradle assembleRelease attempt: NOT COMPLETED because the wrapper could not resolve services.gradle.org in this environment
 
 A full Gradle Kotlin/native compilation is not claimed unless completed by the validation environment.
-- Gradle assembleRelease attempt: NOT COMPLETED because the wrapper could not resolve services.gradle.org in this environment

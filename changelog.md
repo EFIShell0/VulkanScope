@@ -1,3 +1,9 @@
+# 0.34.8
+
+- Completed `VK_KHR_format_feature_flags2` / Vulkan 1.3 format-feature data flow: `VkFormatProperties3` 64-bit masks now feed the main Formats model, UI, structured report, TXT and HTML exports, with legacy `VkFormatProperties` fallback only when FormatFeatureFlags2 is unavailable.
+- Added unsigned 64-bit parsing for format-feature masks so future high-bit values remain lossless and unknown bits can still be preserved by the canonical/raw formatter.
+- Refreshed Settings and Info icons with rounded Material 3 Expressive-aligned vector artwork while preserving existing navigation geometry, touch targets and VulkanScope visual hierarchy.
+
 # 0.34.7
 
 - Direct GitHub updates are now enabled by default on fresh installations so users receive release checks without prior setup.

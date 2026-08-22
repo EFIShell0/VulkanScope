@@ -1594,9 +1594,16 @@ private fun mergeAdvancedQueryReport(base: VulkanReport, raw: String, group: Str
                 val prop = properties.optJSONObject(index) ?: return@mapNotNull null
                 val name = prop.optString("name")
                 val value = prop.optString("value")
-                val linear = Regex("(?:^|, )linear=0x([0-9a-fA-F]+)").find(value)?.groupValues?.getOrNull(1)?.toLongOrNull(16) ?: return@mapNotNull null
-                val optimal = Regex("(?:^|, )optimal=0x([0-9a-fA-F]+)").find(value)?.groupValues?.getOrNull(1)?.toLongOrNull(16) ?: return@mapNotNull null
-                val buffer = Regex("(?:^|, )buffer=0x([0-9a-fA-F]+)").find(value)?.groupValues?.getOrNull(1)?.toLongOrNull(16) ?: return@mapNotNull null
+                val legacyLinear = parseUnsignedHexLong(Regex("(?:^|, )linear=0x([0-9a-fA-F]+)").find(value)?.groupValues?.getOrNull(1)) ?: return@mapNotNull null
+                val legacyOptimal = parseUnsignedHexLong(Regex("(?:^|, )optimal=0x([0-9a-fA-F]+)").find(value)?.groupValues?.getOrNull(1)) ?: return@mapNotNull null
+                val legacyBuffer = parseUnsignedHexLong(Regex("(?:^|, )buffer=0x([0-9a-fA-F]+)").find(value)?.groupValues?.getOrNull(1)) ?: return@mapNotNull null
+                val featureFlags2Available = Regex("featureFlags2Available=(true|false)").find(value)?.groupValues?.getOrNull(1)?.toBooleanStrictOrNull() == true
+                val flags2Linear = parseUnsignedHexLong(Regex("featureFlags2 linear=0x([0-9a-fA-F]+)").find(value)?.groupValues?.getOrNull(1))
+                val flags2Optimal = parseUnsignedHexLong(Regex("featureFlags2 linear=0x[0-9a-fA-F]+ optimal=0x([0-9a-fA-F]+)").find(value)?.groupValues?.getOrNull(1))
+                val flags2Buffer = parseUnsignedHexLong(Regex("featureFlags2 linear=0x[0-9a-fA-F]+ optimal=0x[0-9a-fA-F]+ buffer=0x([0-9a-fA-F]+)").find(value)?.groupValues?.getOrNull(1))
+                val linear = if (featureFlags2Available && flags2Linear != null) flags2Linear else legacyLinear
+                val optimal = if (featureFlags2Available && flags2Optimal != null) flags2Optimal else legacyOptimal
+                val buffer = if (featureFlags2Available && flags2Buffer != null) flags2Buffer else legacyBuffer
                 FormatEntry(name, linear != 0L || optimal != 0L || buffer != 0L, linear, optimal, buffer)
             }
             valuesByDevice[vendor to deviceId] = entries
@@ -2815,7 +2822,7 @@ private fun featureNameOnly(name: String): String = name.substringAfter(" · ", 
 private fun rawBitsSuffix(bits: Long, known: Set<Long>): String {
     var remaining = bits
     known.forEach { remaining = remaining and it.inv() }
-    return if (remaining != 0L) " | UNKNOWN_BITS=0x${remaining.toString(16).uppercase()}" else ""
+    return if (remaining != 0L) " | UNKNOWN_BITS=0x${remaining.toULong().toString(16).uppercase()}" else ""
 }
 
 private fun memoryHeapFlags(bits: Long): String = canonicalFlagNames(bits, listOf(
@@ -2848,6 +2855,8 @@ private fun videoCodecOperationFlags(bits: Long): String = canonicalFlagNames(bi
     0x10000L to "VK_VIDEO_CODEC_OPERATION_ENCODE_H264_BIT_KHR", 0x20000L to "VK_VIDEO_CODEC_OPERATION_ENCODE_H265_BIT_KHR",
     0x40000L to "VK_VIDEO_CODEC_OPERATION_ENCODE_AV1_BIT_KHR"
 ))
+
+private fun parseUnsignedHexLong(value: String?): Long? = value?.let { runCatching { java.lang.Long.parseUnsignedLong(it, 16) }.getOrNull() }
 
 private fun canonicalFlagNames(bits: Long, names: List<Pair<Long, String>>): String {
     if (bits == 0L) return "NONE"
