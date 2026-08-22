@@ -1,3 +1,8 @@
+# 0.34.4
+
+- Added a one-time seven-second first-install information banner for the default-disabled direct GitHub updater, reusing the existing update-status banner design.
+- Direct GitHub updates remain opt-in and disabled by default; IzzyOnDroid bypass consent remains mandatory.
+
 # 0.34.2
 
 - Full UI/TXT/HTML/Database report-path parity audit.
@@ -15,3 +20,9 @@
 - Corrected field-audit alias handling for promoted EXT/KHR/core structures.
 - Updated published Vulkan provenance to 1.4.360.
 - Bumped versionName to 0.34.0 and versionCode to 341.
+
+## 0.34.3
+- Made the direct GitHub self-updater opt-in and disabled by default.
+- Added a Settings consent gate describing the official APK source and IzzyOnDroid screening/verification bypass.
+- Added Fastlane metadata for IzzyOnDroid repository ingestion.
+- Preserved Vulkan 1.4.360 capability/reporting behavior.

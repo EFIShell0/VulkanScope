@@ -8,8 +8,8 @@ errors = []
 gradle = (root / 'app/build.gradle.kts').read_text(encoding='utf-8')
 version = re.search(r'versionName\s*=\s*"([^"]+)"', gradle)
 code = re.search(r'versionCode\s*=\s*(\d+)', gradle)
-if not version or version.group(1) != '0.34.2': errors.append('versionName mismatch')
-if not code or code.group(1) != '343': errors.append('versionCode mismatch')
+if not version or version.group(1) != '0.34.4': errors.append('versionName mismatch')
+if not code or code.group(1) != '345': errors.append('versionCode mismatch')
 abi_line = re.search(r'abiFilters \+= listOf\(([^\n]+)\)', gradle)
 if not abi_line or any(x not in abi_line.group(1) for x in ['arm64-v8a', 'armeabi-v7a', 'x86_64']): errors.append('required ABI set is incomplete')
 if '"x86"' in gradle: errors.append('x86 ABI must remain excluded')
@@ -31,7 +31,7 @@ if re.search(r'\bTODO\b|\bFIXME\b', cpp + kt): errors.append('TODO/FIXME marker 
 if 'android:usesCleartextTraffic="false"' not in manifest: errors.append('cleartext traffic must be disabled')
 for needle in ['packageSigningCertificatesMatch', 'archiveVersionCode <= installedVersionCode', 'toHttpUrlOrNull', 'baseUrl.username.isNotEmpty()', 'target.parentFile?.canonicalFile']:
     if needle not in kt: errors.append(f'missing update/network hardening: {needle}')
-if 'private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverMode, collectionStatus: CollectionStatus, onCheckForUpdates: () -> Unit)' not in kt or 'Page.Info -> InfoPage(report, display, driverMode, collectionStatus, onCheckForUpdates)' not in kt:
+if 'private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverMode, collectionStatus: CollectionStatus, onCheckForUpdates: () -> Unit, directUpdatesEnabled: Boolean)' not in kt or 'Page.Info -> InfoPage(report, display, driverMode, collectionStatus, onCheckForUpdates, directUpdatesEnabled)' not in kt:
     errors.append('manual update callback is not exposed from the Info destination')
 if 'OFFICIAL_DATABASE_API_ENDPOINT = "https://vulkanscope-database-api.vulkanscope.workers.dev"' not in kt:
     errors.append('official VulkanScope Database endpoint is missing')
@@ -250,7 +250,7 @@ for needle in [
     '"Implemented structs" to htmlEscape(report.registryCoverage.implementedPhysicalDeviceStructs.joinToString(", "))',
     '"Security patch" to htmlEscape(Build.VERSION.SECURITY_PATCH.ifBlank { "Unavailable" })'
 ]:
-    if needle not in kt: errors.append(f'missing 0.34.2 report/UI parity requirement: {needle}')
+    if needle not in kt: errors.append(f'missing 0.34.4 report/UI parity requirement: {needle}')
 for needle in [
     'put("detailedProperties", JSONArray().apply { d.detailedProperties.forEach',
     'appendLine(); appendLine("DETAILED QUERY RESULTS',

@@ -1,23 +1,27 @@
-# VulkanScope 0.34.2
+# VulkanScope 0.34.4
 
-VulkanScope 0.34.2 is a complete-report parity and presentation-correctness release following the 0.34.0 CapsViewer field-level fix.
+VulkanScope 0.34.3 adds IzzyOnDroid-compatible self-update behavior without changing Vulkan capability coverage.
 
 ## Changes
 
-- Re-audited native Vulkan collection through UI, TXT, HTML and VulkanScope Database submission.
-- Verified the 0.34.0 Host Image Copy `pCopySrcLayouts` / `pCopyDstLayouts` results propagate through Properties & Limits, TXT, HTML and structured Database `detailedProperties`.
-- Added instance-layer extension membership to TXT export.
-- Memory heap/type flags now carry canonical Vulkan names plus exact raw values in TXT and HTML.
-- Queue flags and Vulkan Video codec-operation flags now carry canonical Vulkan names plus exact raw values in TXT and HTML.
-- Format linear/optimal/buffer feature masks now carry canonical Vulkan names plus exact raw values in TXT and HTML.
-- Registry exports now include implemented physical-device structure names as well as validated query groups.
-- Expanded Info and offline HTML Android build/security-patch provenance to match the local TXT diagnostic view.
-- Database submission remains privacy-bounded and excludes sensitive device identifiers/private paths.
-- Current published Vulkan specification remains Vulkan 1.4.360 (2026-08-14).
+- Direct GitHub update checks are disabled by default for every installation.
+- Settings now owns the opt-in Direct GitHub updates switch.
+- Enabling it requires explicit confirmation of the official GitHub Releases source and warns that direct APK updates bypass IzzyOnDroid repository scanning and verification.
+- No startup update request is made while the feature is disabled.
+- Manual update checks in Info remain unavailable until the feature is enabled.
+- Existing APK URL, package, signing certificate, ABI and version validation remains unchanged when direct updates are enabled.
+- Added Fastlane metadata suitable for IzzyOnDroid ingestion.
+- Vulkan 1.4.360 query/header coverage and UI/TXT/HTML/Database reporting remain unchanged.
 
 ## Version
 
-- VulkanScope: `0.34.2`
-- versionCode: `342`
+- Version: `0.34.3`
+- versionCode: `344`
 - Package: `com.efishell.vulkanscope`
-- Query/header baseline: Vulkan 1.4.360
+- Vulkan baseline: `1.4.360`
+
+
+## 0.34.4 first-install update notice
+
+- Added a one-time seven-second first-install information banner for the default-disabled direct GitHub updater, reusing the existing update-status banner design.
+- The notice is non-modal, performs no network request, appears only on genuine first installation, and does not replace the separate IzzyOnDroid bypass confirmation required when direct updates are enabled.

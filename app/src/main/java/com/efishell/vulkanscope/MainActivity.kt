@@ -97,6 +97,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -354,6 +355,7 @@ private sealed interface UpdateStatus {
     data object Hidden : UpdateStatus
     data object Checking : UpdateStatus
     data object UpToDate : UpdateStatus
+    data object DirectUpdatesDisabledIntro : UpdateStatus
     data class Available(val update: AppUpdate) : UpdateStatus
     data class Downloading(val update: AppUpdate) : UpdateStatus
     data class Failed(val message: String) : UpdateStatus
@@ -415,6 +417,8 @@ class MainActivity : ComponentActivity() {
     private var collectionStatus by mutableStateOf(CollectionStatus.IDLE)
     private var updateStatus by mutableStateOf<UpdateStatus>(UpdateStatus.Hidden)
     private var updateConfirmation by mutableStateOf<AppUpdate?>(null)
+    private var directUpdatesEnabled by mutableStateOf(false)
+    private var directUpdatesConsentVisible by mutableStateOf(false)
     private var pendingUpdateApk: File? = null
     private var updateCheckJob: Job? = null
     private var collectionInFlight = false
@@ -459,6 +463,7 @@ class MainActivity : ComponentActivity() {
             window.isNavigationBarContrastEnforced = false
         }
         prefs = getSharedPreferences("settings", MODE_PRIVATE)
+        directUpdatesEnabled = prefs.getBoolean("direct_updates_enabled", false)
         displayReportState = displayReport()
         driverMode = DriverMode.values().find { it.name == prefs.getString("driver_mode", DriverMode.SYSTEM.name) } ?: DriverMode.SYSTEM
         if (!isTurnipPlatformEligible()) turnipSupport = TurnipSupport.UNSUPPORTED
@@ -477,6 +482,11 @@ class MainActivity : ComponentActivity() {
                     downloadAndInstallUpdate(update)
                 },
                 onCheckForUpdates = { checkForApplicationUpdate(showProgress = true) },
+                directUpdatesEnabled = directUpdatesEnabled,
+                directUpdatesConsentVisible = directUpdatesConsentVisible,
+                onDirectUpdatesChanged = { enabled -> requestDirectUpdatesChanged(enabled) },
+                onDismissDirectUpdatesConsent = { directUpdatesConsentVisible = false },
+                onConfirmDirectUpdatesConsent = { confirmDirectUpdatesConsent() },
                 surfaceReady = { surface ->
                     val changed = synchronized(surfaceLock) {
                         val different = currentSurface !== surface
@@ -502,7 +512,42 @@ class MainActivity : ComponentActivity() {
                 onRequestQuery = { group -> requestQueryGroup(group) }
             )
         }
-        activityScope.launch { checkForApplicationUpdate(showProgress = false) }
+        if (directUpdatesEnabled) {
+            activityScope.launch { checkForApplicationUpdate(showProgress = false) }
+        } else {
+            showDirectUpdatesDisabledIntroIfFirstInstall()
+        }
+    }
+
+    private fun showDirectUpdatesDisabledIntroIfFirstInstall() {
+        if (prefs.getBoolean("direct_updates_intro_seen", false)) return
+        val packageInfo = runCatching { packageManager.getPackageInfo(packageName, 0) }.getOrNull() ?: return
+        prefs.edit().putBoolean("direct_updates_intro_seen", true).apply()
+        if (packageInfo.firstInstallTime != packageInfo.lastUpdateTime) return
+        updateStatus = UpdateStatus.DirectUpdatesDisabledIntro
+        activityScope.launch {
+            kotlinx.coroutines.delay(7_000L)
+            if (updateStatus is UpdateStatus.DirectUpdatesDisabledIntro) updateStatus = UpdateStatus.Hidden
+        }
+    }
+
+    private fun requestDirectUpdatesChanged(enabled: Boolean) {
+        if (enabled) {
+            directUpdatesConsentVisible = true
+        } else {
+            directUpdatesEnabled = false
+            directUpdatesConsentVisible = false
+            prefs.edit().putBoolean("direct_updates_enabled", false).apply()
+            updateStatus = UpdateStatus.Hidden
+            updateConfirmation = null
+        }
+    }
+
+    private fun confirmDirectUpdatesConsent() {
+        directUpdatesEnabled = true
+        directUpdatesConsentVisible = false
+        if (updateStatus is UpdateStatus.DirectUpdatesDisabledIntro) updateStatus = UpdateStatus.Hidden
+        prefs.edit().putBoolean("direct_updates_enabled", true).apply()
     }
 
     private val driverPickerLauncher = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
@@ -807,6 +852,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkForApplicationUpdate(showProgress: Boolean) {
+        if (!directUpdatesEnabled) {
+            if (showProgress) updateStatus = UpdateStatus.Failed("Direct GitHub updates are disabled. Enable them in Settings.")
+            return
+        }
         if (updateCheckJob?.isActive == true || updateStatus is UpdateStatus.Downloading) return
         updateCheckJob = activityScope.launch {
             if (showProgress) updateStatus = UpdateStatus.Checking
@@ -1868,6 +1917,11 @@ private fun VulkanScopeApp(
     onDismissUpdateConfirmation: () -> Unit,
     onConfirmUpdateDownload: (AppUpdate) -> Unit,
     onCheckForUpdates: () -> Unit,
+    directUpdatesEnabled: Boolean,
+    directUpdatesConsentVisible: Boolean,
+    onDirectUpdatesChanged: (Boolean) -> Unit,
+    onDismissDirectUpdatesConsent: () -> Unit,
+    onConfirmDirectUpdatesConsent: () -> Unit,
     surfaceReady: (Surface) -> Unit,
     surfaceDestroyed: () -> Unit,
     driverMode: DriverMode,
@@ -1964,6 +2018,8 @@ private fun VulkanScopeApp(
                                     onDriverModeChanged = onDriverModeChanged,
                                     onInstallDriverBundle = onInstallDriverBundle,
                                     onCheckForUpdates = onCheckForUpdates,
+                                    directUpdatesEnabled = directUpdatesEnabled,
+                                    onDirectUpdatesChanged = onDirectUpdatesChanged,
                                     collectionStatus = collectionStatus,
                                     onNavigate = { page = it },
                                     onRequestQuery = onRequestQuery
@@ -1973,6 +2029,14 @@ private fun VulkanScopeApp(
                     }
                 }
             }
+        }
+        if (directUpdatesConsentVisible) {
+            DirectUpdatesConsentDialog(
+                appName = "VulkanScope",
+                releaseSource = "github.com/EFIShell0/VulkanScope/releases",
+                onDismiss = onDismissDirectUpdatesConsent,
+                onConfirm = onConfirmDirectUpdatesConsent
+            )
         }
         updateConfirmation?.let { update ->
             UpdateConfirmationDialog(
@@ -2012,7 +2076,7 @@ private fun SurfaceProbe(
 
 
 @Composable
-private fun PageContent(page: Page, report: VulkanReport, display: DisplayReport, driverMode: DriverMode, turnipSupport: TurnipSupport, onDriverModeChanged: (DriverMode) -> Unit, onInstallDriverBundle: () -> Unit, onCheckForUpdates: () -> Unit, collectionStatus: CollectionStatus, onNavigate: (Page) -> Unit, onRequestQuery: (String) -> Unit) {
+private fun PageContent(page: Page, report: VulkanReport, display: DisplayReport, driverMode: DriverMode, turnipSupport: TurnipSupport, onDriverModeChanged: (DriverMode) -> Unit, onInstallDriverBundle: () -> Unit, onCheckForUpdates: () -> Unit, directUpdatesEnabled: Boolean, onDirectUpdatesChanged: (Boolean) -> Unit, collectionStatus: CollectionStatus, onNavigate: (Page) -> Unit, onRequestQuery: (String) -> Unit) {
     val device = report.devices.firstOrNull()
     when (page) {
         Page.Overview -> OverviewPage(report, device, display, driverMode, onNavigate)
@@ -2026,8 +2090,8 @@ private fun PageContent(page: Page, report: VulkanReport, display: DisplayReport
         Page.Properties -> PropertiesPage(device, onRequestQuery)
         Page.Extensions -> ExtensionsPage(report, device)
         Page.Profiles -> ProfilesPage(report, device)
-        Page.Settings -> SettingsPage(report, driverMode, turnipSupport, onDriverModeChanged, onInstallDriverBundle, collectionStatus)
-        Page.Info -> InfoPage(report, display, driverMode, collectionStatus, onCheckForUpdates)
+        Page.Settings -> SettingsPage(report, driverMode, turnipSupport, onDriverModeChanged, onInstallDriverBundle, collectionStatus, directUpdatesEnabled, onDirectUpdatesChanged)
+        Page.Info -> InfoPage(report, display, driverMode, collectionStatus, onCheckForUpdates, directUpdatesEnabled)
     }
 }
 
@@ -3028,7 +3092,7 @@ private fun ProfilesPage(report: VulkanReport, device: DeviceReport?) {
 }
 
 @Composable
-private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverMode, collectionStatus: CollectionStatus, onCheckForUpdates: () -> Unit) {
+private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverMode, collectionStatus: CollectionStatus, onCheckForUpdates: () -> Unit, directUpdatesEnabled: Boolean) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val uriHandler = LocalUriHandler.current
     val scope = rememberCoroutineScope()
@@ -3083,9 +3147,9 @@ private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverM
         item {
             CapabilitySectionCard("Application") {
                 ExpressiveVersionBlock("VulkanScope", versionName, versionCode, context.packageName, installedAbi)
-                ExpressiveActionButton("Check for updates", "Official EFIShell0/VulkanScope GitHub release channel", R.drawable.ic_action_update, onClick = onCheckForUpdates)
+                ExpressiveActionButton("Check for updates", if (directUpdatesEnabled) "Official EFIShell0/VulkanScope GitHub release channel" else "Direct GitHub updates are disabled in Settings", R.drawable.ic_action_update, enabled = directUpdatesEnabled, onClick = onCheckForUpdates)
                 ExpressiveActionButton("Open GitHub repository", "Source, releases and project history", R.drawable.ic_action_github) { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/EFIShell0/VulkanScope"))) } }
-                Text("Update checks use the official VulkanScope GitHub release channel. A compatible update is reviewed with release notes, installed/download ABI and version details before any APK is downloaded.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
+                Text(if (directUpdatesEnabled) "Direct update checks use the official VulkanScope GitHub release channel. APK download still requires explicit review and confirmation." else "Direct GitHub update checks are disabled by default. Repository clients such as IzzyOnDroid can manage updates without VulkanScope contacting GitHub for update discovery.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
             }
         }
         item {
@@ -3181,12 +3245,24 @@ private fun turnipSupportDescription(support: TurnipSupport): String = when (sup
 }
 
 @Composable
-private fun SettingsPage(report: VulkanReport, mode: DriverMode, turnipSupport: TurnipSupport, onModeChanged: (DriverMode) -> Unit, onInstallDriverBundle: () -> Unit, collectionStatus: CollectionStatus) {
+private fun SettingsPage(report: VulkanReport, mode: DriverMode, turnipSupport: TurnipSupport, onModeChanged: (DriverMode) -> Unit, onInstallDriverBundle: () -> Unit, collectionStatus: CollectionStatus, directUpdatesEnabled: Boolean, onDirectUpdatesChanged: (Boolean) -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val completeReportReady = report.devices.isNotEmpty() && collectionStatus != CollectionStatus.COLLECTING
     val bundleDir = File(context.filesDir, "turnip")
     val bundleInstalled = bundleDir.exists() && bundleDir.walkTopDown().any { it.isFile && it.extension.equals("so", true) }
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        item {
+            CapabilitySectionCard("Updates") {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Direct GitHub updates", fontWeight = FontWeight.SemiBold)
+                        Text(if (directUpdatesEnabled) "Enabled · update checks use the official VulkanScope GitHub Releases channel" else "Disabled · recommended when updates are managed by IzzyOnDroid or another repository client", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(checked = directUpdatesEnabled, onCheckedChange = onDirectUpdatesChanged)
+                }
+                Text("When disabled, VulkanScope performs no startup update check and will not download update APKs. Enabling requires a confirmation explaining that direct GitHub APK updates bypass IzzyOnDroid repository screening and verification.", color = ComposeColor(0xFF777777), style = MaterialTheme.typography.bodySmall)
+            }
+        }
         item {
             CapabilitySectionCard("Vulkan driver") {
                 Text("Choose which Vulkan driver source VulkanScope should request. Driver inspection runs in an isolated probe process, so changing drivers does not restart the UI process.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
@@ -3904,6 +3980,7 @@ private fun UpdateStatusBanner(status: UpdateStatus, onInstallUpdate: (AppUpdate
                 when (status) {
                     UpdateStatus.Checking -> { LinearProgressIndicator(Modifier.width(72.dp)); Text("Checking for updates…", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)) }
                     UpdateStatus.UpToDate -> { UpdateStatusBadge("UP TO DATE"); Text("VulkanScope is up to date.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)) }
+                    UpdateStatus.DirectUpdatesDisabledIntro -> { UpdateStatusBadge("INFO"); Text("Direct GitHub updates are disabled by default. You can enable them optionally in Settings.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)) }
                     is UpdateStatus.Available -> { UpdateStatusBadge("UPDATE"); Text("VulkanScope ${status.update.version} available", modifier = Modifier.weight(1f)); TextButton(onClick = { onInstallUpdate(status.update) }) { Text("Review") } }
                     is UpdateStatus.Downloading -> { LinearProgressIndicator(Modifier.width(72.dp)); Text("Downloading update…", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)) }
                     is UpdateStatus.Failed -> Text(status.message, color = ComposeColor(0xFFFF8A8A), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
@@ -3921,6 +3998,22 @@ private fun UpdateDialogKeyValue(key: String, value: String) {
         Text(key, color = ComposeColor(0xFF8F8F8F), modifier = Modifier.weight(0.9f), style = MaterialTheme.typography.bodySmall)
         Text(value.ifBlank { "Unavailable" }, modifier = Modifier.weight(1.1f), textAlign = TextAlign.End, style = MaterialTheme.typography.bodySmall)
     }
+}
+
+@Composable
+private fun DirectUpdatesConsentDialog(appName: String, releaseSource: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Enable direct GitHub updates?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("$appName will check for updates and download APKs directly from $releaseSource.")
+                Text("Updates installed through this feature come from outside IzzyOnDroid and bypass IzzyOnDroid repository scanning and verification. Leave this disabled to keep updates managed by IzzyOnDroid.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = { Button(onClick = onConfirm) { Text("Enable anyway") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @Composable

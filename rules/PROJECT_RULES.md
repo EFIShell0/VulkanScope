@@ -332,3 +332,22 @@
 - VK_EXT_host_image_copy evidence remains extension-scoped when the extension query path is used.
 - Database comparison may canonicalize promoted Core 1.4 Host Image Copy fields to their VK_EXT_host_image_copy equivalents for side-by-side comparison, but raw report section/name provenance must remain unchanged.
 - copySrcLayoutCount, pCopySrcLayouts, copyDstLayoutCount, pCopyDstLayouts, optimalTilingLayoutUUID and identicalMemoryTypeRequirements form one promoted capability family for compare aliasing only.
+
+## Release 0.34.3 IzzyOnDroid direct-update policy
+- Application version is 0.34.3 with versionCode 344.
+- The built-in GitHub self-updater is opt-in and disabled by default for every installation. No startup update discovery request may run until the user has explicitly enabled direct updates.
+- Enabling direct updates must require an explicit confirmation that names the official EFIShell0/VulkanScope GitHub Releases source and states that APKs installed through this path bypass IzzyOnDroid repository scanning and verification.
+- Disabling direct updates must immediately stop future automatic checks and hide pending update UI. Existing package/signing/version/ABI validation remains mandatory whenever direct updates are enabled.
+- Info may expose manual update checking only while direct updates are enabled. Settings is the single owner of the direct-update opt-in state.
+- IzzyOnDroid repository identity must not be inferred from Android installer package identity because repository clients can install packages from multiple repositories. The policy is implemented safely by keeping the self-updater disabled by default independent of installer identity.
+- Fastlane metadata for IzzyOnDroid must be versioned with the release source and must use the same tagged revision as the APK release.
+- No capability collection, TXT/HTML/Database reporting, Turnip/SAF behavior, Vulkan 1.4.360 coverage, or CapsViewer parity may regress because of this release.
+
+## Release 0.34.4 IzzyOnDroid first-install notice
+- Application version is 0.34.4 with versionCode 345.
+- Direct GitHub updates remain opt-in and disabled by default for every installation.
+- A genuine first installation with direct updates disabled shows one seven-second non-modal information banner using the existing update-status banner visual language.
+- The notice states only that direct GitHub updates are disabled by default and can optionally be enabled in Settings; it must not imply that IzzyOnDroid updates are disabled.
+- The one-time notice must not perform a network request and must not appear on ordinary application upgrades.
+- The separate consent that names the official GitHub Releases source and explains the IzzyOnDroid repository scanning/verification bypass remains mandatory before direct updates can be enabled.
+- Vulkan 1.4.360 collection, report completeness, Database submission and capability-state semantics must not regress.
