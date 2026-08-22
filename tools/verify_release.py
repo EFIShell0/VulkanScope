@@ -8,8 +8,8 @@ errors = []
 gradle = (root / 'app/build.gradle.kts').read_text(encoding='utf-8')
 version = re.search(r'versionName\s*=\s*"([^"]+)"', gradle)
 code = re.search(r'versionCode\s*=\s*(\d+)', gradle)
-if not version or version.group(1) != '0.33.10': errors.append('versionName mismatch')
-if not code or code.group(1) != '340': errors.append('versionCode mismatch')
+if not version or version.group(1) != '0.34.2': errors.append('versionName mismatch')
+if not code or code.group(1) != '343': errors.append('versionCode mismatch')
 abi_line = re.search(r'abiFilters \+= listOf\(([^\n]+)\)', gradle)
 if not abi_line or any(x not in abi_line.group(1) for x in ['arm64-v8a', 'armeabi-v7a', 'x86_64']): errors.append('required ABI set is incomplete')
 if '"x86"' in gradle: errors.append('x86 ABI must remain excluded')
@@ -97,6 +97,31 @@ for needle in ['technicalReport', 'schemaVersion", 3', 'ExpressiveActionButton',
     if needle not in kt: errors.append(f'missing 0.32.x report/UI/runtime hardening: {needle}')
 if 'Vulkan 1.4.360 compile headers; validated query catalog Vulkan 1.4.360' not in catalog:
     errors.append('compile-header/query-catalog baseline distinction is missing')
+
+for needle in [
+    'canonicalImageLayoutName',
+    'imageLayoutListString',
+    'kMaxHostImageCopyLayoutEntries = 65536',
+    'pCopySrcLayouts',
+    'pCopyDstLayouts'
+]:
+    if needle not in cpp: errors.append(f'missing 0.34.0 Host Image Copy parity requirement: {needle}')
+parity_fields = (root / 'app/src/main/cpp/extension_field_coverage_parity.inc').read_text(encoding='utf-8')
+if 'generatedEmitAuto(dst, section, "pCopySrcLayouts", value.pCopySrcLayouts)' in parity_fields or 'generatedEmitAuto(dst, section, "pCopyDstLayouts", value.pCopyDstLayouts)' in parity_fields:
+    errors.append('0.34.0 must not serialize Host Image Copy pointer addresses as unavailable pointer fields')
+for needle in [
+    'VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLAMP_ZERO_ONE_FEATURES_KHR',
+    'VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_OFFSET_FEATURES_QCOM',
+    'VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INDEX_TYPE_UINT8_FEATURES_KHR',
+    'VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_FEATURES_KHR',
+    'VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_PROPERTIES_KHR',
+    'VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_DECOMPRESSION_FEATURES_NV',
+    'VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_KHR',
+    'VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR',
+    'VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COMPUTE_SHADER_DERIVATIVES_FEATURES_NV',
+    'VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COPY_MEMORY_INDIRECT_PROPERTIES_NV'
+]:
+    if needle not in parity_fields: errors.append(f'missing 0.34.0 canonical alias field consumer: {needle}')
 
 coverage_kt = (root / 'app/src/main/java/com/efishell/vulkanscope/CapsViewer412ExtensionCoverage.kt').read_text(encoding='utf-8')
 coverage_extensions = set(re.findall(r'\"(VK_[A-Za-z0-9_]+)\"', coverage_kt))
@@ -211,6 +236,29 @@ if 'filtered.size + visibleLimits.size' in kt:
 if '(filtered.asSequence().map { it.name } + visibleLimits.asSequence().map { it.first })' in kt:
     errors.append('unique property names must never include limit names')
 
+
+for needle in [
+    'CapabilityKeyValue("Security patch", Build.VERSION.SECURITY_PATCH.ifBlank { "Unavailable" })',
+    'CapabilityKeyValue("Build fingerprint", Build.FINGERPRINT)',
+    'appendLine("Implemented structs=${report.registryCoverage.implementedPhysicalDeviceStructs.joinToString(", ")}")',
+    'layer.extensions.forEach { ext -> appendLine("  ${ext.name} | ${ext.scope} | spec ${ext.specVersion} | supported=${ext.supported}") }',
+    'flags=${memoryHeapFlags(it.flags)} | raw=${it.flags.toULong()}',
+    'flags=${memoryTypeFlags(it.flags)} | raw=${it.flags.toULong()}',
+    'flags=${queueCapabilityFlags(it.flags)}, rawFlags=${it.flags.toULong()}',
+    'videoCodecOperations=${videoCodecOperationFlags(it.videoCodecOperations)}',
+    'linear=${formatFeatureFlags(it.linear)} [raw ${it.linear.toULong()}',
+    '"Implemented structs" to htmlEscape(report.registryCoverage.implementedPhysicalDeviceStructs.joinToString(", "))',
+    '"Security patch" to htmlEscape(Build.VERSION.SECURITY_PATCH.ifBlank { "Unavailable" })'
+]:
+    if needle not in kt: errors.append(f'missing 0.34.2 report/UI parity requirement: {needle}')
+for needle in [
+    'put("detailedProperties", JSONArray().apply { d.detailedProperties.forEach',
+    'appendLine(); appendLine("DETAILED QUERY RESULTS',
+    'table("Detailed query results (',
+    'private fun PropertiesPage(device: DeviceReport?'
+]:
+    if needle not in kt: errors.append(f'missing generic detailed-property propagation path: {needle}')
+
 probe_service = (root / 'app/src/main/java/com/efishell/vulkanscope/VulkanProbeService.kt').read_text(encoding='utf-8')
 
 for needle in [
@@ -240,6 +288,12 @@ if '0b7f383797fa7be53ae28213e001ae60668ee511' not in cmake: errors.append('canon
 if '#include <vulkan/vulkan.h>' not in cpp: errors.append('canonical Vulkan header is not used')
 if '#define VK_ENABLE_BETA_EXTENSIONS 1' not in cpp: errors.append('provisional Vulkan extensions must be explicitly enabled before vulkan.h')
 if 'VK_USE_PLATFORM_ANDROID_KHR' not in cpp: errors.append('Android Vulkan platform macro missing')
+
+cpp_text = (root / 'app/src/main/cpp/vulkanscope.cpp').read_text()
+if 'appendProperty(out, first, "Core 1.4", "pCopySrcLayouts"' not in cpp_text: errors.append('missing canonical Core 1.4 pCopySrcLayouts report name')
+if 'appendProperty(out, first, "Core 1.4", "pCopyDstLayouts"' not in cpp_text: errors.append('missing canonical Core 1.4 pCopyDstLayouts report name')
+if 'appendProperty(out, first, "Core 1.4", "copySrcLayouts"' in cpp_text or 'appendProperty(out, first, "Core 1.4", "copyDstLayouts"' in cpp_text: errors.append('legacy noncanonical Core 1.4 Host Image Copy pointer member name')
+
 if errors:
     for error in errors: print(f'FAIL: {error}')
     raise SystemExit(1)

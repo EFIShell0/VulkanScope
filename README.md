@@ -4,7 +4,7 @@
 
 Database: https://efishell0.github.io/VulkanScope_database/
 
-**Current version: 0.33.10**
+**Current version: 0.34.2**
 
 > VulkanScope reports what the active Vulkan implementation actually exposes. It does not infer support from the Android version, GPU model, or Vulkan API version alone.
 
@@ -63,7 +63,7 @@ A capability that was not queried or could not be determined is not silently con
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/mumuplayer.png" width="500">
-  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/database_0.36.0.png" width="500">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/database_0.36.3.png" width="500">
 </p>
 
 **NOTE: The first landscape image was taken from MuMuPlayer, and VM (hypervisor) software like BlueStacks, MuMuPlayer, LDPlayer, QEMU etc. is not supported.**

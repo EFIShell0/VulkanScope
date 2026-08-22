@@ -1,18 +1,23 @@
-# VulkanScope 0.33.10
+# VulkanScope 0.34.2
 
-VulkanScope 0.33.10 corrects the Properties & Limits summary semantics introduced in 0.33.9.
+VulkanScope 0.34.2 is a complete-report parity and presentation-correctness release following the 0.34.0 CapsViewer field-level fix.
 
 ## Changes
 
-- Stops combining property-query rows and limit rows into one `query results` value in the All filter.
-- All now reports property query results, unique property names, and limits as three independent counts.
-- Limits now reports only the visible limit count.
-- `Unique property names` is calculated only from detailed property rows and never includes limit names.
-- Search-filtered counts continue to update from the currently visible rows.
-- Vulkan collection, native query coverage, TXT/HTML reports, Database payloads, Display/HDR, update, Turnip/SAF and security behavior are unchanged.
+- Re-audited native Vulkan collection through UI, TXT, HTML and VulkanScope Database submission.
+- Verified the 0.34.0 Host Image Copy `pCopySrcLayouts` / `pCopyDstLayouts` results propagate through Properties & Limits, TXT, HTML and structured Database `detailedProperties`.
+- Added instance-layer extension membership to TXT export.
+- Memory heap/type flags now carry canonical Vulkan names plus exact raw values in TXT and HTML.
+- Queue flags and Vulkan Video codec-operation flags now carry canonical Vulkan names plus exact raw values in TXT and HTML.
+- Format linear/optimal/buffer feature masks now carry canonical Vulkan names plus exact raw values in TXT and HTML.
+- Registry exports now include implemented physical-device structure names as well as validated query groups.
+- Expanded Info and offline HTML Android build/security-patch provenance to match the local TXT diagnostic view.
+- Database submission remains privacy-bounded and excludes sensitive device identifiers/private paths.
+- Current published Vulkan specification remains Vulkan 1.4.360 (2026-08-14).
 
 ## Version
 
-- Version: `0.33.10`
-- versionCode: `340`
-- Vulkan query/header staging baseline: `1.4.360`
+- VulkanScope: `0.34.2`
+- versionCode: `342`
+- Package: `com.efishell.vulkanscope`
+- Query/header baseline: Vulkan 1.4.360

@@ -1,9 +1,18 @@
-# VulkanScope 0.33.10 Build Audit
+# VulkanScope 0.34.2 Build Audit
 
-- Application version: 0.33.10
-- versionCode: 340
-- Properties & Limits summary accounting is separated by data class.
-- All does not merge limits into query-results or unique-property-name counts.
-- Limits reports only visible limit rows.
-- Release verifier contains regression gates for the corrected semantics.
-- Vulkan query/report/Database behavior is unchanged.
+- Application version: 0.34.2
+- versionCode: 343
+- Vulkan query/header baseline: 1.4.360
+- Complete-report parity audit: PASS
+- Host Image Copy two-step layout-array collection: retained
+- UI -> TXT -> HTML -> technicalReport -> Database generic detailed-property path: verified
+- Canonical/raw memory, queue, video-codec and format masks in TXT/HTML: verified
+- Instance-layer extension parity in TXT/HTML/structured report: verified
+- Source package integrity and release verifier: see validation output generated with this release.
+
+- Full Gradle Kotlin/native compile: not executed in this environment because Gradle 9.7.0 is not cached and `services.gradle.org` is unreachable. No successful APK compilation is claimed.
+
+## 0.34.2 Host Image Copy promoted-name parity
+- Vulkan 1.4 pointer-backed Host Image Copy properties use the canonical member names `pCopySrcLayouts` and `pCopyDstLayouts`.
+- The Core 1.4 section is preserved so promoted-core provenance remains distinguishable from `VK_EXT_host_image_copy`.
+- Database comparison is expected to alias the promoted property family without rewriting raw report provenance.

@@ -730,8 +730,6 @@ static void appendParityStructFields(std::vector<GeneratedField>& dst, uint32_t 
             generatedEmitAuto(dst, section, "copySrcLayoutCount", value.copySrcLayoutCount);
             generatedEmitAuto(dst, section, "identicalMemoryTypeRequirements", value.identicalMemoryTypeRequirements);
             generatedEmitAuto(dst, section, "optimalTilingLayoutUUID", value.optimalTilingLayoutUUID);
-            generatedEmitAuto(dst, section, "pCopyDstLayouts", value.pCopyDstLayouts);
-            generatedEmitAuto(dst, section, "pCopySrcLayouts", value.pCopySrcLayouts);
             break;
         }
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_ALIGNMENT_CONTROL_FEATURES_MESA: {

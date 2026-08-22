@@ -1236,6 +1236,57 @@ template <typename T> void generatedEmitArray(std::vector<GeneratedField>& dst, 
 }
 
 
+static const char* canonicalImageLayoutName(VkImageLayout value) {
+    if (value == VK_IMAGE_LAYOUT_UNDEFINED) return "VK_IMAGE_LAYOUT_UNDEFINED";
+    if (value == VK_IMAGE_LAYOUT_GENERAL) return "VK_IMAGE_LAYOUT_GENERAL";
+    if (value == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) return "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL";
+    if (value == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) return "VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL";
+    if (value == VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL) return "VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL";
+    if (value == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) return "VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL";
+    if (value == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL) return "VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL";
+    if (value == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) return "VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL";
+    if (value == VK_IMAGE_LAYOUT_PREINITIALIZED) return "VK_IMAGE_LAYOUT_PREINITIALIZED";
+    if (value == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL) return "VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL";
+    if (value == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL) return "VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL";
+    if (value == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL) return "VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL";
+    if (value == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL) return "VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL";
+    if (value == VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL) return "VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL";
+    if (value == VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL) return "VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL";
+    if (value == VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL) return "VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL";
+    if (value == VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL) return "VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL";
+    if (value == VK_IMAGE_LAYOUT_RENDERING_LOCAL_READ) return "VK_IMAGE_LAYOUT_RENDERING_LOCAL_READ";
+    if (value == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR) return "VK_IMAGE_LAYOUT_PRESENT_SRC_KHR";
+    if (value == VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR) return "VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR";
+    if (value == VK_IMAGE_LAYOUT_VIDEO_DECODE_DST_KHR) return "VK_IMAGE_LAYOUT_VIDEO_DECODE_DST_KHR";
+    if (value == VK_IMAGE_LAYOUT_VIDEO_DECODE_SRC_KHR) return "VK_IMAGE_LAYOUT_VIDEO_DECODE_SRC_KHR";
+    if (value == VK_IMAGE_LAYOUT_VIDEO_DECODE_DPB_KHR) return "VK_IMAGE_LAYOUT_VIDEO_DECODE_DPB_KHR";
+    if (value == VK_IMAGE_LAYOUT_VIDEO_ENCODE_DST_KHR) return "VK_IMAGE_LAYOUT_VIDEO_ENCODE_DST_KHR";
+    if (value == VK_IMAGE_LAYOUT_VIDEO_ENCODE_SRC_KHR) return "VK_IMAGE_LAYOUT_VIDEO_ENCODE_SRC_KHR";
+    if (value == VK_IMAGE_LAYOUT_VIDEO_ENCODE_DPB_KHR) return "VK_IMAGE_LAYOUT_VIDEO_ENCODE_DPB_KHR";
+    if (value == VK_IMAGE_LAYOUT_VIDEO_ENCODE_QUANTIZATION_MAP_KHR) return "VK_IMAGE_LAYOUT_VIDEO_ENCODE_QUANTIZATION_MAP_KHR";
+    if (value == VK_IMAGE_LAYOUT_FRAGMENT_DENSITY_MAP_OPTIMAL_EXT) return "VK_IMAGE_LAYOUT_FRAGMENT_DENSITY_MAP_OPTIMAL_EXT";
+    if (value == VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR) return "VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR";
+    if (value == VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT) return "VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT";
+    if (value == VK_IMAGE_LAYOUT_ZERO_INITIALIZED_EXT) return "VK_IMAGE_LAYOUT_ZERO_INITIALIZED_EXT";
+    return nullptr;
+}
+
+static std::string imageLayoutValueString(VkImageLayout value) {
+    const char* name = canonicalImageLayoutName(value);
+    const int32_t raw = static_cast<int32_t>(value);
+    if (name) return std::string(name) + " (raw=" + std::to_string(raw) + ")";
+    return std::string("UNKNOWN_VK_IMAGE_LAYOUT (raw=") + std::to_string(raw) + ")";
+}
+
+static std::string imageLayoutListString(const VkImageLayout* values, uint32_t count) {
+    std::string out;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (i) out += ", ";
+        out += imageLayoutValueString(values[i]);
+    }
+    return out;
+}
+
 template <typename T> void generatedEmitAuto(std::vector<GeneratedField>& dst, const char* section, const char* name, T&& value) {
     using U = std::remove_reference_t<T>;
     using D = std::decay_t<T>;
@@ -1496,17 +1547,17 @@ void appendCoreProperties(std::ostringstream& out, uint32_t apiVersion, VulkanAp
         appendProperty(out, first, "Core 1.4", "copyDstLayoutCount", p14.copyDstLayoutCount);
         if (p14.copySrcLayoutCount <= kMaxVulkan14LayoutEntries) {
             std::string srcLayouts;
-            for (uint32_t i = 0; i < p14.copySrcLayoutCount && i < copySrc.size(); ++i) { if (i) srcLayouts += ", "; srcLayouts += std::to_string(copySrc[i]); }
-            appendProperty(out, first, "Core 1.4", "copySrcLayouts", srcLayouts);
+            for (uint32_t i = 0; i < p14.copySrcLayoutCount && i < copySrc.size(); ++i) { if (i) srcLayouts += ", "; srcLayouts += imageLayoutValueString(copySrc[i]); }
+            appendProperty(out, first, "Core 1.4", "pCopySrcLayouts", srcLayouts);
         } else {
-            appendProperty(out, first, "Core 1.4", "copySrcLayouts", "Unavailable: safety cap exceeded");
+            appendProperty(out, first, "Core 1.4", "pCopySrcLayouts", "Unavailable: safety cap exceeded");
         }
         if (p14.copyDstLayoutCount <= kMaxVulkan14LayoutEntries) {
             std::string dstLayouts;
-            for (uint32_t i = 0; i < p14.copyDstLayoutCount && i < copyDst.size(); ++i) { if (i) dstLayouts += ", "; dstLayouts += std::to_string(copyDst[i]); }
-            appendProperty(out, first, "Core 1.4", "copyDstLayouts", dstLayouts);
+            for (uint32_t i = 0; i < p14.copyDstLayoutCount && i < copyDst.size(); ++i) { if (i) dstLayouts += ", "; dstLayouts += imageLayoutValueString(copyDst[i]); }
+            appendProperty(out, first, "Core 1.4", "pCopyDstLayouts", dstLayouts);
         } else {
-            appendProperty(out, first, "Core 1.4", "copyDstLayouts", "Unavailable: safety cap exceeded");
+            appendProperty(out, first, "Core 1.4", "pCopyDstLayouts", "Unavailable: safety cap exceeded");
         }
         appendProperty(out, first, "Core 1.4", "optimalTilingLayoutUUID", hexBytes(p14.optimalTilingLayoutUUID, 16));
         appendBoolProperty(out, first, "Core 1.4", "identicalMemoryTypeRequirements", p14.identicalMemoryTypeRequirements);
@@ -2524,6 +2575,22 @@ std::string collectVulkanExtensionGroup(const char* driverMode, const char* driv
         VkPhysicalDeviceProperties2 generatedProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, runtimePNext.propertyHead, {}};
         if (runtimePNext.featureHead && api.getPhysicalDeviceFeatures2) api.queryFeatures2(devices[i], &generatedFeatures);
         if (runtimePNext.propertyHead && api.getPhysicalDeviceProperties2) api.queryProperties2(devices[i], &generatedProperties);
+        if (std::strcmp(extensionName, "VK_EXT_host_image_copy") == 0 && api.getPhysicalDeviceProperties2) {
+            constexpr uint32_t kMaxHostImageCopyLayoutEntries = 65536;
+            VkPhysicalDeviceHostImageCopyPropertiesEXT hostProperties{};
+            hostProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_IMAGE_COPY_PROPERTIES_EXT;
+            VkPhysicalDeviceProperties2 hostQuery{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &hostProperties, {}};
+            api.queryProperties2(devices[i], &hostQuery);
+            const bool srcWithinLimit = hostProperties.copySrcLayoutCount <= kMaxHostImageCopyLayoutEntries;
+            const bool dstWithinLimit = hostProperties.copyDstLayoutCount <= kMaxHostImageCopyLayoutEntries;
+            std::vector<VkImageLayout> srcLayouts(srcWithinLimit ? hostProperties.copySrcLayoutCount : 0);
+            std::vector<VkImageLayout> dstLayouts(dstWithinLimit ? hostProperties.copyDstLayoutCount : 0);
+            hostProperties.pCopySrcLayouts = srcWithinLimit && !srcLayouts.empty() ? srcLayouts.data() : nullptr;
+            hostProperties.pCopyDstLayouts = dstWithinLimit && !dstLayouts.empty() ? dstLayouts.data() : nullptr;
+            if (srcWithinLimit && dstWithinLimit) api.queryProperties2(devices[i], &hostQuery);
+            addProperty("pCopySrcLayouts", srcWithinLimit ? imageLayoutListString(srcLayouts.data(), static_cast<uint32_t>(srcLayouts.size())) : "Unavailable: layout count exceeds the 65536-entry safety bound.");
+            addProperty("pCopyDstLayouts", dstWithinLimit ? imageLayoutListString(dstLayouts.data(), static_cast<uint32_t>(dstLayouts.size())) : "Unavailable: layout count exceeds the 65536-entry safety bound.");
+        }
         if (runtimePNextAdded > 0) addProperty("generatedRuntimePNextTypes", std::to_string(runtimePNextAdded));
         if (std::strcmp(extensionName, "VK_EXT_cooperative_matrix_maintenance1") == 0) {
             auto componentTypeName = [](VkComponentTypeKHR type) -> const char* {
@@ -3231,11 +3298,11 @@ std::string collectVulkan14(const char* driverMode, const char* driverIcdPath, c
         addProp("copySrcLayoutCount", std::to_string(p14.copySrcLayoutCount));
         addProp("copyDstLayoutCount", std::to_string(p14.copyDstLayoutCount));
         std::string srcLayouts;
-        for (uint32_t j = 0; j < p14.copySrcLayoutCount && j < copySrcLayouts.size(); ++j) { if (j) srcLayouts += ", "; srcLayouts += std::to_string(copySrcLayouts[j]); }
+        for (uint32_t j = 0; j < p14.copySrcLayoutCount && j < copySrcLayouts.size(); ++j) { if (j) srcLayouts += ", "; srcLayouts += imageLayoutValueString(copySrcLayouts[j]); }
         std::string dstLayouts;
-        for (uint32_t j = 0; j < p14.copyDstLayoutCount && j < copyDstLayouts.size(); ++j) { if (j) dstLayouts += ", "; dstLayouts += std::to_string(copyDstLayouts[j]); }
-        addProp("copySrcLayouts", copySrcWithinLimit ? srcLayouts : "Unavailable: safety cap exceeded");
-        addProp("copyDstLayouts", copyDstWithinLimit ? dstLayouts : "Unavailable: safety cap exceeded");
+        for (uint32_t j = 0; j < p14.copyDstLayoutCount && j < copyDstLayouts.size(); ++j) { if (j) dstLayouts += ", "; dstLayouts += imageLayoutValueString(copyDstLayouts[j]); }
+        addProp("pCopySrcLayouts", copySrcWithinLimit ? srcLayouts : "Unavailable: safety cap exceeded");
+        addProp("pCopyDstLayouts", copyDstWithinLimit ? dstLayouts : "Unavailable: safety cap exceeded");
         addProp("optimalTilingLayoutUUID", hexBytes(p14.optimalTilingLayoutUUID, 16));
         addProp("identicalMemoryTypeRequirements", p14.identicalMemoryTypeRequirements == VK_TRUE ? "true" : "false");
         out << "]}";

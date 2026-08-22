@@ -265,7 +265,7 @@
 
 ## Release 0.33.7 full producer/report/display audit
 - Application version is 0.33.7 with versionCode 337.
-- The current published Khronos Vulkan specification checked for this release is Vulkan 1.4.359 dated 2026-08-07. VulkanScope keeps its independently pinned Vulkan-Headers/query staging baseline at 1.4.360; the staging number must not be described as the current published Khronos specification.
+- The current published Khronos Vulkan specification checked for release 0.34.0 is Vulkan 1.4.360 dated 2026-08-14. VulkanScope pins the matching Vulkan-Headers 1.4.360 commit and validated query catalog; published specification, headers, runtime device API version and driver version remain distinct concepts.
 - The Vulkan 1.4.359 registry delta, including VK_EXT_cooperative_matrix_maintenance1 and vkGetPhysicalDeviceCooperativeMatrixProperties2EXT, remains part of automatic validated runtime query coverage. VK_EXT_image_tiling_control from the preceding registry delta remains covered. No validated native query group, feature, property, limit, extension, format, memory, queue, Surface/WSI, Vulkan Video, Profile or registry-coverage field may be removed by this release.
 - Android display evidence is refreshed while the Activity is started by DisplayManager.DisplayListener and on lifecycle resume. The active application display is preferred over a permanently pinned DEFAULT_DISPLAY so foldable/external-display changes cannot silently leave exports or Database submissions with stale display metadata.
 - Android API 34+ mode-specific HDR types use Display.Mode.getSupportedHdrTypes. HDR_TYPE_INVALID (-1) is never rendered or submitted as a capability. Unknown future non-invalid HDR values remain visible with their raw Android numeric value and are never mapped to a known HDR type without Android documentation.
@@ -304,3 +304,31 @@
 - Search continues to filter properties and limits independently, and every displayed count must describe exactly the visible data class it labels.
 - This release changes UI summary semantics only. Vulkan collection/native queries, detailedProperties/limits report data, TXT/HTML export, Database submission/schema, Display/HDR, update, Turnip/SAF and security behavior remain unchanged from 0.33.9.
 
+
+
+## Release 0.34.0 CapsViewer field-level parity
+- Application version is 0.34.0 with versionCode 341.
+- VulkanCapsViewer 4.12 parity is evaluated at field level, not only by extension or structure scheduling. Canonical alias structures promoted between EXT/KHR/core may share the same VkStructureType and are considered one queried capability path when the Vulkan header defines them as aliases.
+- VK_EXT_host_image_copy property collection must use the Vulkan two-call count/allocate/fill pattern for pCopySrcLayouts and pCopyDstLayouts. Pointer addresses or generic pointer placeholders are forbidden report values.
+- Host Image Copy layout arrays are bounded to 65536 entries per source/destination list before allocation. Oversized counts remain explicit Unavailable evidence and must not allocate unbounded memory.
+- Every reported VkImageLayout uses a canonical Vulkan enum name when known and retains its raw numeric value. Unknown future layout values remain visible as UNKNOWN_VK_IMAGE_LAYOUT with the raw value.
+- The same canonical Host Image Copy layout-array evidence must reach UI, TXT, HTML and technicalReport/Database through the existing complete-report property path.
+- The published Vulkan specification baseline for this release is Vulkan 1.4.360 (2026-08-14), matching the pinned Vulkan-Headers/query baseline.
+
+## Release 0.34.2 complete-report parity audit
+- Application version is 0.34.2 with versionCode 342.
+- Every collected feature, detailed property, limit, extension, layer extension, memory entry, queue entry, format entry, Surface/WSI result, Display/HDR value, Vulkan Profile result and registry/query provenance item must have an explicit in-app or report-consumption path.
+- The generic detailed-property pipeline is authoritative for validated extension/property data: native query result -> DeviceReport.detailedProperties -> Properties & Limits UI -> TXT DETAILED QUERY RESULTS -> HTML Detailed query results -> technicalReport.devices[].detailedProperties -> VulkanScope Database Properties/detail/compare views.
+- Host Image Copy source/destination VkImageLayout arrays added in 0.34.0 must remain visible through that complete pipeline and must never regress to pointer-address or pointer-placeholder output.
+- TXT and HTML must preserve canonical Vulkan flag names together with exact raw values for memory flags, queue flags, video codec-operation flags and format feature masks. Unknown bits must remain visible.
+- TXT instance-layer output must include the extensions belonging to each instance layer, matching HTML and structured Database data.
+- Local UI and offline HTML must expose Android security-patch/build provenance already present in the complete TXT diagnostic report. Database submission keeps its privacy-bounded top-level Android metadata contract and must not add serial, Android ID, IMEI, MAC, account or private-path data.
+- Registry coverage exports must include both validated query-group names and implemented physical-device-structure names; counts alone are not a complete audit trail.
+- Vulkan 1.4.360 dated 2026-08-14 is the current published specification and remains distinct from runtime device API and driver versions.
+
+## Release 0.34.2 Host Image Copy promoted-name parity
+- VkPhysicalDeviceVulkan14Properties Host Image Copy pointer-backed members are reported with their canonical member names pCopySrcLayouts and pCopyDstLayouts.
+- Core 1.4 Host Image Copy evidence remains in the Core 1.4 section so promoted-core provenance is not erased.
+- VK_EXT_host_image_copy evidence remains extension-scoped when the extension query path is used.
+- Database comparison may canonicalize promoted Core 1.4 Host Image Copy fields to their VK_EXT_host_image_copy equivalents for side-by-side comparison, but raw report section/name provenance must remain unchanged.
+- copySrcLayoutCount, pCopySrcLayouts, copyDstLayoutCount, pCopyDstLayouts, optimalTilingLayoutUUID and identicalMemoryTypeRequirements form one promoted capability family for compare aliasing only.

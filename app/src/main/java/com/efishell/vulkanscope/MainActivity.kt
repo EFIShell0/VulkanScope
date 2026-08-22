@@ -3098,9 +3098,19 @@ private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverM
         item {
             CapabilitySectionCard("Android") {
                 CapabilityKeyValue("Manufacturer", Build.MANUFACTURER)
+                CapabilityKeyValue("Brand", Build.BRAND)
                 CapabilityKeyValue("Model", Build.MODEL)
                 CapabilityKeyValue("Android", Build.VERSION.RELEASE)
                 CapabilityKeyValue("SDK", Build.VERSION.SDK_INT.toString())
+                CapabilityKeyValue("Security patch", Build.VERSION.SECURITY_PATCH.ifBlank { "Unavailable" })
+                CapabilityKeyValue("Codename", Build.VERSION.CODENAME)
+                CapabilityKeyValue("Product", Build.PRODUCT)
+                CapabilityKeyValue("Device", Build.DEVICE)
+                CapabilityKeyValue("Board", Build.BOARD)
+                CapabilityKeyValue("Hardware", Build.HARDWARE)
+                CapabilityKeyValue("Build ID", Build.ID)
+                CapabilityKeyValue("Incremental", Build.VERSION.INCREMENTAL)
+                CapabilityKeyValue("Build fingerprint", Build.FINGERPRINT)
             }
         }
         item {
@@ -3562,10 +3572,14 @@ private fun reportToText(context: Context, report: VulkanReport, display: Displa
     appendLine("Report schema=${report.registryCoverage.reportSchema}")
     appendLine("Header baseline=${report.registryCoverage.headerBaseline}")
     appendLine("Instance dependency candidates=${report.registryCoverage.instanceDependencyCandidateCount}")
+    appendLine("Implemented structs=${report.registryCoverage.implementedPhysicalDeviceStructs.joinToString(", ")}")
     appendLine("Validated groups=${report.registryCoverage.validatedRuntimeQueryGroups.joinToString(", ")}")
     appendLine()
     appendLine("INSTANCE LAYERS")
-    report.instanceLayers.forEach { appendLine("${it.name} | spec ${it.specVersion} | implementation ${it.implementationVersion} | ${it.description}") }
+    report.instanceLayers.forEach { layer ->
+        appendLine("${layer.name} | spec ${layer.specVersion} | implementation ${layer.implementationVersion} | ${layer.description}")
+        layer.extensions.forEach { ext -> appendLine("  ${ext.name} | ${ext.scope} | spec ${ext.specVersion} | supported=${ext.supported}") }
+    }
     appendLine()
     appendLine("INSTANCE EXTENSIONS")
     report.instanceExtensions.forEach { appendLine("${it.name} | spec ${it.specVersion}") }
@@ -3583,10 +3597,10 @@ private fun reportToText(context: Context, report: VulkanReport, display: Displa
         appendLine(); appendLine("FEATURES"); d.features.forEach { appendLine("${it.name} = ${it.supported}") }
         appendLine(); appendLine("DETAILED QUERY RESULTS (${d.detailedProperties.size} results; ${d.detailedProperties.map { "${it.section} / ${it.name}" }.distinct().size} unique report fields)"); d.detailedProperties.forEach { appendLine("[${it.section}] ${it.name} = ${it.value}") }
         appendLine(); appendLine("LIMITS"); d.limits.forEach { appendLine("${it.first} = ${it.second}") }
-        appendLine(); appendLine("MEMORY HEAPS"); d.heaps.forEach { appendLine("Heap ${it.index}: ${formatBytes(it.size)} | flags ${it.flags}") }
-        appendLine(); appendLine("MEMORY TYPES"); d.memoryTypes.forEach { appendLine("Type ${it.index}: heap ${it.heap} | flags ${it.flags}") }
-        appendLine(); appendLine("QUEUES"); d.queues.forEach { appendLine("Family ${it.index}: count=${it.count}, timestampBits=${it.timestampBits}, flags=${it.flags}, graphics=${it.graphics}, compute=${it.compute}, transfer=${it.transfer}, sparse=${it.sparse}, protected=${it.protected}, videoDecode=${it.videoDecode}, videoEncode=${it.videoEncode}, opticalFlow=${it.opticalFlow}, dataGraph=${it.dataGraph}, unknownFlags=0x${it.unknownFlags.toString(16).uppercase()}, granularity=${it.granularity}, videoCodecOperations=0x${it.videoCodecOperations.toString(16).uppercase()} (${videoCodecOperationsName(it.videoCodecOperations)})") }
-        appendLine(); appendLine("FORMATS"); d.formats.forEach { appendLine("${it.name}: ${if (it.supported) "SUPPORTED" else "NOT SUPPORTED"}, linear=${it.linear}, optimal=${it.optimal}, buffer=${it.buffer}") }
+        appendLine(); appendLine("MEMORY HEAPS"); d.heaps.forEach { appendLine("Heap ${it.index}: ${formatBytes(it.size)} | flags=${memoryHeapFlags(it.flags)} | raw=${it.flags.toULong()} (0x${it.flags.toULong().toString(16).uppercase()})") }
+        appendLine(); appendLine("MEMORY TYPES"); d.memoryTypes.forEach { appendLine("Type ${it.index}: heap ${it.heap} | flags=${memoryTypeFlags(it.flags)} | raw=${it.flags.toULong()} (0x${it.flags.toULong().toString(16).uppercase()})") }
+        appendLine(); appendLine("QUEUES"); d.queues.forEach { appendLine("Family ${it.index}: count=${it.count}, timestampBits=${it.timestampBits}, flags=${queueCapabilityFlags(it.flags)}, rawFlags=${it.flags.toULong()} (0x${it.flags.toULong().toString(16).uppercase()}), graphics=${it.graphics}, compute=${it.compute}, transfer=${it.transfer}, sparse=${it.sparse}, protected=${it.protected}, videoDecode=${it.videoDecode}, videoEncode=${it.videoEncode}, opticalFlow=${it.opticalFlow}, dataGraph=${it.dataGraph}, unknownFlags=0x${it.unknownFlags.toULong().toString(16).uppercase()}, granularity=${it.granularity}, videoCodecOperations=${videoCodecOperationFlags(it.videoCodecOperations)}, rawVideoCodecOperations=${it.videoCodecOperations.toULong()} (0x${it.videoCodecOperations.toULong().toString(16).uppercase()})") }
+        appendLine(); appendLine("FORMATS"); d.formats.forEach { appendLine("${it.name}: ${if (it.supported) "SUPPORTED" else "NOT SUPPORTED"}, linear=${formatFeatureFlags(it.linear)} [raw ${it.linear.toULong()} / 0x${it.linear.toULong().toString(16).uppercase()}], optimal=${formatFeatureFlags(it.optimal)} [raw ${it.optimal.toULong()} / 0x${it.optimal.toULong().toString(16).uppercase()}], buffer=${formatFeatureFlags(it.buffer)} [raw ${it.buffer.toULong()} / 0x${it.buffer.toULong().toString(16).uppercase()}]") }
         appendLine(); appendLine("SURFACE")
         appendLine("Available=${d.surfaceAvailable}, presentation=${d.surfacePresentationSupported}")
         appendLine("Color-space extension: available=${d.surfaceColorSpaceExtensionAvailable}, enabled=${d.surfaceColorSpaceExtensionEnabled}")
@@ -3665,8 +3679,10 @@ private fun reportToHtml(context: Context, report: VulkanReport, display: Displa
     ))
 
     table("Android / display", "<th>Property</th><th>Value</th>", listOf(
-        "Manufacturer" to htmlEscape(Build.MANUFACTURER), "Model" to htmlEscape(Build.MODEL), "Android" to htmlEscape(Build.VERSION.RELEASE),
-        "SDK" to Build.VERSION.SDK_INT.toString(), "Resolution" to htmlEscape(display.resolution),
+        "Manufacturer" to htmlEscape(Build.MANUFACTURER), "Brand" to htmlEscape(Build.BRAND), "Model" to htmlEscape(Build.MODEL), "Android" to htmlEscape(Build.VERSION.RELEASE),
+        "SDK" to Build.VERSION.SDK_INT.toString(), "Security patch" to htmlEscape(Build.VERSION.SECURITY_PATCH.ifBlank { "Unavailable" }), "Codename" to htmlEscape(Build.VERSION.CODENAME),
+        "Product" to htmlEscape(Build.PRODUCT), "Device" to htmlEscape(Build.DEVICE), "Board" to htmlEscape(Build.BOARD), "Hardware" to htmlEscape(Build.HARDWARE),
+        "Build ID" to htmlEscape(Build.ID), "Incremental" to htmlEscape(Build.VERSION.INCREMENTAL), "Build fingerprint" to htmlEscape(Build.FINGERPRINT), "Resolution" to htmlEscape(display.resolution),
         "Refresh rate" to htmlEscape(display.refreshRate), "Wide gamut" to statusBadge(display.wideGamut?.toString() ?: "Unavailable"),
         "Preferred wide-gamut color space" to htmlEscape(display.preferredWideGamut), "HDR capability status" to statusBadge(display.hdrCapabilityStatus), "HDR types" to htmlEscape(display.hdrTypes.joinToString(", ").ifBlank { "Unavailable" }),
         "HDR min luminance" to htmlEscape(display.minLuminance), "HDR max luminance" to htmlEscape(display.maxLuminance), "HDR average luminance" to htmlEscape(display.averageLuminance),
@@ -3680,6 +3696,7 @@ private fun reportToHtml(context: Context, report: VulkanReport, display: Displa
         "Runtime extension tokens" to report.registryCoverage.runtimeExtensionTokenCount.toString(),
         "Catalog schema" to report.registryCoverage.catalogSchemaVersion.toString(), "Report schema" to htmlEscape(report.registryCoverage.reportSchema),
         "Header baseline" to htmlEscape(report.registryCoverage.headerBaseline), "Instance dependency candidates" to report.registryCoverage.instanceDependencyCandidateCount.toString(),
+        "Implemented structs" to htmlEscape(report.registryCoverage.implementedPhysicalDeviceStructs.joinToString(", ")),
         "Validated groups" to htmlEscape(report.registryCoverage.validatedRuntimeQueryGroups.joinToString(", "))
     ))
 
@@ -3716,9 +3733,9 @@ private fun reportToHtml(context: Context, report: VulkanReport, display: Displa
         table("Features", "<th>Feature</th><th>Status</th>", d.features.map { htmlEscape(it.name) to statusBadge(if (it.supported) "SUPPORTED" else "NOT SUPPORTED") })
         table("Detailed query results (${d.detailedProperties.size} results; ${d.detailedProperties.map { "${it.section} / ${it.name}" }.distinct().size} unique report fields)", "<th>Section / property</th><th>Value</th>", d.detailedProperties.map { "${it.section} / ${it.name}" to htmlEscape(it.value) })
         table("Limits", "<th>Limit</th><th>Value</th>", d.limits.map { it.first to htmlEscape(it.second) })
-        table("Memory", "<th>Entry</th><th>Value</th>", d.heaps.map { "Heap ${it.index}" to htmlEscape("${formatBytes(it.size)} | flags ${it.flags}") } + d.memoryTypes.map { "Type ${it.index}" to htmlEscape("heap ${it.heap} | flags ${it.flags}") })
-        table("Queues", "<th>Family</th><th>Details</th>", d.queues.map { "${it.index}" to htmlEscape("count=${it.count}, timestampBits=${it.timestampBits}, flags=${it.flags}, graphics=${it.graphics}, compute=${it.compute}, transfer=${it.transfer}, sparse=${it.sparse}, protected=${it.protected}, videoDecode=${it.videoDecode}, videoEncode=${it.videoEncode}, opticalFlow=${it.opticalFlow}, dataGraph=${it.dataGraph}, unknownFlags=0x${it.unknownFlags.toString(16).uppercase()}, granularity=${it.granularity}, videoCodecOperations=0x${it.videoCodecOperations.toString(16).uppercase()} (${videoCodecOperationsName(it.videoCodecOperations)})") })
-        table("Formats", "<th>Format</th><th>Status / feature masks</th>", d.formats.map { htmlEscape(it.name) to "${statusBadge(if (it.supported) "SUPPORTED" else "NOT SUPPORTED")} ${htmlEscape("linear=${it.linear}, optimal=${it.optimal}, buffer=${it.buffer}")}" })
+        table("Memory", "<th>Entry</th><th>Value</th>", d.heaps.map { "Heap ${it.index}" to htmlEscape("${formatBytes(it.size)} | flags=${memoryHeapFlags(it.flags)} | raw=${it.flags.toULong()} (0x${it.flags.toULong().toString(16).uppercase()})") } + d.memoryTypes.map { "Type ${it.index}" to htmlEscape("heap ${it.heap} | flags=${memoryTypeFlags(it.flags)} | raw=${it.flags.toULong()} (0x${it.flags.toULong().toString(16).uppercase()})") })
+        table("Queues", "<th>Family</th><th>Details</th>", d.queues.map { "${it.index}" to htmlEscape("count=${it.count}, timestampBits=${it.timestampBits}, flags=${queueCapabilityFlags(it.flags)}, rawFlags=${it.flags.toULong()} (0x${it.flags.toULong().toString(16).uppercase()}), graphics=${it.graphics}, compute=${it.compute}, transfer=${it.transfer}, sparse=${it.sparse}, protected=${it.protected}, videoDecode=${it.videoDecode}, videoEncode=${it.videoEncode}, opticalFlow=${it.opticalFlow}, dataGraph=${it.dataGraph}, unknownFlags=0x${it.unknownFlags.toULong().toString(16).uppercase()}, granularity=${it.granularity}, videoCodecOperations=${videoCodecOperationFlags(it.videoCodecOperations)}, rawVideoCodecOperations=${it.videoCodecOperations.toULong()} (0x${it.videoCodecOperations.toULong().toString(16).uppercase()})") })
+        table("Formats", "<th>Format</th><th>Status / feature masks</th>", d.formats.map { htmlEscape(it.name) to "${statusBadge(if (it.supported) "SUPPORTED" else "NOT SUPPORTED")} ${htmlEscape("linear=${formatFeatureFlags(it.linear)} [raw ${it.linear.toULong()} / 0x${it.linear.toULong().toString(16).uppercase()}], optimal=${formatFeatureFlags(it.optimal)} [raw ${it.optimal.toULong()} / 0x${it.optimal.toULong().toString(16).uppercase()}], buffer=${formatFeatureFlags(it.buffer)} [raw ${it.buffer.toULong()} / 0x${it.buffer.toULong().toString(16).uppercase()}]")}" })
         table("Surface query diagnostics", "<th>Property</th><th>Value</th>", listOf(
             "Surface available" to statusBadge(if (d.surfaceAvailable) "AVAILABLE" else "UNAVAILABLE"),
             "Presentation supported" to statusBadge(if (d.surfacePresentationSupported) "SUPPORTED" else "NOT SUPPORTED"),

@@ -22,19 +22,19 @@
 - VK_QCOM_image_processing3: https://docs.vulkan.org/refpages/latest/refpages/source/VK_QCOM_image_processing3.html
 - VK_QCOM_shader_multiple_wait_queues: https://docs.vulkan.org/refpages/latest/refpages/source/VK_QCOM_shader_multiple_wait_queues.html
 
-The current published Khronos Vulkan specification checked on 2026-08-21 is Vulkan 1.4.359 (2026-08-07). VulkanScope independently pins a Vulkan-Headers staging commit with VK_HEADER_VERSION 360 and retains its separately validated producer/query catalog through that staging baseline. The 1.4.360 project baseline must never be described as the current published Khronos specification until Khronos publishes that revision.
+The current published Khronos Vulkan specification checked for VulkanScope 0.34.2 is Vulkan 1.4.360 (2026-08-14). VulkanScope pins Vulkan-Headers commit 0b7f383797fa7be53ae28213e001ae60668ee511 with VK_HEADER_VERSION 360, which corresponds to the published 1.4.360 revision.
 
 - VulkanScope 0.10.0 registry-driven query catalog and verification tools.
 
 ## 0.13.0 capability sources
-- Current published Vulkan 1.4.359 specification / registered extensions: Khronos Vulkan Registry.
+- Current published Vulkan 1.4.360 specification / registered extensions: Khronos Vulkan Registry.
 - VulkanScope producer/query staging baseline: pinned Vulkan-Headers commit with VK_HEADER_VERSION 360, independently audited by the project.
 - Vulkan Video queue-family capabilities: `VK_KHR_video_queue`, `VkQueueFamilyVideoPropertiesKHR`, and `VkVideoCodecOperationFlagBitsKHR` from Khronos Vulkan Documentation.
 - Vulkan Profiles / Roadmap 2022, 2024 and 2026: Khronos Vulkan Profiles and Roadmap profile definitions.
 
 ## 0.14.0 capability sources
 
-- Khronos published Vulkan 1.4.359 specification and API registry, plus the project-pinned Vulkan-Headers staging commit used for the 1.4.360 producer/query baseline.
+- Khronos published Vulkan 1.4.360 specification and API registry, matching the project-pinned Vulkan-Headers/query baseline.
 - `VK_KHR_video_queue` capability and video-format query definitions.
 - `VK_KHR_video_decode_h264`, `VK_KHR_video_decode_h265`, `VK_KHR_video_decode_av1`, `VK_KHR_video_decode_vp9`.
 - `VK_KHR_video_encode_h264`, `VK_KHR_video_encode_h265`, `VK_KHR_video_encode_av1`.
