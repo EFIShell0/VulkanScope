@@ -1,3 +1,9 @@
+# 0.35.0
+
+- Fixed release compilation against AndroidX Compose Material3 1.5.0-alpha26 by using the current `ShortNavigationBarItemDefaults.colors` selected-label parameters.
+- Preserved the full 0.34.9 Material 3 Expressive UI redesign, VulkanScope dark/red identity, navigation hierarchy and behavior.
+- No Vulkan collection, FormatFeatureFlags2, report/export, Database, Turnip/SAF or update behavior changed.
+
 # 0.34.8
 
 - Completed `VK_KHR_format_feature_flags2` / Vulkan 1.3 format-feature data flow: `VkFormatProperties3` 64-bit masks now feed the main Formats model, UI, structured report, TXT and HTML exports, with legacy `VkFormatProperties` fallback only when FormatFeatureFlags2 is unavailable.

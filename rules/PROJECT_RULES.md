@@ -392,4 +392,24 @@
 - Core FormatFeatureFlags2 eligibility must use a full packed Vulkan API-version comparison against Vulkan 1.3 rather than comparing only the minor version.
 - Settings and Info icons use rounded Material 3 Expressive-aligned vector geometry while preserving semantic identity, existing app-bar/navigation placement, touch targets, tint behavior, accessibility descriptions, and VulkanScope visual hierarchy.
 - No database schema or submission behavior change is introduced by this release.
+## Release 0.34.9 full Material 3 Expressive surface pass
+- Application version is 0.34.9 with versionCode 350.
+- This user-approved release supersedes the earlier destination-limited visual-scope and shared-navigation-geometry freeze clauses only to the extent required to adopt official Material 3 Expressive components; VulkanScope's existing information architecture, page destinations, top-app-bar action placement, portrait bottom-navigation destination order, compact TV/landscape rail behavior, VulkanScope branding and dark neutral + #A41E22/#E2676A identity remain authoritative.
+- Compose UI, Foundation and Animation use 1.12.0 and Material 3 uses 1.5.0-alpha26, verified against current AndroidX release/API documentation at implementation time, to provide the official MaterialExpressiveTheme, MotionScheme.expressive, ShortNavigationBar, morphing component shapes, LoadingIndicator and wavy progress indicators.
+- MaterialExpressiveTheme is the application-level Material theme. The established VulkanScope palette is mapped into it; unrelated accent colors, dynamic recoloring and identity changes are forbidden.
+- Search fields, filter/assist chips, switches, driver radio selection, dialog actions, update/collection banners, loading/progress indicators, app-bar icon buttons, portrait bottom navigation and remaining functional navigation/action icons use the expressive component, state, shape and motion language while preserving their existing functions and placement.
+- Experimental Material 3 Expressive APIs are opted into only at the smallest wrapper/composable scope that directly uses them.
+- Existing expressive capability section/item/key-value cards remain the visual baseline. Dense layer, extension, Surface/WSI, memory and limit/property records use those established containers without dropping, renaming or inferring technical data.
+- GitHub, GPU-vendor, HDR and VulkanScope brand artwork remain brand/data assets and must not be redrawn as generic Material icons.
+- Android TV and landscape compact-navigation-rail focus acquisition, bring-into-view behavior, destination order and destination semantics must not regress.
+- Search, filter, navigation destination semantics, Vulkan collection, report/export, Database submission, Turnip/SAF, update discovery/download/install validation, Display/HDR semantics, Vulkan 1.4.360 coverage and 0.34.8 FormatFeatureFlags2 behavior are functionally unchanged by this visual release.
 
+
+
+## Release 0.35.0 Material 3 Expressive compile-fix requirements
+- Application version is 0.35.0 with versionCode 351.
+- AndroidX Compose Material3 remains 1.5.0-alpha26; API calls must match that exact dependency surface.
+- `ShortNavigationBarItemDefaults.colors` must use `selectedTextColorTopIconPosition` and `selectedTextColorStartIconPosition`; the removed/nonexistent `selectedTextColor` parameter is forbidden.
+- Both selected-label positions preserve the established VulkanScope selected text color and the 0.34.9 visual hierarchy.
+- The 0.34.9 Material 3 Expressive redesign remains otherwise unchanged.
+- No Vulkan collection, report/export, Database, update, Turnip/SAF, ABI, or navigation-destination behavior may change as part of this build fix.

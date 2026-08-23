@@ -8,8 +8,8 @@ errors = []
 gradle = (root / 'app/build.gradle.kts').read_text(encoding='utf-8')
 version = re.search(r'versionName\s*=\s*"([^"]+)"', gradle)
 code = re.search(r'versionCode\s*=\s*(\d+)', gradle)
-if not version or version.group(1) != '0.34.8': errors.append('versionName mismatch')
-if not code or code.group(1) != '349': errors.append('versionCode mismatch')
+if not version or version.group(1) != '0.35.0': errors.append('versionName mismatch')
+if not code or code.group(1) != '351': errors.append('versionCode mismatch')
 abi_line = re.search(r'abiFilters \+= listOf\(([^\n]+)\)', gradle)
 if not abi_line or any(x not in abi_line.group(1) for x in ['arm64-v8a', 'armeabi-v7a', 'x86_64']): errors.append('required ABI set is incomplete')
 if '"x86"' in gradle: errors.append('x86 ABI must remain excluded')
@@ -331,6 +331,73 @@ for icon_name in ['ic_settings.xml', 'ic_info.xml']:
     icon_text = (root / 'app' / 'src' / 'main' / 'res' / 'drawable' / icon_name).read_text()
     if 'strokeLineCap="round"' not in icon_text:
         errors.append(f'missing rounded expressive icon geometry: {icon_name}')
+
+
+for needle in [
+    'implementation("androidx.compose.ui:ui:1.12.0")',
+    'implementation("androidx.compose.foundation:foundation:1.12.0")',
+    'implementation("androidx.compose.animation:animation:1.12.0")',
+    'implementation("androidx.compose.material3:material3:1.5.0-alpha26")',
+]:
+    if needle not in gradle:
+        errors.append(f'missing 0.34.9 expressive dependency baseline: {needle}')
+
+for needle in [
+    'MaterialExpressiveTheme(',
+    'motionScheme = MotionScheme.expressive()',
+    'ShortNavigationBar(',
+    'ShortNavigationBarItem(',
+    'LoadingIndicator(',
+    'LinearWavyProgressIndicator(',
+    'IconButtonDefaults.shapes(',
+    'FilterChipDefaults.shapes(',
+    'ButtonDefaults.shapes(',
+    'private fun ExpressiveSearchField(',
+    'private fun ExpressiveSwitch(',
+    'private fun ExpressiveRadioButton(',
+]:
+    if needle not in kt_current:
+        errors.append(f'missing 0.34.9 Material 3 Expressive UI requirement: {needle}')
+
+if re.search(r'(?<!Short)\bNavigationBar\(', kt_current):
+    errors.append('legacy portrait NavigationBar remains after 0.34.9 expressive navigation migration')
+if re.search(r'(?<!Short)\bNavigationBarItem\(', kt_current):
+    errors.append('legacy portrait NavigationBarItem remains after 0.34.9 expressive navigation migration')
+if re.search(r'\bCircularProgressIndicator\(', kt_current):
+    errors.append('legacy CircularProgressIndicator remains after 0.34.9 expressive loading migration')
+if re.search(r'(?<!Wavy)\bLinearProgressIndicator\(', kt_current):
+    errors.append('legacy LinearProgressIndicator remains after 0.34.9 expressive progress migration')
+
+if '## Release 0.34.9 full Material 3 Expressive surface pass' not in (root / 'rules/PROJECT_RULES.md').read_text(encoding='utf-8'):
+    errors.append('PROJECT_RULES is missing the 0.34.9 full Material 3 Expressive release contract')
+if '## Release 0.35.0 Material 3 Expressive compile-fix requirements' not in (root / 'rules/PROJECT_RULES.md').read_text(encoding='utf-8'):
+    errors.append('PROJECT_RULES is missing the 0.35.0 Material 3 Expressive compile-fix contract')
+for needle in ['selectedTextColorTopIconPosition = VulkanTextPrimary', 'selectedTextColorStartIconPosition = VulkanTextPrimary']:
+    if needle not in kt_current:
+        errors.append(f'missing 0.35.0 ShortNavigationBar selected-label color argument: {needle}')
+if re.search(r'ShortNavigationBarItemDefaults\.colors\([^)]*selectedTextColor\s*=', kt_current, re.S):
+    errors.append('obsolete ShortNavigationBar selectedTextColor argument remains')
+if not (root / 'rules/0.34.9_MATERIAL3_EXPRESSIVE_FULL_UI_AUDIT.md').is_file():
+    errors.append('0.34.9 Material 3 Expressive audit is missing')
+
+functional_icons = [
+    'ic_back.xml', 'ic_home.xml', 'ic_display.xml', 'ic_surface.xml', 'ic_extensions.xml',
+    'ic_features.xml', 'ic_memory.xml', 'ic_queues.xml', 'ic_formats.xml', 'ic_properties.xml',
+    'ic_action_database.xml', 'ic_action_html.xml', 'ic_action_import.xml', 'ic_action_text.xml',
+    'ic_action_update.xml', 'ic_search.xml', 'ic_check.xml', 'ic_chevron_right.xml',
+    'ic_info.xml', 'ic_settings.xml',
+]
+for icon_name in functional_icons:
+    icon_path = root / 'app/src/main/res/drawable' / icon_name
+    if not icon_path.is_file():
+        errors.append(f'missing 0.34.9 functional icon: {icon_name}')
+        continue
+    icon_text = icon_path.read_text(encoding='utf-8')
+    if 'strokeLineCap="round"' not in icon_text:
+        errors.append(f'functional icon is not rounded-line expressive geometry: {icon_name}')
+
+if 'ic_action_github.xml' not in {p.name for p in (root / 'app/src/main/res/drawable').glob('*.xml')}:
+    errors.append('GitHub brand icon asset is missing')
 
 if errors:
     for error in errors: print(f'FAIL: {error}')

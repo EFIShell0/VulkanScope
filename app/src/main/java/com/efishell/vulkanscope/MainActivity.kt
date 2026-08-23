@@ -82,22 +82,35 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.ShortNavigationBar
+import androidx.compose.material3.ShortNavigationBarItem
+import androidx.compose.material3.ShortNavigationBarItemDefaults
+import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -140,6 +153,27 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
+
+private val VulkanBlack = ComposeColor(0xFF000000)
+private val VulkanSurface = ComposeColor(0xFF101010)
+private val VulkanSurfaceLow = ComposeColor(0xFF111111)
+private val VulkanSurfaceRaised = ComposeColor(0xFF181516)
+private val VulkanSurfaceTonal = ComposeColor(0xFF211E1F)
+private val VulkanAccentContainer = ComposeColor(0xFF351719)
+private val VulkanAccent = ComposeColor(0xFFA41E22)
+private val VulkanAccentSoft = ComposeColor(0xFFE2676A)
+private val VulkanTextPrimary = ComposeColor(0xFFF7F2F3)
+private val VulkanTextSecondary = ComposeColor(0xFFB6ACAE)
+private val VulkanTextMuted = ComposeColor(0xFF968D8F)
+private val VulkanOutline = ComposeColor(0xFF494244)
+private val VulkanOutlineVariant = ComposeColor(0xFF2A2527)
+private val VulkanExpressiveShapes = Shapes(
+    extraSmall = RoundedCornerShape(12.dp),
+    small = RoundedCornerShape(16.dp),
+    medium = RoundedCornerShape(22.dp),
+    large = RoundedCornerShape(28.dp),
+    extraLarge = RoundedCornerShape(32.dp)
+)
 
 
 private data class DisplayReport(
@@ -1941,8 +1975,28 @@ private fun VulkanScopeApp(
     var page by remember { mutableStateOf(Page.Overview) }
     LaunchedEffect(page) { onPageOpened(page) }
 
-    val red = ComposeColor(0xFFA41E22)
-    MaterialTheme(colorScheme = darkColorScheme(background = ComposeColor.Black, surface = ComposeColor(0xFF101010), surfaceVariant = ComposeColor(0xFF191919), primary = red, onPrimary = ComposeColor.White, secondary = red, tertiary = ComposeColor(0xFFFF6573), onBackground = ComposeColor(0xFFF4F4F4), onSurface = ComposeColor(0xFFF4F4F4))) {
+    MaterialExpressiveTheme(
+        colorScheme = darkColorScheme(
+            background = VulkanBlack,
+            surface = VulkanSurface,
+            surfaceVariant = VulkanSurfaceTonal,
+            primary = VulkanAccent,
+            onPrimary = VulkanTextPrimary,
+            primaryContainer = VulkanAccentContainer,
+            onPrimaryContainer = VulkanTextPrimary,
+            secondary = VulkanAccentSoft,
+            onSecondary = VulkanTextPrimary,
+            secondaryContainer = ComposeColor(0xFF2A2022),
+            onSecondaryContainer = VulkanTextPrimary,
+            tertiary = VulkanAccentSoft,
+            onBackground = VulkanTextPrimary,
+            onSurface = VulkanTextPrimary,
+            outline = VulkanOutline,
+            outlineVariant = VulkanOutlineVariant
+        ),
+        shapes = VulkanExpressiveShapes,
+        motionScheme = MotionScheme.expressive()
+    ) {
         BackHandler(enabled = page != Page.Overview) { page = Page.Overview }
 
         val configuration = androidx.compose.ui.platform.LocalConfiguration.current
@@ -1960,17 +2014,18 @@ private fun VulkanScopeApp(
             },
             bottomBar = {
                 if (!useRail) {
-                    NavigationBar(containerColor = ComposeColor(0xFF0A0A0A), tonalElevation = 0.dp) {
+                    ShortNavigationBar(containerColor = ComposeColor(0xFF0A0A0A)) {
                         navigationItems().forEach { item ->
-                            NavigationBarItem(
+                            ShortNavigationBarItem(
                                 selected = selectedNavigationPage(page) == item.page,
                                 onClick = { page = item.page },
                                 icon = { Icon(painterResource(item.icon), contentDescription = item.label, modifier = Modifier.size(24.dp)) },
                                 label = { Text(item.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = ComposeColor.White,
-                                    selectedTextColor = ComposeColor.White,
-                                    indicatorColor = red,
+                                colors = ShortNavigationBarItemDefaults.colors(
+                                    selectedIconColor = VulkanAccentSoft,
+                                    selectedTextColorTopIconPosition = VulkanTextPrimary,
+                                    selectedTextColorStartIconPosition = VulkanTextPrimary,
+                                    selectedIndicatorColor = VulkanAccentContainer,
                                     unselectedIconColor = ComposeColor(0xFFB8B8B8),
                                     unselectedTextColor = ComposeColor(0xFFB8B8B8)
                                 )
@@ -1985,7 +2040,6 @@ private fun VulkanScopeApp(
                     CompactNavigationRail(
                         selectedPage = selectedNavigationPage(page),
                         onPageSelected = { page = it },
-                        red = red,
                         requestInitialFocus = isTelevision
                     )
                 }
@@ -2185,10 +2239,12 @@ private fun VulkanPage(report: VulkanReport, device: DeviceReport?, turnipSuppor
                 Text("This is normal on many Android production/driver configurations; validation layers are optional and are not bundled by VulkanScope.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
             }
             report.instanceLayers.forEach { layer ->
-                Column(Modifier.padding(vertical = 5.dp)) {
-                    Text(layer.name, fontWeight = FontWeight.SemiBold)
-                    Text("spec ${layer.specVersion} · implementation ${layer.implementationVersion}", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelSmall)
-                    if (layer.description.isNotBlank()) Text(layer.description, color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
+                CapabilityItemCard(containerColor = VulkanSurfaceTonal) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(layer.name, fontWeight = FontWeight.SemiBold)
+                        Text("spec ${layer.specVersion} · implementation ${layer.implementationVersion}", color = VulkanTextSecondary, style = MaterialTheme.typography.labelSmall)
+                        if (layer.description.isNotBlank()) Text(layer.description, color = VulkanTextMuted, style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
         } }
@@ -2198,16 +2254,19 @@ private fun VulkanPage(report: VulkanReport, device: DeviceReport?, turnipSuppor
                 Text("Device layers are legacy functionality; modern Vulkan uses instance layers.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
             }
             device?.deviceLayers?.forEach { layer ->
-                Column(Modifier.padding(vertical = 5.dp)) {
-                    Text(layer.name, fontWeight = FontWeight.SemiBold)
-                    Text("spec ${layer.specVersion} · implementation ${layer.implementationVersion}", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelSmall)
-                    if (layer.description.isNotBlank()) Text(layer.description, color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
-                    layer.extensions.forEach { ext -> Text("${ext.name} · spec ${ext.specVersion}", color = ComposeColor(0xFFBDBDBD), style = MaterialTheme.typography.labelSmall) }
+                CapabilityItemCard(containerColor = VulkanSurfaceTonal) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(layer.name, fontWeight = FontWeight.SemiBold)
+                        Text("spec ${layer.specVersion} · implementation ${layer.implementationVersion}", color = VulkanTextSecondary, style = MaterialTheme.typography.labelSmall)
+                        if (layer.description.isNotBlank()) Text(layer.description, color = VulkanTextMuted, style = MaterialTheme.typography.bodySmall)
+                        layer.extensions.forEach { ext -> Text("${ext.name} · spec ${ext.specVersion}", color = VulkanTextSecondary, style = MaterialTheme.typography.labelSmall) }
+                    }
                 }
             }
         } }
         item { CapabilitySectionCard("Instance extensions") {
-            report.instanceExtensions.sortedBy { it.name }.forEach { ext -> Text("${ext.name} · spec ${ext.specVersion}") }
+            if (report.instanceExtensions.isEmpty()) EmptyState("No instance extensions exposed")
+            report.instanceExtensions.sortedBy { it.name }.forEach { ext -> CapabilityKeyValue(ext.name, "spec ${ext.specVersion}") }
         } }
         item { CapabilitySectionCard("Operating system") {
             CapabilityKeyValue("Architecture", Build.SUPPORTED_ABIS.firstOrNull() ?: "Unknown")
@@ -2300,7 +2359,7 @@ private fun QuickAccessCard(title: String, destination: Page, navigate: (Page) -
 
 
 @Composable
-private fun CompactNavigationRail(selectedPage: Page, onPageSelected: (Page) -> Unit, red: ComposeColor, requestInitialFocus: Boolean) {
+private fun CompactNavigationRail(selectedPage: Page, onPageSelected: (Page) -> Unit, requestInitialFocus: Boolean) {
     val firstFocusRequester = remember { FocusRequester() }
     LaunchedEffect(requestInitialFocus) { if (requestInitialFocus) firstFocusRequester.requestFocus() }
     Surface(
@@ -2325,7 +2384,7 @@ private fun CompactNavigationRail(selectedPage: Page, onPageSelected: (Page) -> 
                 Card(
                     onClick = { onPageSelected(item.page) },
                     colors = CardDefaults.cardColors(
-                        containerColor = if (selected) red else if (focused) ComposeColor(0xFF2A1517) else ComposeColor.Transparent
+                        containerColor = if (selected) VulkanAccentContainer else if (focused) ComposeColor(0xFF2A1517) else ComposeColor.Transparent
                     ),
                     shape = shape,
                     modifier = Modifier
@@ -2348,11 +2407,11 @@ private fun CompactNavigationRail(selectedPage: Page, onPageSelected: (Page) -> 
                             painterResource(item.icon),
                             contentDescription = item.label,
                             modifier = Modifier.size(21.dp),
-                            tint = if (selected) ComposeColor.White else ComposeColor(0xFFB8B8B8)
+                            tint = if (selected) VulkanAccentSoft else ComposeColor(0xFFB8B8B8)
                         )
                         Text(
                             item.label,
-                            color = if (selected) ComposeColor.White else ComposeColor(0xFFB8B8B8),
+                            color = if (selected) VulkanTextPrimary else ComposeColor(0xFFB8B8B8),
                             fontSize = 9.sp,
                             lineHeight = 10.sp,
                             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
@@ -2373,10 +2432,10 @@ private fun ExploreCard(onNavigate: (Page) -> Unit) {
         Text("Detailed Vulkan inspection areas", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(Page.Features, Page.Memory, Page.Queues, Page.Formats, Page.Properties).forEach { page ->
-                AssistChip(
-                    onClick = { onNavigate(page) },
-                    leadingIcon = { Icon(painterResource(pageIcon(page)), contentDescription = null, modifier = Modifier.size(18.dp)) },
-                    label = { Text(page.title) }
+                ExpressiveAssistChip(
+                    label = page.title,
+                    leadingIcon = pageIcon(page),
+                    onClick = { onNavigate(page) }
                 )
             }
         }
@@ -2391,9 +2450,7 @@ private fun AppHeader(page: Page, onBack: () -> Unit, onSettings: () -> Unit, on
     TopAppBar(
         navigationIcon = {
             if (page != Page.Overview) {
-                IconButton(onClick = onBack) {
-                    Icon(painterResource(R.drawable.ic_back), contentDescription = "Back")
-                }
+                ExpressiveIconButton(R.drawable.ic_back, "Back", onBack)
             }
         },
         title = {
@@ -2409,12 +2466,8 @@ private fun AppHeader(page: Page, onBack: () -> Unit, onSettings: () -> Unit, on
         },
         actions = {
             if (page != Page.Settings && page != Page.Info) {
-                IconButton(onClick = onInfo) {
-                    Icon(painterResource(R.drawable.ic_info), contentDescription = "Info")
-                }
-                IconButton(onClick = onSettings) {
-                    Icon(painterResource(R.drawable.ic_settings), contentDescription = "Settings")
-                }
+                ExpressiveIconButton(R.drawable.ic_info, "Info", onInfo)
+                ExpressiveIconButton(R.drawable.ic_settings, "Settings", onSettings)
             }
         },
         colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = ComposeColor.Black)
@@ -2445,7 +2498,10 @@ private fun DisplayPage(display: DisplayReport, device: DeviceReport?) {
             CapabilityKeyValue("Maximum luminance", display.maxLuminance)
             CapabilityKeyValue("Maximum average luminance", display.averageLuminance)
         } }
-        item { CapabilitySectionCard("Supported display modes") { display.modes.forEach { Text(it) } } }
+        item { CapabilitySectionCard("Supported display modes") {
+            if (display.modes.isEmpty()) EmptyState("Display mode list unavailable")
+            display.modes.forEachIndexed { index, mode -> CapabilityKeyValue("Mode ${index + 1}", mode) }
+        } }
         item { CapabilitySectionCard("Display ↔ Vulkan interpretation") {
             CapabilityKeyValue("Android wide gamut", when (display.wideGamut) { true -> "Supported"; false -> "Unsupported"; null -> "Unavailable" })
             CapabilityKeyValue("Vulkan surface data", if (device?.surfaceAvailable == true) "Queried from VkSurfaceKHR" else "Unavailable")
@@ -2529,7 +2585,7 @@ private fun SurfacePage(device: DeviceReport?) {
             device?.surfaceCapabilities?.forEach { CapabilityKeyValue(it.first, it.second) }
         } }
         item { CapabilitySectionCard("Search surface formats / color spaces") {
-            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(22.dp), placeholder = { Text("Search BT.709, BT.2020, P3, HDR10, format…") })
+            ExpressiveSearchField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "Search BT.709, BT.2020, P3, HDR10, format…")
             Spacer(Modifier.height(6.dp))
             SupportFilterRow(filter) { filter = it }
             Text("${filtered.size} entries", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelMedium)
@@ -2545,16 +2601,24 @@ private fun SurfacePage(device: DeviceReport?) {
         item { CapabilitySectionCard("Format + color-space pairs") {
             if (filtered.isEmpty()) Text("No matching entries")
             filtered.forEach { format ->
-                Column(Modifier.padding(vertical = 5.dp)) {
-                    Text(format.format, fontWeight = FontWeight.SemiBold)
-                    Text(format.colorSpace, color = ComposeColor(0xFFD0D0D0), style = MaterialTheme.typography.bodySmall)
-                    Text(if (format.supported) "SUPPORTED · ${format.classification}" else "NOT SUPPORTED · ${format.classification}", color = if (format.supported) ComposeColor(0xFF7DFF9B) else ComposeColor(0xFFFF6B6B), style = MaterialTheme.typography.labelSmall)
-                    Text(format.description, color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
+                CapabilityItemCard(containerColor = VulkanSurfaceTonal) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(format.format, fontWeight = FontWeight.SemiBold)
+                        Text(format.colorSpace, color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                        CapabilityStatusBadge(if (format.supported) "SUPPORTED · ${format.classification}" else "NOT SUPPORTED · ${format.classification}", format.supported)
+                        Text(format.description, color = VulkanTextMuted, style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
         } }
-        item { CapabilitySectionCard("Present modes") { device?.presentModes?.forEach { Text(it) } } }
-        item { CapabilitySectionCard("Presentation support") { device?.presentationQueues?.forEach { Text("Queue family ${it.first}: ${if (it.second) "PRESENT" else "NO PRESENT"}") } } }
+        item { CapabilitySectionCard("Present modes") {
+            if (device?.presentModes.isNullOrEmpty()) EmptyState("Present mode data unavailable")
+            device?.presentModes?.forEachIndexed { index, mode -> CapabilityKeyValue("Mode ${index + 1}", mode) }
+        } }
+        item { CapabilitySectionCard("Presentation support") {
+            if (device?.presentationQueues.isNullOrEmpty()) EmptyState("Presentation queue data unavailable")
+            device?.presentationQueues?.forEach { CapabilityKeyValue("Queue family ${it.first}", if (it.second) "PRESENT" else "NO PRESENT") }
+        } }
     }
 }
 
@@ -2609,10 +2673,10 @@ private fun FeaturesPage(device: DeviceReport?) {
         item {
             CapabilitySectionCard("Feature explorer") {
             Text("Runtime feature support. Core 1.0, promoted core versions and extension-provided feature blocks remain distinguishable.", style = MaterialTheme.typography.bodySmall, color = ComposeColor(0xFFB6ACAE))
-            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), label = { Text("Search features") }, singleLine = true, shape = RoundedCornerShape(22.dp))
+            ExpressiveSearchField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), labelText = "Search features")
             SupportFilterRow(filter) { filter = it }
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                sources.forEach { source -> FilterChip(selected = sourceFilter == source, onClick = { sourceFilter = source }, label = { Text(source) }) }
+                sources.forEach { source -> ExpressiveFilterChip(selected = sourceFilter == source, label = source, onClick = { sourceFilter = source }) }
             }
             Text("${filtered.size} features", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(vertical = 6.dp))
             }
@@ -2638,20 +2702,24 @@ private fun MemoryPage(device: DeviceReport?) {
         item { CapabilitySectionCard("Memory heaps") {
             if (device?.heaps.isNullOrEmpty()) EmptyState("Memory heap data unavailable")
             device?.heaps?.forEach { heap ->
-                Column(Modifier.padding(vertical = 5.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text("Heap ${heap.index}", fontWeight = FontWeight.SemiBold)
-                    CapabilityKeyValue("Size", formatBytes(heap.size))
-                    CapabilityKeyValue("Flags", memoryHeapFlags(heap.flags))
+                CapabilityItemCard(containerColor = VulkanSurfaceTonal) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Text("Heap ${heap.index}", fontWeight = FontWeight.SemiBold)
+                        CapabilityKeyValue("Size", formatBytes(heap.size))
+                        CapabilityKeyValue("Flags", memoryHeapFlags(heap.flags))
+                    }
                 }
             }
         } }
         item { CapabilitySectionCard("Memory types") {
             if (device?.memoryTypes.isNullOrEmpty()) EmptyState("Memory type data unavailable")
             device?.memoryTypes?.forEach { type ->
-                Column(Modifier.padding(vertical = 5.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text("Type ${type.index}", fontWeight = FontWeight.SemiBold)
-                    CapabilityKeyValue("Heap", type.heap.toString())
-                    CapabilityKeyValue("Properties", memoryTypeFlags(type.flags))
+                CapabilityItemCard(containerColor = VulkanSurfaceTonal) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Text("Type ${type.index}", fontWeight = FontWeight.SemiBold)
+                        CapabilityKeyValue("Heap", type.heap.toString())
+                        CapabilityKeyValue("Properties", memoryTypeFlags(type.flags))
+                    }
                 }
             }
         } }
@@ -2693,7 +2761,7 @@ private fun FormatsPage(device: DeviceReport?) {
         item {
             CapabilitySectionCard("Format explorer") {
             Text("Implementation-reported format capabilities. Bitmasks are expanded to canonical Vulkan feature names; unknown bits remain visible in hexadecimal.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
-            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true, shape = RoundedCornerShape(22.dp), placeholder = { Text("Search formats…") })
+            ExpressiveSearchField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), placeholderText = "Search formats…")
             Text("${filtered.size} formats", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(vertical = 6.dp))
             }
         }
@@ -2742,9 +2810,9 @@ private fun PropertiesPage(device: DeviceReport?, onRequestQuery: (String) -> Un
         item {
             CapabilitySectionCard("Properties & limits explorer") {
             Text("Physical-device properties and limits are shown only from runtime Vulkan queries. Advanced query groups keep their explicit availability state.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
-            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true, shape = RoundedCornerShape(22.dp), placeholder = { Text("Search properties and limits…") })
+            ExpressiveSearchField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), placeholderText = "Search properties and limits…")
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                sections.forEach { section -> FilterChip(selected = filter == section, onClick = { filter = section }, label = { Text(section) }) }
+                sections.forEach { section -> ExpressiveFilterChip(selected = filter == section, label = section, onClick = { filter = section }) }
             }
             }
         }
@@ -2761,12 +2829,7 @@ private fun PropertiesPage(device: DeviceReport?, onRequestQuery: (String) -> Un
                 item { CapabilitySectionCard(category) {
                     val visible = entries.filter { it in visibleLimits }
                     if (visible.isEmpty()) Text("No matching limits", color = ComposeColor(0xFF9E9E9E))
-                    visible.forEach { (name, value) ->
-                        Column(Modifier.padding(vertical = 4.dp)) {
-                            Text(name, fontWeight = FontWeight.Medium)
-                            Text(value, color = ComposeColor(0xFFD8D8D8), style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
+                    visible.forEach { (name, value) -> CapabilityKeyValue(name, value) }
                 } }
             }
         }
@@ -3074,7 +3137,7 @@ private fun ProfilesPage(report: VulkanReport, device: DeviceReport?) {
         item {
             CapabilitySectionCard("Profile explorer") {
             Text("Profile support is evaluated only from runtime Vulkan values. Missing query data is UNKNOWN, never inferred as unsupported.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
-            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true, shape = RoundedCornerShape(22.dp), placeholder = { Text("Search profiles…") })
+            ExpressiveSearchField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), placeholderText = "Search profiles…")
             }
         }
         items(filtered) { result ->
@@ -3267,7 +3330,7 @@ private fun SettingsPage(report: VulkanReport, mode: DriverMode, turnipSupport: 
                         Text("Direct GitHub updates", fontWeight = FontWeight.SemiBold)
                         Text(if (directUpdatesEnabled) "Enabled · update checks use the official VulkanScope GitHub Releases channel" else "Disabled · recommended when Obtainium manages updates", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
                     }
-                    Switch(checked = directUpdatesEnabled, onCheckedChange = onDirectUpdatesChanged)
+                    ExpressiveSwitch(checked = directUpdatesEnabled, onCheckedChange = onDirectUpdatesChanged)
                 }
                 Text("Direct GitHub updates are enabled by default so new installations receive update checks. When disabled, VulkanScope performs no startup update check and will not download update APKs. Obtainium can track the universal APK from the official GitHub Releases channel without enabling the built-in updater.", color = ComposeColor(0xFF777777), style = MaterialTheme.typography.bodySmall)
             }
@@ -3296,9 +3359,9 @@ private fun SettingsPage(report: VulkanReport, mode: DriverMode, turnipSupport: 
 @Composable
 private fun DriverOption(option: DriverMode, selected: Boolean, description: String, enabled: Boolean, onClick: () -> Unit) {
     val textColor = if (enabled) ComposeColor(0xFFFFFFFF) else ComposeColor(0xFF666666)
-    Card(onClick = onClick, enabled = enabled, colors = CardDefaults.cardColors(containerColor = if (selected) ComposeColor(0xFF241012) else ComposeColor(0xFF111111)), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+    Card(onClick = onClick, enabled = enabled, colors = CardDefaults.cardColors(containerColor = if (selected) VulkanAccentContainer else VulkanSurfaceLow), shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            androidx.compose.material3.RadioButton(selected = selected, enabled = enabled, onClick = onClick)
+            ExpressiveRadioButton(selected = selected, enabled = enabled, onClick = onClick)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(option.label, color = textColor, fontWeight = FontWeight.SemiBold)
                 Text(description, color = if (enabled) ComposeColor(0xFF8F8F8F) else ComposeColor(0xFF555555), style = MaterialTheme.typography.bodySmall)
@@ -3333,9 +3396,9 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
             if (device != null && device.deviceExtensionStatus != "available") {
                 Text("Device extension enumeration: ${device.deviceExtensionStatus.uppercase()}${if (device.deviceExtensionReason.isBlank()) "" else " — ${device.deviceExtensionReason}"}", color = ComposeColor(0xFFFFD76B), style = MaterialTheme.typography.bodySmall)
             }
-            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true, shape = RoundedCornerShape(22.dp), placeholder = { Text("Search Vulkan extension names") })
+            ExpressiveSearchField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), placeholderText = "Search Vulkan extension names")
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("All", "Supported", "Not enumerated").forEach { value -> FilterChip(selected = filter == value, onClick = { filter = value }, label = { Text(value) }) }
+                listOf("All", "Supported", "Not enumerated").forEach { value -> ExpressiveFilterChip(selected = filter == value, label = value, onClick = { filter = value }) }
             }
             Text("$total entries", modifier = Modifier.padding(vertical = 6.dp), color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.labelMedium)
             }
@@ -3844,9 +3907,9 @@ private enum class SupportFilter { ALL, SUPPORTED, UNSUPPORTED }
 @Composable
 private fun SupportFilterRow(selected: SupportFilter, onSelected: (SupportFilter) -> Unit) {
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(selected = selected == SupportFilter.ALL, onClick = { onSelected(SupportFilter.ALL) }, shape = RoundedCornerShape(999.dp), label = { Text("All") })
-        FilterChip(selected = selected == SupportFilter.SUPPORTED, onClick = { onSelected(SupportFilter.SUPPORTED) }, shape = RoundedCornerShape(999.dp), label = { Text("Supported") })
-        FilterChip(selected = selected == SupportFilter.UNSUPPORTED, onClick = { onSelected(SupportFilter.UNSUPPORTED) }, shape = RoundedCornerShape(999.dp), label = { Text("Not supported") })
+        ExpressiveFilterChip(selected = selected == SupportFilter.ALL, label = "All", onClick = { onSelected(SupportFilter.ALL) })
+        ExpressiveFilterChip(selected = selected == SupportFilter.SUPPORTED, label = "Supported", onClick = { onSelected(SupportFilter.SUPPORTED) })
+        ExpressiveFilterChip(selected = selected == SupportFilter.UNSUPPORTED, label = "Not supported", onClick = { onSelected(SupportFilter.UNSUPPORTED) })
     }
 }
 
@@ -3984,14 +4047,19 @@ private fun UpdateStatusBanner(status: UpdateStatus, onInstallUpdate: (AppUpdate
         enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(220)) + expandVertically(animationSpec = androidx.compose.animation.core.tween(220)),
         exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(360)) + shrinkVertically(animationSpec = androidx.compose.animation.core.tween(360))
     ) {
-        Surface(modifier = Modifier.fillMaxWidth(), color = ComposeColor(0xFF111111), tonalElevation = 0.dp) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            color = VulkanSurfaceRaised,
+            shape = RoundedCornerShape(24.dp),
+            tonalElevation = 0.dp
+        ) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 when (status) {
-                    UpdateStatus.Checking -> { LinearProgressIndicator(Modifier.width(72.dp)); Text("Checking for updates…", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)) }
+                    UpdateStatus.Checking -> { ExpressiveLinearProgressIndicator(Modifier.width(72.dp)); Text("Checking for updates…", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)) }
                     UpdateStatus.UpToDate -> { UpdateStatusBadge("UP TO DATE"); Text("VulkanScope is up to date.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)) }
                     UpdateStatus.DirectUpdatesDisabledIntro -> { UpdateStatusBadge("INFO"); Text("Direct GitHub updates are currently disabled. Obtainium can manage updates externally, or direct updates can be enabled in Settings.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)) }
-                    is UpdateStatus.Available -> { UpdateStatusBadge("UPDATE"); Text("VulkanScope ${status.update.version} available", modifier = Modifier.weight(1f)); TextButton(onClick = { onInstallUpdate(status.update) }) { Text("Review") } }
-                    is UpdateStatus.Downloading -> { LinearProgressIndicator(Modifier.width(72.dp)); Text("Downloading update…", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)) }
+                    is UpdateStatus.Available -> { UpdateStatusBadge("UPDATE"); Text("VulkanScope ${status.update.version} available", modifier = Modifier.weight(1f)); ExpressiveTextButton("Review") { onInstallUpdate(status.update) } }
+                    is UpdateStatus.Downloading -> { ExpressiveLinearProgressIndicator(Modifier.width(72.dp)); Text("Downloading update…", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)) }
                     is UpdateStatus.Failed -> Text(status.message, color = ComposeColor(0xFFFF8A8A), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
                     UpdateStatus.Hidden -> Unit
                 }
@@ -4014,15 +4082,18 @@ private fun UpdateDialogKeyValue(key: String, value: String) {
 private fun DirectUpdatesConsentDialog(appName: String, releaseSource: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Enable direct GitHub updates?") },
+        shape = RoundedCornerShape(32.dp),
+        containerColor = VulkanSurfaceRaised,
+        tonalElevation = 0.dp,
+        title = { Text("Enable direct GitHub updates?", fontWeight = FontWeight.SemiBold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("$appName will check for updates and download APKs directly from $releaseSource.")
                 Text("If you use Obtainium, leave this disabled so Obtainium remains the single update manager. Enabling direct updates makes the app independently check the same official GitHub Releases source and may duplicate update notifications.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
             }
         },
-        confirmButton = { Button(onClick = onConfirm) { Text("Enable direct updates") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        confirmButton = { ExpressivePrimaryButton("Enable direct updates", onConfirm) },
+        dismissButton = { ExpressiveTextButton("Cancel", onDismiss) }
     )
 }
 
@@ -4030,7 +4101,9 @@ private fun DirectUpdatesConsentDialog(appName: String, releaseSource: String, o
 private fun UpdateConfirmationDialog(update: AppUpdate, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = ComposeColor(0xFF121212),
+        shape = RoundedCornerShape(32.dp),
+        containerColor = VulkanSurfaceRaised,
+        tonalElevation = 0.dp,
         title = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Download VulkanScope ${update.version}?", fontWeight = FontWeight.SemiBold)
@@ -4056,8 +4129,8 @@ private fun UpdateConfirmationDialog(update: AppUpdate, onDismiss: () -> Unit, o
                 Text("The APK is validated for official release provenance, package identity, signing certificate, versionCode and versionName before Android's installer is opened.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelSmall)
             }
         },
-        confirmButton = { Button(onClick = onConfirm) { Text("Download APK") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        confirmButton = { ExpressivePrimaryButton("Download APK", onConfirm) },
+        dismissButton = { ExpressiveTextButton("Cancel", onDismiss) }
     )
 }
 
@@ -4089,15 +4162,20 @@ private fun CollectionStatusBanner(status: CollectionStatus) {
         exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(420)) + shrinkVertically(animationSpec = androidx.compose.animation.core.tween(420))
     ) {
         val collecting = status == CollectionStatus.COLLECTING
-        Surface(modifier = Modifier.fillMaxWidth(), color = ComposeColor(0xFF111111), tonalElevation = 0.dp) {
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            color = VulkanSurfaceRaised,
+            shape = RoundedCornerShape(24.dp),
+            tonalElevation = 0.dp
+        ) {
             Column(Modifier.fillMaxWidth()) {
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     if (collecting) {
-                        AssistChip(onClick = {}, enabled = false, label = { Text("Collecting information…") })
+                        ExpressiveAssistChip(label = "Collecting information…", leadingIcon = R.drawable.ic_action_update, enabled = false, onClick = {})
                         Text(
                             "VulkanScope is collecting Vulkan information in the background.",
                             color = ComposeColor(0xFF9E9E9E),
@@ -4113,7 +4191,12 @@ private fun CollectionStatusBanner(status: CollectionStatus) {
                             modifier = Modifier.size(30.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                Text("✓", color = ComposeColor(0xFF55D98A), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_check),
+                                    contentDescription = null,
+                                    tint = ComposeColor(0xFF55D98A),
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
                         }
                         Text(
@@ -4132,15 +4215,21 @@ private fun CollectionStatusBanner(status: CollectionStatus) {
                         )
                     }
                 }
-                if (collecting) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if (collecting) ExpressiveLinearProgressIndicator(Modifier.fillMaxWidth())
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun LoadingView() {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Inspecting Vulkan…", color = ComposeColor(0xFF9E9E9E)) }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            LoadingIndicator(color = VulkanAccentSoft, modifier = Modifier.size(48.dp))
+            Text("Inspecting Vulkan…", color = VulkanTextSecondary, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
 }
 
 @Composable
@@ -4176,6 +4265,220 @@ private fun tvBrowseModifier(shape: RoundedCornerShape): Modifier {
         .onFocusChanged { state -> focused = state.isFocused }
         .focusable()
         .border(if (focused) 2.dp else 0.dp, if (focused) ComposeColor(0xFFE2676A) else ComposeColor.Transparent, shape)
+}
+
+@Composable
+private fun ExpressiveIconButton(icon: Int, contentDescription: String, onClick: () -> Unit) {
+    IconButton(
+        onClick = onClick,
+        shapes = IconButtonDefaults.shapes(
+            shape = RoundedCornerShape(18.dp),
+            pressedShape = RoundedCornerShape(24.dp)
+        ),
+        colors = IconButtonDefaults.iconButtonColors(
+            containerColor = VulkanSurfaceRaised,
+            contentColor = VulkanTextPrimary
+        ),
+        modifier = Modifier.size(48.dp)
+    ) {
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = contentDescription,
+            tint = VulkanTextPrimary,
+            modifier = Modifier.size(24.dp)
+        )
+    }
+}
+
+@Composable
+private fun ExpressiveSearchField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    labelText: String? = null,
+    placeholderText: String? = null
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier,
+        singleLine = true,
+        shape = RoundedCornerShape(24.dp),
+        leadingIcon = {
+            Icon(
+                painter = painterResource(R.drawable.ic_search),
+                contentDescription = null,
+                modifier = Modifier.size(20.dp)
+            )
+        },
+        label = if (labelText == null) null else { { Text(labelText) } },
+        placeholder = if (placeholderText == null) null else { { Text(placeholderText) } },
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedTextColor = VulkanTextPrimary,
+            unfocusedTextColor = VulkanTextPrimary,
+            focusedContainerColor = VulkanSurfaceTonal,
+            unfocusedContainerColor = VulkanSurfaceLow,
+            cursorColor = VulkanAccentSoft,
+            focusedBorderColor = VulkanAccentSoft,
+            unfocusedBorderColor = VulkanOutline,
+            focusedLeadingIconColor = VulkanAccentSoft,
+            unfocusedLeadingIconColor = VulkanTextMuted,
+            focusedLabelColor = VulkanAccentSoft,
+            unfocusedLabelColor = VulkanTextSecondary,
+            focusedPlaceholderColor = VulkanTextSecondary,
+            unfocusedPlaceholderColor = VulkanTextMuted
+        )
+    )
+}
+
+@Composable
+private fun ExpressiveFilterChip(selected: Boolean, label: String, onClick: () -> Unit) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        shapes = FilterChipDefaults.shapes(
+            shape = RoundedCornerShape(18.dp),
+            selectedShape = RoundedCornerShape(22.dp),
+            pressedShape = RoundedCornerShape(24.dp)
+        ),
+        label = { Text(label, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium) },
+        leadingIcon = if (selected) {
+            {
+                Icon(
+                    painter = painterResource(R.drawable.ic_check),
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        } else null,
+        colors = FilterChipDefaults.filterChipColors(
+            containerColor = VulkanSurfaceLow,
+            labelColor = VulkanTextSecondary,
+            iconColor = VulkanTextMuted,
+            selectedContainerColor = VulkanAccentContainer,
+            selectedLabelColor = VulkanTextPrimary,
+            selectedLeadingIconColor = VulkanAccentSoft
+        )
+    )
+}
+
+@Composable
+private fun ExpressiveAssistChip(
+    label: String,
+    leadingIcon: Int? = null,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    AssistChip(
+        onClick = onClick,
+        enabled = enabled,
+        shape = RoundedCornerShape(18.dp),
+        leadingIcon = if (leadingIcon == null) null else {
+            {
+                Icon(
+                    painter = painterResource(leadingIcon),
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        },
+        label = { Text(label, fontWeight = FontWeight.Medium) },
+        colors = AssistChipDefaults.assistChipColors(
+            containerColor = VulkanSurfaceTonal,
+            labelColor = VulkanTextPrimary,
+            leadingIconContentColor = VulkanAccentSoft,
+            disabledContainerColor = VulkanSurfaceLow,
+            disabledLabelColor = VulkanTextMuted,
+            disabledLeadingIconContentColor = VulkanTextMuted
+        )
+    )
+}
+
+@Composable
+private fun ExpressiveSwitch(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Switch(
+        checked = checked,
+        onCheckedChange = onCheckedChange,
+        thumbContent = if (checked) {
+            {
+                Icon(
+                    painter = painterResource(R.drawable.ic_check),
+                    contentDescription = null,
+                    tint = VulkanAccent,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+        } else null,
+        colors = SwitchDefaults.colors(
+            checkedThumbColor = VulkanTextPrimary,
+            checkedTrackColor = VulkanAccent,
+            uncheckedThumbColor = VulkanTextSecondary,
+            uncheckedTrackColor = VulkanSurfaceTonal,
+            uncheckedBorderColor = VulkanOutline
+        )
+    )
+}
+
+@Composable
+private fun ExpressiveRadioButton(selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = if (selected && enabled) ComposeColor(0xFF2A2022) else ComposeColor.Transparent
+    ) {
+        RadioButton(
+            selected = selected,
+            enabled = enabled,
+            onClick = onClick,
+            colors = RadioButtonDefaults.colors(
+                selectedColor = VulkanAccentSoft,
+                unselectedColor = VulkanTextMuted,
+                disabledSelectedColor = ComposeColor(0xFF6C696A),
+                disabledUnselectedColor = ComposeColor(0xFF5A5758)
+            )
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ExpressivePrimaryButton(label: String, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        shapes = ButtonDefaults.shapes(
+            shape = RoundedCornerShape(20.dp),
+            pressedShape = RoundedCornerShape(26.dp)
+        ),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = VulkanAccent,
+            contentColor = VulkanTextPrimary
+        )
+    ) {
+        Text(label, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ExpressiveTextButton(label: String, onClick: () -> Unit) {
+    TextButton(
+        onClick = onClick,
+        shapes = ButtonDefaults.shapes(
+            shape = RoundedCornerShape(18.dp),
+            pressedShape = RoundedCornerShape(24.dp)
+        ),
+        colors = ButtonDefaults.textButtonColors(contentColor = VulkanAccentSoft)
+    ) {
+        Text(label, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun ExpressiveLinearProgressIndicator(modifier: Modifier = Modifier) {
+    LinearWavyProgressIndicator(
+        modifier = modifier.height(12.dp),
+        color = VulkanAccentSoft,
+        trackColor = ComposeColor(0xFF2A2022)
+    )
 }
 
 @Composable
@@ -4313,7 +4616,7 @@ private fun ExpressiveActionButton(
                         Icon(painter = painterResource(icon), contentDescription = null, tint = accent, modifier = Modifier.padding(10.dp).size(21.dp))
                     }
                     Surface(shape = RoundedCornerShape(999.dp), color = if (enabled) ComposeColor(0xFF291719) else ComposeColor(0xFF171717)) {
-                        Text("›", color = accent, fontSize = 21.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp))
+                        Icon(painter = painterResource(R.drawable.ic_chevron_right), contentDescription = null, tint = accent, modifier = Modifier.padding(8.dp).size(18.dp))
                     }
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -4335,7 +4638,7 @@ private fun ExpressiveActionButton(
                     Text(subtitle, color = detailColor, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
                 Surface(shape = RoundedCornerShape(999.dp), color = if (enabled) ComposeColor(0xFF291719) else ComposeColor(0xFF171717)) {
-                    Text("›", color = accent, fontSize = 23.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
+                    Icon(painter = painterResource(R.drawable.ic_chevron_right), contentDescription = null, tint = accent, modifier = Modifier.padding(9.dp).size(19.dp))
                 }
             }
         }

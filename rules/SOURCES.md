@@ -45,3 +45,15 @@ The runtime never downloads or parses these sources; the checked-in query catalo
 - libadrenotools master history was checked on 2026-08-13; the Android build is pinned to commit `8fae8ce` rather than a mutable branch.
 
 - Current build-time canonical header source: KhronosGroup/Vulkan-Headers commit `0b7f383797fa7be53ae28213e001ae60668ee511`; `VK_HEADER_VERSION` is verified as 360 before native compilation. This is VulkanScope's project staging baseline, not a claim that Khronos has published specification revision 1.4.360.
+
+## 0.34.9 Material 3 Expressive UI sources
+- AndroidX Compose Material 3 release notes (current alpha baseline 1.5.0-alpha26): https://developer.android.com/jetpack/androidx/releases/compose-material3
+- MaterialExpressiveTheme API: https://developer.android.com/reference/kotlin/androidx/compose/material3/MaterialExpressiveTheme.composable
+- MotionScheme API: https://developer.android.com/reference/kotlin/androidx/compose/material3/MotionScheme
+- ShortNavigationBar API: https://developer.android.com/reference/kotlin/androidx/compose/material3/ShortNavigationBar.composable
+- ShortNavigationBarItem API: https://developer.android.com/reference/kotlin/androidx/compose/material3/ShortNavigationBarItem.composable
+- IconButton and IconButtonDefaults expressive shape APIs: https://developer.android.com/reference/kotlin/androidx/compose/material3/IconButton.composable
+- FilterChip and FilterChipDefaults shape APIs: https://developer.android.com/reference/kotlin/androidx/compose/material3/FilterChipDefaults
+- ButtonDefaults morphing shape APIs: https://developer.android.com/reference/kotlin/androidx/compose/material3/ButtonDefaults
+- LoadingIndicator API: https://developer.android.com/reference/kotlin/androidx/compose/material3/LoadingIndicator.composable
+- LinearWavyProgressIndicator API: https://developer.android.com/reference/kotlin/androidx/compose/material3/LinearWavyProgressIndicator.composable

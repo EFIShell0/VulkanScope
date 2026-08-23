@@ -46,6 +46,8 @@
 ./app/src/main/res/drawable/ic_action_text.xml
 ./app/src/main/res/drawable/ic_action_update.xml
 ./app/src/main/res/drawable/ic_back.xml
+./app/src/main/res/drawable/ic_check.xml
+./app/src/main/res/drawable/ic_chevron_right.xml
 ./app/src/main/res/drawable/ic_display.xml
 ./app/src/main/res/drawable/ic_extensions.xml
 ./app/src/main/res/drawable/ic_features.xml
@@ -55,6 +57,7 @@
 ./app/src/main/res/drawable/ic_memory.xml
 ./app/src/main/res/drawable/ic_properties.xml
 ./app/src/main/res/drawable/ic_queues.xml
+./app/src/main/res/drawable/ic_search.xml
 ./app/src/main/res/drawable/ic_settings.xml
 ./app/src/main/res/drawable/ic_surface.xml
 ./app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
@@ -78,6 +81,10 @@
 ./coreprops.txt
 ./fastlane/metadata/android/en-US/changelogs/344.txt
 ./fastlane/metadata/android/en-US/changelogs/345.txt
+./fastlane/metadata/android/en-US/changelogs/346.txt
+./fastlane/metadata/android/en-US/changelogs/347.txt
+./fastlane/metadata/android/en-US/changelogs/348.txt
+./fastlane/metadata/android/en-US/changelogs/350.txt
 ./fastlane/metadata/android/en-US/full_description.txt
 ./fastlane/metadata/android/en-US/images/icon.png
 ./fastlane/metadata/android/en-US/images/phoneScreenshots/1.jpg
@@ -89,11 +96,13 @@
 ./fastlane/metadata/android/en-US/images/phoneScreenshots/7.png
 ./fastlane/metadata/android/en-US/short_description.txt
 ./fastlane/metadata/android/en-US/title.txt
+./files.txt
 ./gradle.properties
 ./gradle/wrapper/gradle-wrapper.jar
 ./gradle/wrapper/gradle-wrapper.properties
 ./gradlew
 ./gradlew.bat
+./obtainium-config.json
 ./registry/README.md
 ./registry/generated/coverage_snapshot.json
 ./registry/generated/registry_query_manifest.json
@@ -120,6 +129,11 @@
 ./rules/0.34.0_CAPSVIEWER_FIELD_PARITY_AUDIT.md
 ./rules/0.34.1_COMPLETE_REPORT_PARITY_AUDIT.md
 ./rules/0.34.4_IZZYONDROID_FIRST_RUN_UPDATE_NOTICE.md
+./rules/0.34.5_OBTAINIUM_UPDATE_MANAGEMENT_AUDIT.md
+./rules/0.34.6_OBTAINIUM_UI_SIMPLIFICATION_AUDIT.md
+./rules/0.34.7_DEFAULT_ENABLED_GITHUB_UPDATES_AUDIT.md
+./rules/0.34.8_CAPSVIEWER_4_13_FORMAT_FLAGS2_EXPRESSIVE_ICONS_AUDIT.md
+./rules/0.34.9_MATERIAL3_EXPRESSIVE_FULL_UI_AUDIT.md
 ./rules/CAPSVIEWER_4_12_AUDIT.md
 ./rules/CAPSVIEWER_PARITY.md
 ./rules/IZZYONDROID.md

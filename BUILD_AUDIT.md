@@ -1,22 +1,19 @@
-# VulkanScope 0.34.8 Build Audit
+# VulkanScope 0.35.0 Build Audit
 
-- Application version: 0.34.8
-- versionCode: 349
+- Application version: 0.35.0
+- versionCode: 351
 - Vulkan query/header baseline: 1.4.360
-- Release verifier: PASS
-- Manifest parse: PASS
-- Obtainium config static verification: PASS
-- Built-in direct updater: enabled by default on fresh installs
-- Obtainium informational guidance: retained
-- Add to Obtainium runtime action: absent
-- `VkFormatProperties3` / `VkFormatFeatureFlags2` native query path: retained
-- FormatFeatureFlags2 availability evidence: explicit
-- Main Formats model consumes 64-bit Flags2 masks when available: PASS
-- Legacy 32-bit format masks remain fallback-only: PASS
-- Unsigned 64-bit mask parsing and unknown-bit rendering: PASS
-- Settings and Info rounded Material 3 Expressive-aligned vector icons: PASS
-- Settings/Info navigation geometry and accessibility descriptions: unchanged
-- Database schema/submission behavior: unchanged
-- Gradle assembleRelease attempt: NOT COMPLETED because the wrapper could not resolve services.gradle.org in this environment
+- Compose UI/Foundation/Animation baseline: 1.12.0
+- Compose Material 3 baseline: 1.5.0-alpha26
+- `ShortNavigationBarItemDefaults.colors` API compatibility fix: PASS by source/API verification
+- `selectedTextColorTopIconPosition` selected-label color: PASS
+- `selectedTextColorStartIconPosition` selected-label color: PASS
+- Obsolete `selectedTextColor` argument in ShortNavigationBar colors: removed
+- 0.34.9 full Material 3 Expressive presentation: retained
+- Vulkan collection/report/Database/Turnip/update paths: unchanged by this release
+- XML/manifest parse: PASS
+- Production Kotlin/C/C++ TODO/FIXME scan: PASS
+- Release verifier: PASS after 0.35.0 contract update
+- Gradle `assembleRelease` in this environment: NOT COMPLETED because the wrapper cannot resolve `services.gradle.org`
 
-A full Gradle Kotlin/native compilation is not claimed unless completed by the validation environment.
+The user-provided Android Studio build log reached `compileReleaseKotlin` and identified the exact Material3 API mismatch corrected by this release. A complete local build is not claimed here.
