@@ -413,3 +413,16 @@
 - Both selected-label positions preserve the established VulkanScope selected text color and the 0.34.9 visual hierarchy.
 - The 0.34.9 Material 3 Expressive redesign remains otherwise unchanged.
 - No Vulkan collection, report/export, Database, update, Turnip/SAF, ABI, or navigation-destination behavior may change as part of this build fix.
+
+
+## Release 0.35.1 full application security and correctness audit
+- Application version is 0.35.1 with versionCode 352.
+- The current published Khronos Vulkan specification baseline remains Vulkan 1.4.360 dated 2026-08-14; runtime device API, loader version and driver version remain separate evidence.
+- Disabling Direct GitHub updates must immediately cancel the active metadata HTTP call, active APK HTTP call, update-check coroutine and update-download coroutine; pending installer state and pending APK cache files must be cleared.
+- A completed download must not launch the package installer after Direct GitHub updates have been disabled.
+- Downloaded APKs that fail package identity, signing, versionCode or versionName validation must be deleted from the private update cache. Partial files must always be deleted.
+- Android 9+ single-signer key rotation is accepted only when the installed current signer is present in the candidate APK signing lineage. Multi-signer packages require exact current signer-set equality. Legacy platforms require exact signature-set equality.
+- Update checks and downloads remain bounded, HTTPS-only, official-repository pinned and explicit-user-action gated for download/install.
+- Vulkan 1.4.360 core and validated extension query coverage, exact runtime extension evidence, 64-bit VkFormatProperties3 data, Surface/WSI evidence, Display/HDR separation, Turnip safety gates and complete-report semantics must not regress.
+- UI, TXT, HTML and Database technical reports must continue consuming the same complete Vulkan dataset without selective omission.
+- Native Vulkan instance/surface/window/library ownership must remain deterministically released on every validated path; no known resource leak may be shipped.

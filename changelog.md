@@ -1,3 +1,9 @@
+# VulkanScope 0.35.1
+
+- Hardened update cancellation, signing-lineage verification and rejected-APK cache cleanup.
+- Re-audited Vulkan 1.4.360 query/report completeness, security, lifecycle and native resource ownership.
+- Preserved 64-bit format-feature reporting and Material 3 Expressive behavior.
+
 # 0.35.0
 
 - Fixed release compilation against AndroidX Compose Material3 1.5.0-alpha26 by using the current `ShortNavigationBarItemDefaults.colors` selected-label parameters.

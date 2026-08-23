@@ -29,6 +29,7 @@ import java.net.InetAddress
 import java.util.zip.ZipInputStream
 import java.util.Collections
 import java.util.concurrent.TimeUnit
+import okhttp3.Call
 import okhttp3.Dns
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -455,6 +456,9 @@ class MainActivity : ComponentActivity() {
     private var directUpdatesConsentVisible by mutableStateOf(false)
     private var pendingUpdateApk: File? = null
     private var updateCheckJob: Job? = null
+    private var updateDownloadJob: Job? = null
+    @Volatile private var activeUpdateCheckCall: Call? = null
+    @Volatile private var activeUpdateDownloadCall: Call? = null
     private var collectionInFlight = false
     private var collectionPending = false
     private val pendingCollectionTasks = mutableSetOf<String>()
@@ -479,13 +483,20 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         refreshDisplayReport()
         val pending = pendingUpdateApk
-        if (pending != null && pending.exists() && (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls())) {
+        if (pending != null && pending.exists() && directUpdatesEnabled && (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls())) {
             pendingUpdateApk = null
             launchPackageInstaller(pending)
+        } else if (pending != null && !directUpdatesEnabled) {
+            runCatching { pending.delete() }
+            pendingUpdateApk = null
         }
     }
 
     override fun onDestroy() {
+        activeUpdateCheckCall?.cancel()
+        activeUpdateDownloadCall?.cancel()
+        updateCheckJob?.cancel()
+        updateDownloadJob?.cancel()
         activityScope.cancel()
         super.onDestroy()
     }
@@ -572,6 +583,14 @@ class MainActivity : ComponentActivity() {
             directUpdatesEnabled = false
             directUpdatesConsentVisible = false
             prefs.edit().putBoolean("direct_updates_enabled", false).apply()
+            updateCheckJob?.cancel()
+            updateDownloadJob?.cancel()
+            activeUpdateCheckCall?.cancel()
+            activeUpdateDownloadCall?.cancel()
+            updateCheckJob = null
+            updateDownloadJob = null
+            pendingUpdateApk?.let { runCatching { it.delete() } }
+            pendingUpdateApk = null
             updateStatus = UpdateStatus.Hidden
             updateConfirmation = null
         }
@@ -894,6 +913,11 @@ class MainActivity : ComponentActivity() {
         updateCheckJob = activityScope.launch {
             if (showProgress) updateStatus = UpdateStatus.Checking
             val result = withContext(Dispatchers.IO) { fetchLatestCompatibleUpdateResult() }
+            if (!directUpdatesEnabled) {
+                updateStatus = UpdateStatus.Hidden
+                updateConfirmation = null
+                return@launch
+            }
             updateStatus = when (result) {
                 is UpdateCheckResult.Available -> UpdateStatus.Available(result.update)
                 UpdateCheckResult.UpToDate -> if (showProgress) UpdateStatus.UpToDate else UpdateStatus.Hidden
@@ -933,7 +957,10 @@ class MainActivity : ComponentActivity() {
             .header("User-Agent", "VulkanScope/${installedVersionName()}")
             .get()
             .build()
-        return ipv6PreferredHttpClient.newCall(request).execute().use { response ->
+        val call = ipv6PreferredHttpClient.newCall(request)
+        activeUpdateCheckCall = call
+        return try {
+            call.execute().use { response ->
             if (!response.isSuccessful) error("Update check failed (HTTP ${response.code}).")
             val releases = JSONArray(readResponseTextLimited(response.body, 2 * 1024 * 1024))
             val current = installedVersionName()
@@ -973,6 +1000,9 @@ class MainActivity : ComponentActivity() {
                 installedVersion = current,
                 installedVersionCode = installedVersionCode()
             )
+            }
+        } finally {
+            if (activeUpdateCheckCall === call) activeUpdateCheckCall = null
         }
     }
 
@@ -1021,18 +1051,28 @@ class MainActivity : ComponentActivity() {
     private fun isNewerVersion(candidate: String, current: String): Boolean = compareVersions(candidate, current) > 0
 
     private fun downloadAndInstallUpdate(update: AppUpdate) {
-        if (updateStatus is UpdateStatus.Downloading) return
+        if (!directUpdatesEnabled || updateStatus is UpdateStatus.Downloading) return
         updateStatus = UpdateStatus.Downloading(update)
-        activityScope.launch {
+        updateDownloadJob = activityScope.launch {
             val result = withContext(Dispatchers.IO) { downloadUpdateApk(update) }
             result.onSuccess { apk ->
-                updateStatus = UpdateStatus.Hidden
-                requestPackageInstall(apk)
+                if (!directUpdatesEnabled) {
+                    runCatching { apk.delete() }
+                    updateStatus = UpdateStatus.Hidden
+                } else {
+                    updateStatus = UpdateStatus.Hidden
+                    requestPackageInstall(apk)
+                }
             }.onFailure { error ->
-                updateStatus = UpdateStatus.Failed(error.message ?: "Update download failed.")
-                delay(10_000)
-                if (updateStatus is UpdateStatus.Failed) updateStatus = UpdateStatus.Hidden
+                if (directUpdatesEnabled) {
+                    updateStatus = UpdateStatus.Failed(error.message ?: "Update download failed.")
+                    delay(10_000)
+                    if (updateStatus is UpdateStatus.Failed) updateStatus = UpdateStatus.Hidden
+                } else {
+                    updateStatus = UpdateStatus.Hidden
+                }
             }
+            updateDownloadJob = null
         }
     }
 
@@ -1041,60 +1081,75 @@ class MainActivity : ComponentActivity() {
         val updateDir = File(cacheDir, "updates").apply { mkdirs() }
         val target = File(updateDir, safeAssetName)
         if (target.parentFile?.canonicalFile != updateDir.canonicalFile) error("The release asset path is invalid.")
-        val temp = File(target.parentFile, "${target.name}.part")
-        val request = Request.Builder().url(update.downloadUrl).header("User-Agent", "VulkanScope/${installedVersionName()}").get().build()
+        val temp = File(updateDir, "$safeAssetName.part")
         try {
-            ipv6PreferredDownloadClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) error("Update download failed (HTTP ${response.code}).")
-                val body = response.body
-                val length = body.contentLength()
-                if (length > 256L * 1024L * 1024L) error("Update package exceeds the safety limit.")
-                body.byteStream().use { input ->
-                    FileOutputStream(temp).use { output ->
-                        val buffer = ByteArray(64 * 1024)
-                        var total = 0L
-                        while (true) {
-                            val count = input.read(buffer)
-                            if (count < 0) break
-                            total += count
-                            if (total > 256L * 1024L * 1024L) error("Update package exceeds the safety limit.")
-                            output.write(buffer, 0, count)
+            val request = Request.Builder().url(update.downloadUrl).header("User-Agent", "VulkanScope/${installedVersionName()}").get().build()
+            val call = ipv6PreferredDownloadClient.newCall(request)
+            activeUpdateDownloadCall = call
+            try {
+                call.execute().use { response ->
+                    if (!response.isSuccessful) error("Update download failed (HTTP ${response.code}).")
+                    val body = response.body
+                    if (body.contentLength() > 256L * 1024L * 1024L) error("Update package exceeds the safety limit.")
+                    body.byteStream().use { input ->
+                        FileOutputStream(temp).use { output ->
+                            val buffer = ByteArray(64 * 1024)
+                            var total = 0L
+                            while (true) {
+                                val count = input.read(buffer)
+                                if (count < 0) break
+                                total += count
+                                if (total > 256L * 1024L * 1024L) error("Update package exceeds the safety limit.")
+                                output.write(buffer, 0, count)
+                            }
+                            output.fd.sync()
                         }
-                        output.fd.sync()
                     }
                 }
+            } finally {
+                if (activeUpdateDownloadCall === call) activeUpdateDownloadCall = null
             }
             if (!temp.renameTo(target)) { temp.copyTo(target, overwrite = true); temp.delete() }
             val archiveFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) PackageManager.GET_SIGNING_CERTIFICATES else PackageManager.GET_SIGNATURES
-            val archive = packageManager.getPackageArchiveInfo(target.absolutePath, archiveFlags) ?: error("Downloaded file is not a valid Android package.")
-            if (archive.packageName != packageName) error("Downloaded package identity does not match VulkanScope.")
-            val installed = packageManager.getPackageInfo(packageName, archiveFlags)
-            if (!packageSigningCertificatesMatch(installed, archive)) error("Downloaded package signing certificate does not match the installed VulkanScope build.")
-            val archiveVersionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) archive.longVersionCode else archive.versionCode.toLong()
-            val installedVersionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) installed.longVersionCode else installed.versionCode.toLong()
-            if (archiveVersionCode <= installedVersionCode) error("Downloaded package versionCode is not newer than the installed VulkanScope build.")
-            val archiveVersion = archive.versionName ?: error("Downloaded package has no version metadata.")
-            if (!isNewerVersion(archiveVersion, installedVersionName())) error("Downloaded package versionName is not newer than the installed VulkanScope version.")
-            target
+            try {
+                val archive = packageManager.getPackageArchiveInfo(target.absolutePath, archiveFlags) ?: error("Downloaded file is not a valid Android package.")
+                if (archive.packageName != packageName) error("Downloaded package identity does not match VulkanScope.")
+                val installed = packageManager.getPackageInfo(packageName, archiveFlags)
+                if (!packageSigningCertificatesMatch(installed, archive)) error("Downloaded package signing certificate does not match the installed VulkanScope build.")
+                val archiveVersionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) archive.longVersionCode else archive.versionCode.toLong()
+                val installedVersionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) installed.longVersionCode else installed.versionCode.toLong()
+                if (archiveVersionCode <= installedVersionCode) error("Downloaded package versionCode is not newer than the installed VulkanScope build.")
+                val archiveVersion = archive.versionName ?: error("Downloaded package has no version metadata.")
+                if (!isNewerVersion(archiveVersion, installedVersionName())) error("Downloaded package versionName is not newer than the installed VulkanScope version.")
+                target
+            } catch (error: Throwable) {
+                runCatching { target.delete() }
+                throw error
+            }
         } finally {
             if (temp.exists()) temp.delete()
         }
     }
 
     private fun packageSigningCertificatesMatch(installed: android.content.pm.PackageInfo, archive: android.content.pm.PackageInfo): Boolean {
-        fun certificates(info: android.content.pm.PackageInfo): Set<String> {
-            val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                val signingInfo = info.signingInfo ?: return emptySet()
-                if (signingInfo.hasMultipleSigners()) signingInfo.apkContentsSigners else signingInfo.signingCertificateHistory
-            } else {
-                @Suppress("DEPRECATION")
-                info.signatures ?: emptyArray()
+        fun encoded(signatures: Array<android.content.pm.Signature>): Set<String> = signatures.map { Base64.encodeToString(it.toByteArray(), Base64.NO_WRAP) }.toSet()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val installedInfo = installed.signingInfo ?: return false
+            val archiveInfo = archive.signingInfo ?: return false
+            val installedCurrent = encoded(installedInfo.apkContentsSigners)
+            if (installedCurrent.isEmpty()) return false
+            if (installedInfo.hasMultipleSigners() || archiveInfo.hasMultipleSigners()) {
+                val archiveCurrent = encoded(archiveInfo.apkContentsSigners)
+                return archiveCurrent.isNotEmpty() && installedCurrent == archiveCurrent
             }
-            return signatures.map { Base64.encodeToString(it.toByteArray(), Base64.NO_WRAP) }.toSet()
+            val archiveHistory = encoded(archiveInfo.signingCertificateHistory)
+            return archiveHistory.isNotEmpty() && archiveHistory.containsAll(installedCurrent)
         }
-        val installedCertificates = certificates(installed)
-        val archiveCertificates = certificates(archive)
-        return installedCertificates.isNotEmpty() && archiveCertificates.isNotEmpty() && installedCertificates.intersect(archiveCertificates).isNotEmpty()
+        @Suppress("DEPRECATION")
+        val installedLegacy = encoded(installed.signatures ?: emptyArray())
+        @Suppress("DEPRECATION")
+        val archiveLegacy = encoded(archive.signatures ?: emptyArray())
+        return installedLegacy.isNotEmpty() && installedLegacy == archiveLegacy
     }
 
     private fun requestPackageInstall(apk: File) {

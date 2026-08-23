@@ -8,8 +8,8 @@ errors = []
 gradle = (root / 'app/build.gradle.kts').read_text(encoding='utf-8')
 version = re.search(r'versionName\s*=\s*"([^"]+)"', gradle)
 code = re.search(r'versionCode\s*=\s*(\d+)', gradle)
-if not version or version.group(1) != '0.35.0': errors.append('versionName mismatch')
-if not code or code.group(1) != '351': errors.append('versionCode mismatch')
+if not version or version.group(1) != '0.35.1': errors.append('versionName mismatch')
+if not code or code.group(1) != '352': errors.append('versionCode mismatch')
 abi_line = re.search(r'abiFilters \+= listOf\(([^\n]+)\)', gradle)
 if not abi_line or any(x not in abi_line.group(1) for x in ['arm64-v8a', 'armeabi-v7a', 'x86_64']): errors.append('required ABI set is incomplete')
 if '"x86"' in gradle: errors.append('x86 ABI must remain excluded')
@@ -370,8 +370,8 @@ if re.search(r'(?<!Wavy)\bLinearProgressIndicator\(', kt_current):
 
 if '## Release 0.34.9 full Material 3 Expressive surface pass' not in (root / 'rules/PROJECT_RULES.md').read_text(encoding='utf-8'):
     errors.append('PROJECT_RULES is missing the 0.34.9 full Material 3 Expressive release contract')
-if '## Release 0.35.0 Material 3 Expressive compile-fix requirements' not in (root / 'rules/PROJECT_RULES.md').read_text(encoding='utf-8'):
-    errors.append('PROJECT_RULES is missing the 0.35.0 Material 3 Expressive compile-fix contract')
+if '## Release 0.35.1 full application security and correctness audit' not in (root / 'rules/PROJECT_RULES.md').read_text(encoding='utf-8'):
+    errors.append('PROJECT_RULES is missing the 0.35.1 full application security and correctness contract')
 for needle in ['selectedTextColorTopIconPosition = VulkanTextPrimary', 'selectedTextColorStartIconPosition = VulkanTextPrimary']:
     if needle not in kt_current:
         errors.append(f'missing 0.35.0 ShortNavigationBar selected-label color argument: {needle}')
@@ -403,4 +403,8 @@ if errors:
     for error in errors: print(f'FAIL: {error}')
     raise SystemExit(1)
 print('VulkanScope release verification: PASS')
+
+for needle in ['activeUpdateCheckCall', 'activeUpdateDownloadCall', 'updateDownloadJob', 'archiveHistory.containsAll(installedCurrent)', 'runCatching { target.delete() }', 'if (!directUpdatesEnabled) {']:
+    if needle not in kt:
+        errors.append(f'missing 0.35.1 updater hardening: {needle}')
 print(f'version={version.group(1)} code={code.group(1)} baseline=Vulkan 1.4.360 schema=6 compileHeaders=0b7f383797fa7be53ae28213e001ae60668ee511')
