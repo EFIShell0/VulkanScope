@@ -14,18 +14,16 @@ header = Path(args.header)
 registry_path = Path(args.registry)
 out = Path(args.out)
 text = header.read_text(encoding='utf-8', errors='ignore')
-version_match = re.search(r'#define\s+VK_HEADER_VERSION\s+(\d+)', text)
-if not version_match or int(version_match.group(1)) != 357:
-    raise SystemExit("Canonical Vulkan-Headers 1.4.357 required for generation")
+version_match = re.search(r'#define\s+VK_HEADER_VERSION\s+(\d+)\b', text)
+if not version_match or int(version_match.group(1)) != 360:
+    raise SystemExit("Canonical Vulkan-Headers 1.4.360 required for generation")
 registry = ET.parse(registry_path).getroot()
 
 structs = re.findall(r'typedef\s+struct\s+(VkPhysicalDevice\w*)\s*\{(.*?)\}\s*\1\s*;', text, re.S)
 macros = dict(re.findall(r'#define\s+(VK_STRUCTURE_TYPE_[A-Z0-9_]+)\s+([-0-9]+)', text))
 
-# Preserve Khronos' canonical acronym casing for types which contain OCP.
 structs = [(name.replace("ShaderOcpMicroscalingTypes", "ShaderOCPMicroscalingTypes"), body) for name, body in structs]
 
-# Canonical enum values from vk.xml. Runtime values are always emitted alongside the canonical names.
 enum_values = {}
 for enums in registry.findall('./enums'):
     if enums.get('type') != 'enum':
@@ -51,7 +49,6 @@ for enums in registry.findall('./enums'):
                 values.append((name, 1 << bit))
             except ValueError:
                 pass
-    # Keep one canonical name per numeric value to prevent duplicate switch cases.
     dedup = {}
     for name, value in values:
         dedup.setdefault(value, name)
@@ -125,7 +122,6 @@ def emit_flags_helper(lines, type_name, values):
     lines.append('    if (raw == 0) return "0";')
     lines.append('    std::string out;')
     lines.append('    uint64_t known = 0;')
-    # Prefer named bits; multi-bit enum values are still exact and will be emitted if the raw value matches.
     for value, name in values.items():
         if value == 0:
             continue
@@ -149,7 +145,6 @@ def enum_helper_for(typ):
 
 lines = []
 lines.append('')
-# Forward declarations for generated enum/bitmask name helpers.
 for typ in sorted(enum_values):
     if typ in bitmask_types:
         continue
@@ -161,7 +156,6 @@ for typ in sorted(bitmask_types):
     elif typ in enum_values:
         lines.append(f'static std::string generatedFlagsName_{sanitize(typ)}(uint64_t raw);')
 lines.append('')
-# Emit enum/bitmask helpers only for types actually referenced by physical-device structs.
 referenced_types = set()
 for _struct_name, body in structs:
     if not re.search(r'\b(?:const\s+)?void\s*\*\s*pNext\b', body):

@@ -6,14 +6,45 @@ import android.os.Build
 import android.os.IBinder
 import android.view.Surface
 import android.util.Log
+import android.system.Os
 import java.io.File
 import java.io.FileOutputStream
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
+import java.io.OutputStream
+import java.io.OutputStreamWriter
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
+
+
+private class ProbeBoundedOutputStream(
+    private val delegate: OutputStream,
+    private val maxBytes: Long
+) : OutputStream() {
+    private var written = 0L
+
+    private fun reserve(count: Int) {
+        if (count < 0 || written > maxBytes - count.toLong()) {
+            throw IllegalStateException("Probe result exceeds the service publication safety limit")
+        }
+    }
+
+    override fun write(value: Int) {
+        reserve(1)
+        delegate.write(value)
+        written++
+    }
+
+    override fun write(buffer: ByteArray, offset: Int, length: Int) {
+        if (offset < 0 || length < 0 || offset > buffer.size - length) throw IndexOutOfBoundsException()
+        reserve(length)
+        delegate.write(buffer, offset, length)
+        written += length.toLong()
+    }
+
+    override fun flush() = delegate.flush()
+    override fun close() = delegate.close()
+}
 
 class VulkanProbeService : Service() {
     companion object {
@@ -87,12 +118,15 @@ class VulkanProbeService : Service() {
             val file = File(path)
             file.parentFile?.mkdirs()
             val temp = File(file.parentFile, file.name + ".tmp")
-            FileOutputStream(temp, false).use { it.write(text.toByteArray(Charsets.UTF_8)) }
-            try {
-                Files.move(temp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
-            } catch (e: java.nio.file.AtomicMoveNotSupportedException) {
-                Files.move(temp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            FileOutputStream(temp, false).use { stream ->
+                val bounded = ProbeBoundedOutputStream(stream, 64L * 1024L * 1024L)
+                OutputStreamWriter(bounded, Charsets.UTF_8).use { writer ->
+                    writer.write(text)
+                    writer.flush()
+                    stream.fd.sync()
+                }
             }
+            Os.rename(temp.path, file.path)
         }.onFailure { error ->
             runCatching { File(path + ".tmp").delete() }
             Log.e("VulkanProbeWork", "Unable to publish Vulkan probe result", error)

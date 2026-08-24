@@ -19,7 +19,6 @@ header = Path(args.header).read_text(encoding='utf-8', errors='ignore')
 vsroot = Path(args.vulkanscope_root)
 out = Path(args.out)
 
-# Canonical pNext-capable physical-device structures from vk.xml/header.
 types = {}
 for node in root.findall('./types/type'):
     name = node.get('name') or (node.findtext('name') or '')
@@ -49,7 +48,6 @@ if args.capsviewer_root and args.mode == 'source':
     result = subprocess.run([sys.executable, str(tool), '--capsviewer-root', str(args.capsviewer_root), '--header', str(args.header), '--registry', str(args.registry), '--out', str(out)], check=False)
     raise SystemExit(result.returncode)
 
-# Read generated pNext query output if present in generated build tree or source.
 pnext_hits = set()
 for cand in list(vsroot.glob('**/runtime_extension_pnext_generated.inc')) + list(vsroot.glob('**/extension_pnext_query_generated.inc')):
     try:

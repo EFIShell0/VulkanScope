@@ -23,6 +23,7 @@ import android.provider.Settings
 import androidx.core.content.FileProvider
 import java.io.File
 import java.io.FileOutputStream
+import java.io.FileInputStream
 import java.io.ByteArrayOutputStream
 import java.net.Inet6Address
 import java.net.InetAddress
@@ -196,7 +197,7 @@ private data class FeatureEntry(val name: String, val supported: Boolean)
 private data class SurfaceFormatEntry(val format: String, val colorSpace: String, val classification: String, val description: String, val supported: Boolean = true)
 private data class FormatEntry(val name: String, val supported: Boolean, val linear: Long, val optimal: Long, val buffer: Long)
 private data class PropertyEntry(val section: String, val name: String, val value: String)
-private data class QueueEntry(val index: Int, val count: Int, val timestampBits: Int, val flags: Long, val graphics: Boolean, val compute: Boolean, val transfer: Boolean, val sparse: Boolean, val protected: Boolean, val videoDecode: Boolean, val videoEncode: Boolean, val opticalFlow: Boolean, val dataGraph: Boolean, val unknownFlags: Long, val granularity: String, val videoCodecOperations: Long = 0L)
+private data class QueueEntry(val index: Int, val count: Int, val timestampBits: Int, val flags: Long, val graphics: Boolean, val compute: Boolean, val transfer: Boolean, val sparse: Boolean, val protected: Boolean, val videoDecode: Boolean, val videoEncode: Boolean, val opticalFlow: Boolean, val dataGraph: Boolean, val unknownFlags: Long, val granularity: String, val videoCodecOperations: Long = 0L, val videoCodecQueryStatus: String = "unknown", val videoCodecQueryReason: String = "")
 private data class MemoryHeapEntry(val index: Int, val size: Long, val flags: Long)
 private data class MemoryTypeEntry(val index: Int, val heap: Int, val flags: Long)
 private val ISOLATED_CORE_GROUPS = linkedMapOf(
@@ -344,7 +345,11 @@ private data class DeviceReport(
     val presentModes: List<String>,
     val presentationQueues: List<Pair<Int, Boolean>>,
     val vulkan14Status: String = "not_applicable",
-    val vulkan14Reason: String = ""
+    val vulkan14Reason: String = "",
+    val queueQuerySafetyRejected: Boolean = false,
+    val memoryHeapSafetyRejected: Boolean = false,
+    val memoryTypeSafetyRejected: Boolean = false,
+    val surfaceQueueQuerySafetyRejected: Boolean = false
 )
 
 private data class RegistryCoverage(
@@ -364,7 +369,7 @@ private data class RegistryCoverage(
 private data class VulkanReport(val loaderVersion: String, val instanceExtensions: List<ExtensionEntry>, val instanceLayers: List<LayerEntry>, val devices: List<DeviceReport>, val error: String?, val registryCoverage: RegistryCoverage = RegistryCoverage())
 
 private enum class Page(val title: String) {
-    Overview("Overview"), Vulkan("Vulkan"), Display("Display & HDR"), Surface("Surface"), Features("Features"), Memory("Memory"), Queues("Queues"), Formats("Formats"), Properties("Properties & Limits"), Extensions("Extensions"), Profiles("Profiles"), Settings("Settings"), Info("Info")
+    Overview("Overview"), Vulkan("Vulkan"), Display("Display & HDR"), Surface("Surface"), Features("Features"), Memory("Memory"), Queues("Queues"), Formats("Formats"), Properties("Properties & Limits"), Extensions("Extensions"), Profiles("Profiles"), Analysis("Analysis"), Settings("Settings"), Info("Info")
 }
 
 private enum class DriverMode(val label: String) {
@@ -413,6 +418,43 @@ private val ipv6PreferredDownloadClient = ipv6PreferredHttpClient.newBuilder()
     .connectTimeout(15, TimeUnit.SECONDS)
     .readTimeout(30, TimeUnit.SECONDS)
     .build()
+
+private fun readFileTextLimited(file: File, maxBytes: Int): String {
+    require(maxBytes > 0)
+    if (file.length() > maxBytes) error("File exceeds the safety limit.")
+    val output = ByteArrayOutputStream(minOf(maxBytes, 64 * 1024))
+    FileInputStream(file).use { input ->
+        val buffer = ByteArray(8192)
+        var total = 0
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            if (count == 0) continue
+            total += count
+            if (total > maxBytes) error("File exceeds the safety limit.")
+            output.write(buffer, 0, count)
+        }
+    }
+    return output.toString(Charsets.UTF_8.name())
+}
+
+private fun resolveInstalledTurnipLibrary(filesDir: File): File? {
+    val root = File(filesDir, "turnip")
+    if (!root.exists()) return null
+    val metadataFiles = root.walkTopDown().filter { it.isFile && it.name.equals("meta.json", true) }.take(2).toList()
+    if (metadataFiles.size != 1) return null
+    val metadata = runCatching { JSONObject(readFileTextLimited(metadataFiles.single(), 1024 * 1024)) }.getOrNull() ?: return null
+    if (metadata.optInt("schemaVersion", -1) != 1) return null
+    val declared = metadata.optString("libraryName").trim()
+    if (declared.isBlank() || declared.contains('/') || declared.contains('\\') || !declared.endsWith(".so", true) || !declared.contains("vulkan", true)) return null
+    val libraries = root.walkTopDown().filter { it.isFile && it.name == declared }.take(2).toList()
+    if (libraries.size != 1) return null
+    val canonicalRoot = runCatching { root.canonicalFile }.getOrNull() ?: return null
+    val canonicalLibrary = runCatching { libraries.single().canonicalFile }.getOrNull() ?: return null
+    val rootPrefix = canonicalRoot.path.trimEnd(File.separatorChar) + File.separator
+    if (!canonicalLibrary.path.startsWith(rootPrefix) || !canonicalLibrary.isFile || !canonicalLibrary.canRead() || canonicalLibrary.length() <= 0L) return null
+    return canonicalLibrary
+}
 
 private fun readResponseTextLimited(body: ResponseBody, maxBytes: Int): String {
     require(maxBytes > 0)
@@ -497,6 +539,7 @@ class MainActivity : ComponentActivity() {
         activeUpdateDownloadCall?.cancel()
         updateCheckJob?.cancel()
         updateDownloadJob?.cancel()
+        stopVulkanProbeProcess()
         activityScope.cancel()
         super.onDestroy()
     }
@@ -608,7 +651,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openDriverBundlePicker() {
-        if (!Build.SUPPORTED_ABIS.contains("arm64-v8a")) {
+        if (Build.VERSION.SDK_INT < 28 || !Build.SUPPORTED_ABIS.contains("arm64-v8a")) {
             android.widget.Toast.makeText(this, "Turnip requires Android 9+ and arm64-v8a.", android.widget.Toast.LENGTH_LONG).show()
             return
         }
@@ -634,7 +677,7 @@ class MainActivity : ComponentActivity() {
                     var entry = zip.nextEntry
                     while (entry != null) {
                         if (++entryCount > maxEntries) throw SecurityException("Driver bundle contains too many entries")
-                        if (entry.name.isBlank()) throw SecurityException("Driver bundle contains an empty path")
+                        if (entry.name.isBlank() || entry.name.length > 1024) throw SecurityException("Driver bundle contains an invalid path")
                         val safe = File(tempDir, entry.name).canonicalFile
                         if (!safe.path.startsWith(tempDir.canonicalPath + File.separator) && safe != tempDir.canonicalFile) {
                             throw SecurityException("Unsafe driver bundle path")
@@ -660,12 +703,10 @@ class MainActivity : ComponentActivity() {
                 }
             } ?: throw IllegalStateException("Unable to read bundle")
 
-            val metadataFile = tempDir.walkTopDown().firstOrNull { it.isFile && it.name.equals("meta.json", true) }
-                ?: throw IllegalArgumentException("This is not an AdrenoTools driver package. Required file: meta.json")
-            if (metadataFile.length() > 1024L * 1024L) {
-                throw IllegalArgumentException("AdrenoTools meta.json is too large")
-            }
-            val metadata = runCatching { JSONObject(metadataFile.readText()) }.getOrElse {
+            val metadataFiles = tempDir.walkTopDown().filter { it.isFile && it.name.equals("meta.json", true) }.take(2).toList()
+            if (metadataFiles.size != 1) throw IllegalArgumentException("The AdrenoTools package must contain exactly one meta.json")
+            val metadataFile = metadataFiles.single()
+            val metadata = runCatching { JSONObject(readFileTextLimited(metadataFile, 1024 * 1024)) }.getOrElse {
                 throw IllegalArgumentException("The AdrenoTools meta.json is invalid")
             }
             val schemaVersion = metadata.optInt("schemaVersion", -1)
@@ -673,11 +714,12 @@ class MainActivity : ComponentActivity() {
                 throw IllegalArgumentException("Unsupported AdrenoTools package schema: ${if (schemaVersion < 0) "missing" else schemaVersion}")
             }
             val declared = metadata.optString("libraryName").trim()
-            if (declared.isBlank() || !declared.endsWith(".so", true)) {
-                throw IllegalArgumentException("AdrenoTools meta.json does not declare a Vulkan library")
+            if (declared.isBlank() || declared.contains('/') || declared.contains('\\') || !declared.endsWith(".so", true)) {
+                throw IllegalArgumentException("AdrenoTools meta.json does not declare a valid Vulkan library name")
             }
-            val library = tempDir.walkTopDown().firstOrNull { it.isFile && it.name == declared }
-                ?: throw IllegalArgumentException("Driver metadata references missing library: $declared")
+            val libraries = tempDir.walkTopDown().filter { it.isFile && it.name == declared }.take(2).toList()
+            if (libraries.size != 1) throw IllegalArgumentException("Driver metadata must resolve to exactly one Vulkan library: $declared")
+            val library = libraries.single()
             if (!declared.contains("vulkan", true)) {
                 throw IllegalArgumentException("The selected AdrenoTools package does not declare a Vulkan driver library")
             }
@@ -721,20 +763,9 @@ class MainActivity : ComponentActivity() {
         return if (root.exists()) root.absolutePath else null
     }
 
-    private fun findTurnipIcd(): String? {
-        if (driverMode != DriverMode.TURNIP) return null
-        val root = File(filesDir, "turnip")
-        val metadata = root.walkTopDown().firstOrNull { it.isFile && it.name.equals("meta.json", true) } ?: return null
-        if (metadata.length() !in 1..(1024L * 1024L)) return null
-        val declared = runCatching { JSONObject(metadata.readText()).optString("libraryName") }.getOrNull().orEmpty()
-        if (declared.isBlank() || declared.contains('/') || declared.contains('\\') || !declared.endsWith(".so", true)) return null
-        val library = root.walkTopDown().firstOrNull { it.isFile && it.name == declared } ?: return null
-        val canonicalRoot = runCatching { root.canonicalFile }.getOrNull() ?: return null
-        val canonicalLibrary = runCatching { library.canonicalFile }.getOrNull() ?: return null
-        val rootPrefix = canonicalRoot.path.trimEnd(File.separatorChar) + File.separator
-        if (!canonicalLibrary.path.startsWith(rootPrefix)) return null
-        return canonicalLibrary.absolutePath
-    }
+    private fun resolveInstalledTurnipIcd(): String? = resolveInstalledTurnipLibrary(filesDir)?.absolutePath
+
+    private fun findTurnipIcd(): String? = if (driverMode == DriverMode.TURNIP) resolveInstalledTurnipIcd() else null
 
     private fun isTurnipPlatformEligible(): Boolean =
         Build.VERSION.SDK_INT >= 28 && Build.SUPPORTED_ABIS.contains("arm64-v8a")
@@ -1183,15 +1214,7 @@ class MainActivity : ComponentActivity() {
         if (synchronized(surfaceLock) { currentSurface?.isValid == true }) requestReportCollection()
     }
 
-    private fun findInstalledTurnipLibrary(): File? {
-        if (turnipSupport != TurnipSupport.SUPPORTED) return null
-        val root = File(filesDir, "turnip")
-        if (!root.exists()) return null
-        val json = root.walkTopDown().firstOrNull { it.isFile && it.extension.equals("json", true) }
-        val declared = json?.let { runCatching { JSONObject(it.readText()).optString("libraryName") }.getOrNull() }.orEmpty()
-        if (declared.isNotBlank()) root.walkTopDown().firstOrNull { it.isFile && it.name == declared }?.let { return it }
-        return root.walkTopDown().firstOrNull { it.isFile && it.extension.equals("so", true) && it.length() > 0L }
-    }
+    private fun findInstalledTurnipLibrary(): File? = resolveInstalledTurnipIcd()?.let(::File)
 
     private fun refreshDisplayReport() {
         displayReportState = displayReport()
@@ -1374,6 +1397,8 @@ class MainActivity : ComponentActivity() {
         groups.forEach(::requestQueryGroup)
     }
 
+    internal suspend fun runVulkanSelfTests(): String = runServiceProbe("selftest", null, 30_000L)
+
     private suspend fun runProbe(surface: Surface?): String = runServiceProbe("base", surface, 45_000L)
 
     private suspend fun runSurfaceProbe(surface: Surface): String = runServiceProbe("surface", surface, 25_000L)
@@ -1444,7 +1469,7 @@ class MainActivity : ComponentActivity() {
                                 lastObservedLength = resultLength
                                 lastObservedModified = resultModified
                                 lastCheckpointReadAt = now
-                                val candidate = runCatching { resultFile.readText() }.getOrElse { error ->
+                                val candidate = runCatching { readFileTextLimited(resultFile, maxProbeResultBytes.toInt()) }.getOrElse { error ->
                                     if (group == "base") {
                                         "{\"status\":\"unavailable\",\"reason\":${JSONObject.quote(error.message ?: "Unable to read Vulkan probe result")},\"devices\":[]}"
                                     } else {
@@ -1567,6 +1592,29 @@ private fun replaceQueryStatus(properties: List<PropertyEntry>, name: String, va
     properties.filterNot { it.section == "Vulkan Query Status" && it.name == name } +
         PropertyEntry("Vulkan Query Status", name, value)
 
+private fun replaceDetailedProperty(properties: List<PropertyEntry>, section: String, name: String, value: String): List<PropertyEntry> =
+    properties.filterNot { it.section == section && it.name == name } + PropertyEntry(section, name, value)
+
+private fun vkResultText(value: Int): String = when (value) {
+    0 -> "VK_SUCCESS (0)"
+    5 -> "VK_INCOMPLETE (5)"
+    -7 -> "VK_ERROR_EXTENSION_NOT_PRESENT (-7)"
+    else -> value.toString()
+}
+
+private fun appendSurfaceEnumerationDiagnostics(surface: JSONObject?, capabilities: MutableList<Pair<String, String>>) {
+    if (surface == null) return
+    if (surface.has("formatEnumerationComplete")) capabilities += "Surface format enumeration" to if (surface.optBoolean("formatEnumerationComplete")) "Complete" else "Incomplete / unavailable"
+    if (surface.has("presentModeCountQueryResult")) capabilities += "Present mode count query" to vkResultText(surface.optInt("presentModeCountQueryResult"))
+    if (surface.optBoolean("presentModeDataQueryAttempted", false)) {
+        capabilities += "Present mode data query" to vkResultText(surface.optInt("presentModeDataQueryResult"))
+    } else {
+        capabilities += "Present mode data query" to "Not attempted"
+    }
+    if (surface.has("presentModeQuerySafetyRejected")) capabilities += "Present mode safety rejection" to if (surface.optBoolean("presentModeQuerySafetyRejected")) "YES · result discarded" else "NO"
+    if (surface.has("presentModeEnumerationComplete")) capabilities += "Present mode enumeration" to if (surface.optBoolean("presentModeEnumerationComplete")) "Complete" else "Incomplete / unavailable"
+}
+
 private fun mergeSurfaceProbeReport(base: VulkanReport, raw: String): VulkanReport {
     val root = runCatching { JSONObject(raw) }.getOrElse {
         return base.copy(devices = base.devices.map { device ->
@@ -1612,6 +1660,7 @@ private fun mergeSurfaceProbeReport(base: VulkanReport, raw: String): VulkanRepo
                     capabilities += key to canonicalSurfaceCapabilityValue(key, rawValue)
                 }
             }
+            appendSurfaceEnumerationDiagnostics(surface, capabilities)
             val presentModes = mutableListOf<String>()
             val presentArray = surface?.optJSONArray("presentModes") ?: JSONArray()
             for (i in 0 until presentArray.length()) presentModes += presentArray.optString(i)
@@ -1621,6 +1670,13 @@ private fun mergeSurfaceProbeReport(base: VulkanReport, raw: String): VulkanRepo
                 val q = queueArray.optJSONObject(i) ?: continue
                 presentationQueues += q.optInt("queueFamily") to q.optBoolean("supported")
             }
+            val surfaceQueueSafetyRejected = surface?.optBoolean("queueQuerySafetyRejected", false) ?: false
+            val surfaceDetails = replaceDetailedProperty(
+                replaceQueryStatus(device.detailedProperties, "Surface probe", "Available"),
+                "Vulkan Query Safety",
+                "Surface queue-family enumeration safety rejected",
+                surfaceQueueSafetyRejected.toString()
+            )
             device.copy(
                 surfaceAvailable = surface?.optBoolean("available") == true,
                 surfacePresentationSupported = surface?.optBoolean("presentationSupported") == true,
@@ -1634,7 +1690,8 @@ private fun mergeSurfaceProbeReport(base: VulkanReport, raw: String): VulkanRepo
                 surfaceFormats = surfaceFormats,
                 presentModes = presentModes,
                 presentationQueues = presentationQueues,
-                detailedProperties = replaceQueryStatus(device.detailedProperties, "Surface probe", "Available")
+                detailedProperties = surfaceDetails,
+                surfaceQueueQuerySafetyRejected = surfaceQueueSafetyRejected
             )
         }
     })
@@ -1724,7 +1781,15 @@ private fun mergeAdvancedQueryReport(base: VulkanReport, raw: String, group: Str
         val match = parsed.firstOrNull { it.first == device.vendorIdRaw && it.second == deviceId }
         val videoMatch = videoQueuesByDevice.firstOrNull { it.first == device.vendorIdRaw && it.second == deviceId }
         val formatMatch = formatEntriesByDevice[device.vendorIdRaw to (deviceId ?: -1L)]
-        val mergedQueues = if (videoMatch != null) device.queues.map { q -> q.copy(videoCodecOperations = videoMatch.third[q.index] ?: q.videoCodecOperations) } else device.queues
+        val hasVideoQueueExtension = device.extensions.any { it.name == "VK_KHR_video_queue" }
+        val mergedQueues = device.queues.map { q ->
+            when {
+                status == "not_applicable" || !hasVideoQueueExtension -> q.copy(videoCodecQueryStatus = "not_applicable", videoCodecQueryReason = "VK_KHR_video_queue was not enumerated for this device.")
+                status != "available" -> q.copy(videoCodecQueryStatus = "unavailable", videoCodecQueryReason = reason.ifBlank { "Queue Family Properties2 query did not complete." })
+                videoMatch == null || !videoMatch.third.containsKey(q.index) -> q.copy(videoCodecQueryStatus = "unavailable", videoCodecQueryReason = "VkQueueFamilyVideoPropertiesKHR evidence was not returned for this queue family.")
+                else -> q.copy(videoCodecOperations = videoMatch.third.getValue(q.index), videoCodecQueryStatus = "available", videoCodecQueryReason = "")
+            }
+        }
         val mergedFormats = if (formatMatch != null) {
             val byName = LinkedHashMap<String, FormatEntry>()
             device.formats.forEach { byName[it.name] = it }
@@ -1848,8 +1913,8 @@ private fun parseReport(raw: String): VulkanReport {
         for (j in 0 until queueArray.length()) {
             val q = queueArray.optJSONObject(j) ?: continue
             val queueFlags = q.optLong("flags")
-            val knownQueueFlags = 0x577L
-            queues += QueueEntry(q.optInt("index"), q.optInt("count"), q.optInt("timestampValidBits"), queueFlags, q.optBoolean("graphics"), q.optBoolean("compute"), q.optBoolean("transfer"), q.optBoolean("sparse"), q.optBoolean("protected"), q.optBoolean("videoDecode"), q.optBoolean("videoEncode"), q.optBoolean("opticalFlow"), q.optBoolean("dataGraph"), queueFlags and knownQueueFlags.inv(), q.optString("minImageTransferGranularity", "0 × 0 × 0"), q.optLong("videoCodecOperations"))
+            val knownQueueFlags = 0x57FL
+            queues += QueueEntry(q.optInt("index"), q.optInt("count"), q.optInt("timestampValidBits"), queueFlags, q.optBoolean("graphics"), q.optBoolean("compute"), q.optBoolean("transfer"), q.optBoolean("sparse"), q.optBoolean("protected"), q.optBoolean("videoDecode"), q.optBoolean("videoEncode"), q.optBoolean("opticalFlow"), q.optBoolean("dataGraph"), queueFlags and knownQueueFlags.inv(), q.optString("minImageTransferGranularity", "0 × 0 × 0"), q.optLong("videoCodecOperations"), q.optString("videoCodecQueryStatus", "unknown"), q.optString("videoCodecQueryReason", ""))
         }
         val heaps = mutableListOf<MemoryHeapEntry>()
         val memoryTypes = mutableListOf<MemoryTypeEntry>()
@@ -1886,6 +1951,12 @@ private fun parseReport(raw: String): VulkanReport {
             val prop = detailedPropertyArray.optJSONObject(j) ?: continue
             detailedProperties += PropertyEntry(sanitizeReportSection(prop.optString("section")), prop.optString("name"), prop.optString("value"))
         }
+        val queueQuerySafetyRejected = item.optBoolean("queueQuerySafetyRejected", false)
+        val memoryHeapSafetyRejected = item.optBoolean("memoryHeapSafetyRejected", false)
+        val memoryTypeSafetyRejected = item.optBoolean("memoryTypeSafetyRejected", false)
+        detailedProperties += PropertyEntry("Vulkan Query Safety", "Queue-family enumeration safety rejected", queueQuerySafetyRejected.toString())
+        detailedProperties += PropertyEntry("Vulkan Query Safety", "Memory-heap count safety rejected", memoryHeapSafetyRejected.toString())
+        detailedProperties += PropertyEntry("Vulkan Query Safety", "Memory-type count safety rejected", memoryTypeSafetyRejected.toString())
         val surface = item.optJSONObject("surface")
         val surfaceAvailable = surface?.optBoolean("available") == true
         val surfacePresentationSupported = surface?.optBoolean("presentationSupported") == true
@@ -1895,10 +1966,13 @@ private fun parseReport(raw: String): VulkanReport {
         val surfaceFormatQueryResultSecond = surface?.optInt("formatQueryResultSecond", -1) ?: -1
         val surfaceFormatQuerySecondAttempted = surface?.optBoolean("formatQuerySecondAttempted", false) ?: false
         val surfaceFormatQuerySafetyRejected = surface?.optBoolean("formatQuerySafetyRejected", false) ?: false
+        val surfaceQueueQuerySafetyRejected = surface?.optBoolean("queueQuerySafetyRejected", false) ?: false
+        detailedProperties += PropertyEntry("Vulkan Query Safety", "Surface queue-family enumeration safety rejected", surfaceQueueQuerySafetyRejected.toString())
         if (surface != null) {
             listOf("minImageCount", "maxImageCount", "currentExtent", "minExtent", "maxExtent", "maxImageArrayLayers", "supportedTransforms", "currentTransform", "supportedCompositeAlpha", "supportedUsageFlags").forEach { key ->
-                if (surface.has(key)) capabilityPairs += key to surface.optString(key)
+                if (surface.has(key)) capabilityPairs += key to canonicalSurfaceCapabilityValue(key, surface.optString(key))
             }
+            appendSurfaceEnumerationDiagnostics(surface, capabilityPairs)
             val surfaceFormatArray = surface.optJSONArray("formats") ?: JSONArray()
             for (j in 0 until surfaceFormatArray.length()) {
                 val sf = surfaceFormatArray.optJSONObject(j) ?: continue
@@ -1947,7 +2021,11 @@ private fun parseReport(raw: String): VulkanReport {
             presentModes,
             presentationQueues,
             vulkan14Status = item.optString("vulkan14Status", "not_applicable"),
-            vulkan14Reason = item.optString("vulkan14Reason", "")
+            vulkan14Reason = item.optString("vulkan14Reason", ""),
+            queueQuerySafetyRejected = queueQuerySafetyRejected,
+            memoryHeapSafetyRejected = memoryHeapSafetyRejected,
+            memoryTypeSafetyRejected = memoryTypeSafetyRejected,
+            surfaceQueueQuerySafetyRejected = surfaceQueueQuerySafetyRejected
         )
     }
     val registry = root.optJSONObject("registryCoverage")
@@ -2206,6 +2284,7 @@ private fun PageContent(page: Page, report: VulkanReport, display: DisplayReport
         Page.Properties -> PropertiesPage(device, onRequestQuery)
         Page.Extensions -> ExtensionsPage(report, device)
         Page.Profiles -> ProfilesPage(report, device)
+        Page.Analysis -> AnalysisPage(report, device, display, driverMode)
         Page.Settings -> SettingsPage(report, driverMode, turnipSupport, onDriverModeChanged, onInstallDriverBundle, collectionStatus, directUpdatesEnabled, onDirectUpdatesChanged)
         Page.Info -> InfoPage(report, display, driverMode, collectionStatus, onCheckForUpdates, directUpdatesEnabled)
     }
@@ -2259,6 +2338,10 @@ private fun OverviewPage(report: VulkanReport, device: DeviceReport?, display: D
                     QuickAccessCard("Profiles", Page.Profiles, navigate, Modifier.weight(1f))
                     QuickAccessCard("More", Page.Features, navigate, Modifier.weight(1f))
                     Spacer(Modifier.weight(1f))
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    QuickAccessCard("Analysis", Page.Analysis, navigate, Modifier.weight(1f))
+                    Spacer(Modifier.weight(3f))
                 }
             }
         } }
@@ -2611,7 +2694,7 @@ private fun SurfacePage(device: DeviceReport?) {
     var filter by remember { mutableStateOf(SupportFilter.ALL) }
     val entries = remember(device) {
         val formats = device?.surfaceFormats ?: emptyList()
-        val completeEnumeration = device?.surfaceFormatQuerySecondAttempted == true && device.surfaceFormatQueryResultSecond == 0
+        val completeEnumeration = device?.surfaceFormatQuerySecondAttempted == true && device.surfaceFormatQueryResultSecond == 0 && !device.surfaceFormatQuerySafetyRejected
         if (completeEnumeration) buildSurfaceCatalog(formats) else formats
     }
     val filtered = remember(query, filter, entries) {
@@ -2628,12 +2711,13 @@ private fun SurfacePage(device: DeviceReport?) {
                 device?.surfaceAvailable == true -> "Not supported by this Vulkan device"
                 else -> "Unavailable"
             })
+            CapabilityKeyValue("Surface queue-family safety rejection", when (device?.surfaceQueueQuerySafetyRejected) { true -> "YES · result discarded"; false -> "NO"; null -> "Unavailable" })
             CapabilityKeyValue("Surface format query", when (device?.surfaceFormatQueryResult) { 0 -> "VK_SUCCESS"; 5 -> "VK_INCOMPLETE"; null, -1 -> "Unavailable"; else -> device.surfaceFormatQueryResult.toString() })
             CapabilityKeyValue("Second format query", when {
+                device?.surfaceFormatQuerySafetyRejected == true -> "Rejected: safety bound"
                 device?.surfaceFormatQuerySecondAttempted == true && device.surfaceFormatQueryResultSecond == 0 -> "VK_SUCCESS"
                 device?.surfaceFormatQuerySecondAttempted == true && device.surfaceFormatQueryResultSecond == 5 -> "VK_INCOMPLETE"
                 device?.surfaceFormatQuerySecondAttempted == true -> device.surfaceFormatQueryResultSecond.toString()
-                device?.surfaceFormatQuerySafetyRejected == true -> "Skipped: safety cap"
                 else -> "Unavailable"
             })
             CapabilityKeyValue("Returned format pairs", device?.surfaceFormats?.size?.toString() ?: "Unavailable")
@@ -2651,21 +2735,21 @@ private fun SurfacePage(device: DeviceReport?) {
             val wideColorPairs = device?.surfaceFormats?.count { it.classification == "Display-P3" || it.classification == "Display-P3 / Linear" || it.classification == "BT.2020" || it.classification == "scRGB" || it.classification == "scRGB / Linear" } ?: 0
             CapabilityKeyValue("HDR color-space pairs", if (device?.surfacePresentationSupported != true) "Unavailable" else hdrPairs.toString())
             CapabilityKeyValue("Wide-color pairs", if (device?.surfacePresentationSupported != true) "Unavailable" else wideColorPairs.toString())
-            Text(if (device?.surfaceFormatQuerySecondAttempted == true && device.surfaceFormatQueryResultSecond == 0) "Supported entries are returned directly by the completed surface-format enumeration. Catalog entries absent from that complete result are shown as not supported for this surface." else "Surface-format enumeration was not confirmed complete, so VulkanScope shows only returned entries and does not infer unsupported format/color-space pairs from missing results.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
+            Text(if (device?.surfaceFormatQuerySecondAttempted == true && device.surfaceFormatQueryResultSecond == 0 && !device.surfaceFormatQuerySafetyRejected) "Supported entries are returned directly by the completed surface-format enumeration. Catalog entries absent from that complete result are shown as not supported for this surface." else "Surface-format enumeration was not confirmed complete, so VulkanScope shows only returned entries and does not infer unsupported format/color-space pairs from missing results.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
         } }
         item { CapabilitySectionCard("Format + color-space pairs") {
-            if (filtered.isEmpty()) Text("No matching entries")
-            filtered.forEach { format ->
-                CapabilityItemCard(containerColor = VulkanSurfaceTonal) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(format.format, fontWeight = FontWeight.SemiBold)
-                        Text(format.colorSpace, color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-                        CapabilityStatusBadge(if (format.supported) "SUPPORTED · ${format.classification}" else "NOT SUPPORTED · ${format.classification}", format.supported)
-                        Text(format.description, color = VulkanTextMuted, style = MaterialTheme.typography.bodySmall)
-                    }
+            if (filtered.isEmpty()) Text("No matching entries") else Text("${filtered.size} matching format/color-space pairs", color = VulkanTextMuted, style = MaterialTheme.typography.bodySmall)
+        } }
+        items(filtered, key = { "${it.format}|${it.colorSpace}|${it.supported}" }) { format ->
+            CapabilityItemCard(containerColor = VulkanSurfaceTonal) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(format.format, fontWeight = FontWeight.SemiBold)
+                    Text(format.colorSpace, color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                    CapabilityStatusBadge(if (format.supported) "SUPPORTED · ${format.classification}" else "NOT SUPPORTED · ${format.classification}", format.supported)
+                    Text(format.description, color = VulkanTextMuted, style = MaterialTheme.typography.bodySmall)
                 }
             }
-        } }
+        }
         item { CapabilitySectionCard("Present modes") {
             if (device?.presentModes.isNullOrEmpty()) EmptyState("Present mode data unavailable")
             device?.presentModes?.forEachIndexed { index, mode -> CapabilityKeyValue("Mode ${index + 1}", mode) }
@@ -2754,6 +2838,10 @@ private fun FeaturesPage(device: DeviceReport?) {
 @Composable
 private fun MemoryPage(device: DeviceReport?) {
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        item { CapabilitySectionCard("Memory query safety") {
+            CapabilityKeyValue("Heap-count safety rejection", when (device?.memoryHeapSafetyRejected) { true -> "YES · bounded data only"; false -> "NO"; null -> "Unavailable" })
+            CapabilityKeyValue("Type-count safety rejection", when (device?.memoryTypeSafetyRejected) { true -> "YES · bounded data only"; false -> "NO"; null -> "Unavailable" })
+        } }
         item { CapabilitySectionCard("Memory heaps") {
             if (device?.heaps.isNullOrEmpty()) EmptyState("Memory heap data unavailable")
             device?.heaps?.forEach { heap ->
@@ -2784,6 +2872,9 @@ private fun MemoryPage(device: DeviceReport?) {
 @Composable
 private fun QueuesPage(device: DeviceReport?) {
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item { CapabilitySectionCard("Queue query safety") {
+            CapabilityKeyValue("Enumeration safety rejection", when (device?.queueQuerySafetyRejected) { true -> "YES · result discarded"; false -> "NO"; null -> "Unavailable" })
+        } }
         items(device?.queues ?: emptyList(), key = { it.index }) { queue ->
             CapabilitySectionCard("Queue family ${queue.index}") {
                 CapabilityKeyValue("Queue count", queue.count.toString())
@@ -2800,28 +2891,482 @@ private fun QueuesPage(device: DeviceReport?) {
                 CapabilityKeyValue("Data graph", if (queue.dataGraph) "YES" else "NO")
                 CapabilityKeyValue("Min image transfer granularity", queue.granularity)
                 if (queue.unknownFlags != 0L) CapabilityKeyValue("Unknown queue flag bits", "0x${queue.unknownFlags.toString(16).uppercase()}")
-                if (queue.videoCodecOperations != 0L) CapabilityKeyValue("Video codec operations", videoCodecOperationsName(queue.videoCodecOperations))
+                CapabilityKeyValue("Video codec query", queueVideoCodecQueryState(queue))
+                if (queue.videoCodecQueryStatus == "available") CapabilityKeyValue("Video codec operations", videoCodecOperationFlags(queue.videoCodecOperations))
             }
         }
         if (device?.queues.isNullOrEmpty()) item { EmptyState("Queue family data unavailable") }
     }
 }
 
+
+
+private const val ANALYSIS_MAX_SNAPSHOT_BYTES = 8 * 1024 * 1024
+private const val ANALYSIS_MAX_ENTRIES = 32768
+private const val ANALYSIS_MAX_KEY_LENGTH = 1024
+private const val ANALYSIS_MAX_VALUE_LENGTH = 16384
+private const val ANALYSIS_MAX_WATCHED = 256
+
+private fun readBoundedAnalysisBytes(input: java.io.InputStream, maxBytes: Int): ByteArray {
+    val out = java.io.ByteArrayOutputStream(minOf(maxBytes, 64 * 1024))
+    val buffer = ByteArray(8192)
+    var total = 0
+    while (true) {
+        val read = input.read(buffer)
+        if (read < 0) break
+        if (read == 0) continue
+        total += read
+        if (total > maxBytes) error("Snapshot exceeds ${maxBytes / (1024 * 1024)} MiB")
+        out.write(buffer, 0, read)
+    }
+    return out.toByteArray()
+}
+
+private fun validateAnalysisSnapshot(obj: JSONObject): JSONObject {
+    if (obj.optString("schema") != "VulkanScopeAnalysisSnapshot1") error("Unsupported VulkanScope analysis snapshot")
+    val version = obj.optString("applicationVersion", "Unknown")
+    if (version.length > 128) error("Snapshot application version is invalid")
+    val entries = obj.optJSONObject("entries") ?: error("Snapshot entries are missing")
+    var count = 0
+    val keys = entries.keys()
+    while (keys.hasNext()) {
+        val key = keys.next()
+        count += 1
+        if (count > ANALYSIS_MAX_ENTRIES) error("Snapshot contains too many evidence entries")
+        if (key.isEmpty() || key.length > ANALYSIS_MAX_KEY_LENGTH) error("Snapshot contains an invalid evidence key")
+        val value = entries.opt(key)
+        if (value !is String || value.length > ANALYSIS_MAX_VALUE_LENGTH) error("Snapshot contains an invalid evidence value")
+    }
+    return obj
+}
+
+private data class VulkanAnalysisDiff(val key: String, val baseline: String?, val current: String?, val state: String)
+
+private fun vulkanAnalysisEntries(report: VulkanReport, device: DeviceReport?, display: DisplayReport, mode: DriverMode): JSONObject = JSONObject().apply {
+    put("identity/loaderVersion", report.loaderVersion)
+    put("identity/driverMode", mode.label)
+    if (device != null) {
+        put("identity/deviceName", device.name)
+        put("identity/deviceApiVersion", device.apiVersion)
+        put("identity/driverVersion", device.driverVersionText.ifBlank { device.driverVersion })
+        put("identity/vendorId", device.vendorId)
+        put("identity/deviceId", device.deviceId)
+        report.instanceExtensions.forEach { put("extension/instance/${it.name}", "present · spec ${it.specVersion}") }
+        device.extensions.forEach { put("extension/device/${it.name}", "present · spec ${it.specVersion}") }
+        device.features.forEach { put("feature/${it.name}", if (it.supported) "supported" else "not supported") }
+        device.limits.forEach { put("limit/${it.first}", it.second) }
+        device.formats.forEach { put("format/${it.name}", "supported=${it.supported};linear=${java.lang.Long.toUnsignedString(it.linear)};optimal=${java.lang.Long.toUnsignedString(it.optimal)};buffer=${java.lang.Long.toUnsignedString(it.buffer)}") }
+        device.detailedProperties.forEachIndexed { index, item -> put("property/${item.section}/${item.name}/$index", item.value) }
+        device.surfaceCapabilities.forEach { put("surface/capability/${it.first}", it.second) }
+        device.surfaceFormats.forEach { put("surface/format/${it.format}/${it.colorSpace}", "${it.classification};supported=${it.supported}") }
+        device.presentModes.forEach { put("surface/presentMode/$it", "present") }
+        device.presentationQueues.forEach { put("surface/presentationQueue/${it.first}", it.second.toString()) }
+    }
+    put("display/resolution", display.resolution)
+    put("display/refreshRate", display.refreshRate)
+    put("display/wideGamut", display.wideGamut?.toString() ?: "Unavailable")
+    display.hdrTypes.forEach { put("display/hdr/$it", "present") }
+    put("registry/baseline", report.registryCoverage.baseline)
+    put("registry/headerBaseline", report.registryCoverage.headerBaseline)
+    put("registry/catalogSchema", report.registryCoverage.catalogSchemaVersion)
+}
+
+private fun vulkanAnalysisSnapshot(report: VulkanReport, device: DeviceReport?, display: DisplayReport, mode: DriverMode, applicationVersion: String): JSONObject = JSONObject()
+    .put("schema", "VulkanScopeAnalysisSnapshot1")
+    .put("applicationVersion", applicationVersion)
+    .put("entries", vulkanAnalysisEntries(report, device, display, mode))
+
+private fun objectStringMap(obj: JSONObject): Map<String, String> = linkedMapOf<String, String>().apply { obj.keys().forEach { key -> put(key, obj.optString(key, "Unavailable")) } }
+
+private fun vulkanSnapshotDiff(baseline: JSONObject, current: JSONObject): List<VulkanAnalysisDiff> {
+    val old = objectStringMap(baseline.optJSONObject("entries") ?: JSONObject())
+    val now = objectStringMap(current.optJSONObject("entries") ?: JSONObject())
+    return (old.keys + now.keys).toSortedSet().map { key ->
+        val before = old[key]
+        val after = now[key]
+        val beforeSupported = before == "supported" || before == "present" || before?.contains("supported=true") == true || before?.startsWith("present · spec ") == true
+        val afterUnsupported = after == "not supported" || after?.contains("supported=false") == true
+        val regression = (key.startsWith("extension/") || key.startsWith("feature/") || key.startsWith("surface/format/")) && before != null && (after == null || (beforeSupported && afterUnsupported))
+        val state = when {
+            before == null -> "Added"
+            after == null && regression -> "Removed · regression candidate"
+            after == null -> "Removed"
+            before == after -> "Unchanged"
+            regression -> "Changed · regression candidate"
+            else -> "Changed"
+        }
+        VulkanAnalysisDiff(key, before, after, state)
+    }
+}
+
+private fun vulkanExtensionQueryGroup(name: String): String? = ISOLATED_EXTENSION_GROUPS.entries.firstOrNull { it.value == name }?.key
+
+private data class DriverDiagnosticScore(val score: Int?, val level: String, val factors: List<String>)
+
+private fun driverDiagnosticScore(report: VulkanReport, device: DeviceReport?): DriverDiagnosticScore {
+    if (device == null) return DriverDiagnosticScore(null, "Unavailable", listOf("No completed physical-device report is available"))
+    var score = 100
+    val factors = mutableListOf<String>()
+    fun deduct(points: Int, label: String) {
+        score = (score - points).coerceAtLeast(0)
+        factors += "-$points · $label"
+    }
+    if (!report.error.isNullOrBlank()) deduct(35, "Top-level collection error")
+    if (device.queueQuerySafetyRejected) deduct(15, "Queue-family enumeration safety rejection")
+    if (device.memoryHeapSafetyRejected) deduct(10, "Memory-heap enumeration safety rejection")
+    if (device.memoryTypeSafetyRejected) deduct(10, "Memory-type enumeration safety rejection")
+    if (device.surfaceQueueQuerySafetyRejected) deduct(10, "Surface queue-family enumeration safety rejection")
+    if (device.surfaceFormatQuerySafetyRejected) deduct(10, "Surface-format enumeration safety rejection")
+    if (device.deviceExtensionStatus != "available") deduct(10, "Device-extension enumeration is ${device.deviceExtensionStatus}")
+    if (device.surfaceFormatQuerySecondAttempted && device.surfaceFormatQueryResultSecond != 0) deduct(5, "Second Surface-format query returned VkResult ${device.surfaceFormatQueryResultSecond}")
+    val level = when {
+        score >= 95 -> "No explicit collection anomalies"
+        score >= 80 -> "Minor explicit anomalies"
+        score >= 60 -> "Multiple explicit anomalies"
+        else -> "Severe explicit collection anomalies"
+    }
+    if (factors.isEmpty()) factors += "No explicit collection/safety anomaly was recorded by VulkanScope"
+    return DriverDiagnosticScore(score, level, factors)
+}
+
+private fun analysisQueryTokens(query: String): List<String> = Regex("\\\"([^\\\"]+)\\\"|\\S+").findAll(query).map { it.groups[1]?.value ?: it.value }.toList()
+
+private fun analysisKind(key: String): String = key.substringBefore('/').lowercase()
+
+private fun extensionVendorToken(name: String): String = name.removePrefix("VK_").substringBefore('_').uppercase()
+
+private fun matchesAnalysisQuery(row: VulkanAnalysisDiff, query: String): Boolean {
+    if (query.isBlank()) return true
+    val refName = row.key.split('/').firstOrNull { it.startsWith("VK_") }
+    val ref = refName?.let(::vulkanExtensionReference)
+    return analysisQueryTokens(query).all { token ->
+        val split = token.split(':', limit = 2)
+        if (split.size == 1) {
+            row.key.contains(token, true) || row.state.contains(token, true) || row.baseline?.contains(token, true) == true || row.current?.contains(token, true) == true
+        } else {
+            val field = split[0].lowercase()
+            val value = split[1]
+            when (field) {
+                "state" -> row.state.contains(value, true)
+                "kind" -> analysisKind(row.key).equals(value, true)
+                "changed" -> (row.state != "Unchanged") == value.equals("true", true)
+                "vendor" -> refName?.let { extensionVendorToken(it).equals(value, true) } == true
+                "scope" -> row.key.startsWith("extension/${value.lowercase()}/", true)
+                "core" -> ref?.promotedTo?.contains(value, true) == true
+                else -> row.key.contains(token, true) || row.baseline?.contains(token, true) == true || row.current?.contains(token, true) == true
+            }
+        }
+    }
+}
+
+private fun extensionDependencyTokens(expression: String): List<String> = Regex("VK_(?:VERSION_[0-9_]+|[A-Z0-9]+_[A-Za-z0-9_]+)").findAll(expression).map { it.value }.distinct().toList()
+
+private data class DependencyGraphEntry(val token: String, val depth: Int, val parent: String?)
+
+private fun dependencyGraphEntries(root: String, maxDepth: Int = 4, maxNodes: Int = 64): List<DependencyGraphEntry> {
+    if (!root.startsWith("VK_") || maxDepth < 0 || maxNodes < 1) return emptyList()
+    val out = mutableListOf<DependencyGraphEntry>()
+    val seen = linkedSetOf<String>()
+    val queue = ArrayDeque<DependencyGraphEntry>()
+    queue.add(DependencyGraphEntry(root, 0, null))
+    while (queue.isNotEmpty() && out.size < maxNodes) {
+        val current = queue.removeFirst()
+        if (!seen.add(current.token)) continue
+        out += current
+        if (current.depth >= maxDepth || current.token.startsWith("VK_VERSION_")) continue
+        val ref = vulkanExtensionReference(current.token)
+        extensionDependencyTokens(ref.depends).forEach { child ->
+            if (child !in seen && out.size + queue.size < maxNodes) queue.add(DependencyGraphEntry(child, current.depth + 1, current.token))
+        }
+    }
+    return out
+}
+
+private fun dependencyRuntimeEvidence(token: String, report: VulkanReport, device: DeviceReport?): String {
+    if (token.startsWith("VK_VERSION_")) {
+        val m = Regex("VK_VERSION_(\\d+)_(\\d+)").matchEntire(token) ?: return "Unknown core dependency"
+        return if (apiAtLeast(device?.apiVersion ?: "", m.groupValues[1].toInt(), m.groupValues[2].toInt())) "Runtime API satisfies ${m.groupValues[1]}.${m.groupValues[2]}" else "Runtime API does not expose ${m.groupValues[1]}.${m.groupValues[2]}"
+    }
+    val instance = report.instanceExtensions.any { it.name == token }
+    val dev = device?.extensions.orEmpty().any { it.name == token }
+    return when {
+        instance -> "Enumerated · instance"
+        dev -> "Enumerated · device"
+        else -> "Not enumerated in completed runtime set"
+    }
+}
+
+private fun matchesExtensionExplorerQuery(name: String, scope: String, enumerated: Boolean, query: String): Boolean {
+    if (query.isBlank()) return true
+    val ref = vulkanExtensionReference(name)
+    return analysisQueryTokens(query).all { token ->
+        val split = token.split(':', limit = 2)
+        if (split.size == 1) name.contains(token, true) || scope.contains(token, true) || ref.depends.contains(token, true) || ref.promotedTo.contains(token, true)
+        else when (split[0].lowercase()) {
+            "vendor" -> extensionVendorToken(name).equals(split[1], true)
+            "scope" -> scope.equals(split[1], true)
+            "core", "promoted" -> ref.promotedTo.contains(split[1], true)
+            "depends" -> ref.depends.contains(split[1], true)
+            "requires" -> ref.requires.contains(split[1], true)
+            "deprecated" -> ref.deprecatedBy.contains(split[1], true) || ref.obsoletedBy.contains(split[1], true)
+            "command" -> ref.commands.any { it.contains(split[1], true) }
+            "enum" -> ref.enums.any { it.contains(split[1], true) }
+            "handler" -> ((vulkanExtensionQueryGroup(name) != null || ref.queryGroup.isNotBlank()) == split[1].equals("true", true))
+            "enumerated", "supported" -> enumerated == split[1].equals("true", true)
+            else -> name.contains(token, true)
+        }
+    }
+}
+
+private fun matchesFormatExplorerQuery(format: FormatEntry, query: String): Boolean {
+    if (query.isBlank()) return true
+    val decoded = formatFeatureFlags(format.linear) + " " + formatFeatureFlags(format.optimal) + " " + formatFeatureFlags(format.buffer)
+    return analysisQueryTokens(query).all { token ->
+        val split = token.split(':', limit = 2)
+        if (split.size == 1) format.name.contains(token, true) || decoded.contains(token, true)
+        else when (split[0].lowercase()) {
+            "name" -> format.name.contains(split[1], true)
+            "supported" -> format.supported == split[1].equals("true", true)
+            "feature" -> decoded.contains(split[1], true)
+            else -> format.name.contains(token, true) || decoded.contains(token, true)
+        }
+    }
+}
+
+private fun databaseReportUrl(id: String): String = OFFICIAL_DATABASE_WEB_URL + "?report=" + Uri.encode(id)
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun AnalysisPage(report: VulkanReport, device: DeviceReport?, display: DisplayReport, mode: DriverMode) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val activity = context as? MainActivity
+    val scope = rememberCoroutineScope()
+    var tab by remember { mutableStateOf(0) }
+    var baseline by remember { mutableStateOf<JSONObject?>(null) }
+    var analysisStatus by remember { mutableStateOf("No baseline imported") }
+    var diffQuery by remember { mutableStateOf("") }
+    var includeUnchanged by remember { mutableStateOf(false) }
+    var watchInput by remember { mutableStateOf("") }
+    var graphInput by remember { mutableStateOf("VK_KHR_swapchain") }
+    val prefs = remember { context.getSharedPreferences("analysis_tools", Context.MODE_PRIVATE) }
+    var watched by remember { mutableStateOf(prefs.getStringSet("watched", emptySet())?.toSet() ?: emptySet()) }
+    var testRunning by remember { mutableStateOf(false) }
+    var testResult by remember { mutableStateOf<JSONObject?>(null) }
+    val packageInfo = remember(context) { runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull() }
+    val applicationVersion = packageInfo?.versionName ?: "Unknown"
+    val current = remember(report, device, display, mode, applicationVersion) { vulkanAnalysisSnapshot(report, device, display, mode, applicationVersion) }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val bytes = context.contentResolver.openInputStream(uri)?.use { input -> readBoundedAnalysisBytes(input, ANALYSIS_MAX_SNAPSHOT_BYTES) } ?: error("Unable to read snapshot")
+                    validateAnalysisSnapshot(JSONObject(bytes.toString(Charsets.UTF_8)))
+                }
+            }
+            result.onSuccess { baseline = it; analysisStatus = "Baseline imported · ${it.optString("applicationVersion", "Unknown version")}" }
+                .onFailure { analysisStatus = it.message ?: "Import failed" }
+        }
+    }
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val bytes = current.toString(2).toByteArray(Charsets.UTF_8)
+                    if (bytes.size > ANALYSIS_MAX_SNAPSHOT_BYTES) error("Current analysis snapshot exceeds 8 MiB and was not truncated")
+                    val output = context.contentResolver.openOutputStream(uri, "wt") ?: error("Unable to open snapshot destination")
+                    output.use { it.write(bytes) }
+                }
+            }
+            analysisStatus = result.fold({ "Snapshot exported successfully" }, { it.message ?: "Snapshot export failed" })
+        }
+    }
+    val diffRows = remember(baseline, current, includeUnchanged, diffQuery) {
+        baseline?.let { vulkanSnapshotDiff(it, current) }.orEmpty().filter { row ->
+            (includeUnchanged || row.state != "Unchanged") && matchesAnalysisQuery(row, diffQuery)
+        }
+    }
+    val profileResults = remember(report, device) { vulkanProfileRequirements().map { evaluateProfile(report, device, it) } }
+    val graphRootToken = graphInput.trim()
+    val graphRootRef = remember(graphRootToken) { if (graphRootToken.startsWith("VK_")) vulkanExtensionReference(graphRootToken) else null }
+    val graphEntries = remember(graphRootToken) { dependencyGraphEntries(graphRootToken) }
+    val visualGraphNodes = remember(graphEntries, report, device) {
+        graphEntries.take(24).map { entry ->
+            VulkanGraphNode(entry.token, entry.depth, entry.parent, dependencyRuntimeEvidence(entry.token, report, device))
+        }
+    }
+    val driverHealth = remember(report, device) { driverDiagnosticScore(report, device) }
+    val currentEntries = remember(current) { objectStringMap(current.optJSONObject("entries") ?: JSONObject()) }
+    val watchedEvidence = remember(currentEntries, watched) {
+        watched.associateWith { token ->
+            val matches = currentEntries.asSequence()
+                .filter { (key, _) -> key.contains(token, true) }
+                .map { it.key to it.value }
+                .toList()
+            matches.size to matches.take(10)
+        }
+    }
+    val sharePrefs = remember { context.getSharedPreferences("database_share", Context.MODE_PRIVATE) }
+    val lastSharedReportId = sharePrefs.getString("last_report_id", "").orEmpty()
+    val sharedReportUrl = remember(lastSharedReportId) {
+        if (lastSharedReportId.matches(Regex("[a-f0-9]{64}"))) databaseReportUrl(lastSharedReportId) else OFFICIAL_DATABASE_WEB_URL
+    }
+    LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        item { CapabilitySectionCard("Analysis tools") {
+            Text("Comparison snapshots, watch lists and optional tests stay local and do not mutate the canonical Vulkan capability report or Database payload.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("Compare", "Minimums", "Graph", "Quality", "Watched", "Share", "Tests").forEachIndexed { index, label -> ExpressiveFilterChip(selected = tab == index, label = label, onClick = { tab = index }) }
+            }
+        } }
+        if (tab == 0) {
+            item { CapabilitySectionCard("Offline report compare") {
+                CapabilityKeyValue("Snapshot status", analysisStatus)
+                ExpressiveActionButton("Import analysis snapshot", "Select a VulkanScope JSON analysis snapshot", R.drawable.ic_action_text) { importLauncher.launch(arrayOf("application/json", "text/plain")) }
+                ExpressiveActionButton("Export analysis snapshot", "Portable local JSON for system-driver, Turnip or device comparison", R.drawable.ic_action_html) { exportLauncher.launch("VulkanScope-${safeFilePart(device?.name ?: "Unknown-GPU")}-analysis.json") }
+                if (baseline != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) { Switch(checked = includeUnchanged, onCheckedChange = { includeUnchanged = it }); Text("Show unchanged", style = MaterialTheme.typography.bodySmall) }
+                    ExpressiveSearchField(value = diffQuery, onValueChange = { diffQuery = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "Search · state:changed kind:feature vendor:KHR core:1.4 changed:true")
+                }
+            } }
+            if (baseline != null) {
+                item { CapabilitySectionCard("Diff summary") {
+                    CapabilityKeyValue("Added", diffRows.count { it.state == "Added" }.toString())
+                    CapabilityKeyValue("Removed", diffRows.count { it.state.startsWith("Removed") }.toString())
+                    CapabilityKeyValue("Changed", diffRows.count { it.state.startsWith("Changed") }.toString())
+                    CapabilityKeyValue("Regression candidates", diffRows.count { it.state.contains("regression candidate") }.toString())
+                    Text("Regression candidates are evidence changes only; VulkanScope does not declare a driver bug from a diff alone.", color = VulkanTextMuted, style = MaterialTheme.typography.bodySmall)
+                } }
+                items(diffRows, key = { it.key }) { row -> CapabilityItemCard {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        CapabilityKeyValue(row.key, row.state)
+                        row.baseline?.let { CapabilityKeyValue("Baseline", it) }
+                        row.current?.let { CapabilityKeyValue("Current", it) }
+                    }
+                } }
+            }
+        } else if (tab == 1) {
+            item { CapabilitySectionCard("Specification/profile minimum comparison") {
+                Text("VulkanScope reuses its runtime-only Khronos/Android profile evaluator. Missing query evidence remains UNKNOWN and is never converted to unsupported.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                CapabilityKeyValue("Published Vulkan baseline", report.registryCoverage.baseline.ifBlank { "Vulkan 1.4.360" })
+            } }
+            items(profileResults, key = { it.name }) { result -> CapabilityItemCard {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    CapabilityKeyValue(result.name, profileSummary(result))
+                    result.failingLimits.takeIf { it.isNotEmpty() }?.let { CapabilityKeyValue("Below required minimum", it.joinToString("; ")) }
+                    result.unknownLimits.takeIf { it.isNotEmpty() }?.let { CapabilityKeyValue("Unavailable limits", it.joinToString("; ")) }
+                }
+            } }
+        } else if (tab == 2) {
+            item { CapabilitySectionCard("Capability dependency graph") {
+                Text("Registry dependency edges and runtime enumeration are shown as separate evidence. A registry edge never fabricates runtime support.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                ExpressiveSearchField(value = graphInput, onValueChange = { graphInput = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "VK_KHR_swapchain")
+                CapabilityKeyValue("Root", graphRootToken.ifBlank { "Enter a Vulkan extension token" })
+                graphRootRef?.let {
+                    CapabilityKeyValue("Registry depends", it.depends.ifBlank { "No dependency expression embedded for this token" })
+                    CapabilityKeyValue("Promoted to core", it.promotedTo.ifBlank { "No embedded promotion record" })
+                }
+            } }
+            if (graphRootRef != null) {
+                item { CapabilitySectionCard("Visual registry-reference graph") {
+                    Text("The visual graph is bounded to 24 nodes for legibility. The complete bounded traversal remains listed below. Lines represent references inside registry dependency expressions, not inferred runtime requirements.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                    VulkanDependencyGraph(visualGraphNodes, Modifier.fillMaxWidth())
+                    if (graphEntries.size > visualGraphNodes.size) CapabilityKeyValue("Visual nodes", "${visualGraphNodes.size} of ${graphEntries.size} · full traversal below")
+                } }
+                item { CapabilityItemCard {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(graphRootToken, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                        Text(dependencyRuntimeEvidence(graphRootToken, report, device), color = VulkanAccentSoft, style = MaterialTheme.typography.labelMedium)
+                        if (graphEntries.size > 1) Text("↓ registry expression references", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                    }
+                } }
+                items(graphEntries.drop(1), key = { "dep:${it.depth}:${it.token}" }) { entry ->
+                    val child = vulkanExtensionReference(entry.token)
+                    CapabilityItemCard { Column(Modifier.padding(start = (14 + entry.depth * 10).dp, top = 12.dp, end = 14.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        CapabilityKeyValue(entry.token, dependencyRuntimeEvidence(entry.token, report, device))
+                        CapabilityKeyValue("Registry edge", "${entry.parent ?: graphRootToken} → ${entry.token} · expression reference")
+                        if (child.depends.isNotBlank()) CapabilityKeyValue("Dependency expression", child.depends)
+                    } }
+                }
+            }
+        } else if (tab == 3) {
+            item { CapabilitySectionCard("Driver diagnostic evidence score") {
+                CapabilityKeyValue("Score", driverHealth.score?.let { "$it / 100" } ?: "Unavailable")
+                CapabilityKeyValue("Interpretation", driverHealth.level)
+                Text("This is not a Vulkan conformance result, benchmark, performance score or hardware-quality claim. It summarizes only explicit collection/safety anomalies observed by VulkanScope.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+            } }
+            items(driverHealth.factors, key = { it }) { factor -> CapabilityItemCard { Column(Modifier.padding(14.dp)) { Text(factor) } } }
+        } else if (tab == 4) {
+            item { CapabilitySectionCard("Watched capabilities") {
+                ExpressiveSearchField(value = watchInput, onValueChange = { watchInput = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "Exact extension, feature, limit or format…")
+                CapabilityKeyValue("Watch-list usage", "${watched.size} / $ANALYSIS_MAX_WATCHED")
+                ExpressiveTextButton("Add to watch list") {
+                    val token = watchInput.trim()
+                    if (token.isNotEmpty() && token.length <= 256 && (token in watched || watched.size < ANALYSIS_MAX_WATCHED)) { watched = watched + token; prefs.edit().putStringSet("watched", watched).apply(); watchInput = "" }
+                }
+            } }
+            items(watched.sorted(), key = { it }) { token ->
+                val evidence = watchedEvidence[token] ?: (0 to emptyList<Pair<String, String>>())
+                CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    CapabilityKeyValue(token, if (evidence.first == 0) "Not present in current snapshot" else "${evidence.first} matching evidence item(s)")
+                    evidence.second.forEach { CapabilityKeyValue(it.first, it.second) }
+                    ExpressiveTextButton("Remove") { watched = watched - token; prefs.edit().putStringSet("watched", watched).apply() }
+                } }
+            }
+        } else if (tab == 5) {
+            item { CapabilitySectionCard("Database permalink & QR") {
+                CapabilityKeyValue("Target", if (lastSharedReportId.isBlank()) "VulkanScope Database" else "Last submitted report · ${lastSharedReportId.take(12)}…")
+                CapabilityKeyValue("Permalink", sharedReportUrl)
+                ExpressiveActionButton("Share link", "Android Sharesheet · no background upload", R.drawable.ic_action_html) {
+                    val intent = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, sharedReportUrl)
+                    runCatching { context.startActivity(Intent.createChooser(intent, "Share VulkanScope link")) }
+                }
+                ExpressiveTextButton("Copy link") {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                    clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("VulkanScope link", sharedReportUrl))
+                }
+            } }
+            item { Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { VulkanQrCode(sharedReportUrl, Modifier.size(220.dp)) } }
+        } else {
+            item { CapabilitySectionCard("Optional active tests") {
+                Text("Active tests are isolated from capability collection. FAIL means the test failed; it does not rewrite the reported feature as unsupported.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                ExpressiveActionButton("Run Vulkan self-tests", "VkDevice creation, minimal SPIR-V shader-module creation and minimal compute-pipeline creation", R.drawable.ic_action_update, enabled = !testRunning && activity != null) {
+                    val host = activity ?: return@ExpressiveActionButton
+                    testRunning = true
+                    scope.launch {
+                        testResult = withContext(Dispatchers.IO) { runCatching { JSONObject(host.runVulkanSelfTests()) }.getOrElse { JSONObject().put("status", "unavailable").put("reason", it.message ?: "Self-test failed") } }
+                        testRunning = false
+                    }
+                }
+                if (testRunning) LoadingIndicator()
+            } }
+            val result = testResult
+            if (result != null) {
+                item { CapabilitySectionCard("Self-test result") { CapabilityKeyValue("Status", result.optString("status", "unknown")); result.optString("reason").takeIf { it.isNotBlank() }?.let { CapabilityKeyValue("Reason", it) } } }
+                val tests = result.optJSONArray("tests")
+                if (tests != null) items((0 until tests.length()).mapNotNull { tests.optJSONObject(it) }) { test -> CapabilityItemCard { Column(Modifier.padding(14.dp)) {
+                    CapabilityKeyValue(test.optString("name", "Test"), test.optString("status", "unknown"))
+                    test.optString("detail").takeIf { it.isNotBlank() }?.let { CapabilityKeyValue("Detail", it) }
+                } } }
+            }
+        }
+    }
+}
+
 @Composable
 private fun FormatsPage(device: DeviceReport?) {
     var query by remember { mutableStateOf("") }
+    var selected by remember { mutableStateOf<FormatEntry?>(null) }
     val formats = remember(device) { device?.formats ?: emptyList() }
-    val filtered = remember(query, formats) { if (query.isBlank()) formats else formats.filter { it.name.contains(query, true) } }
+    val filtered = remember(query, formats) { formats.filter { matchesFormatExplorerQuery(it, query) } }
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
             CapabilitySectionCard("Format explorer") {
             Text("Implementation-reported format capabilities. Bitmasks are expanded to canonical Vulkan feature names; unknown bits remain visible in hexadecimal.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
-            ExpressiveSearchField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), placeholderText = "Search formats…")
-            Text("${filtered.size} formats", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(vertical = 6.dp))
+            ExpressiveSearchField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), placeholderText = "Search · supported:true feature:SAMPLED name:R16")
+            Text("${filtered.size} formats · select an entry for full decoded/raw detail", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(vertical = 6.dp))
             }
         }
         itemsIndexed(filtered, key = { index, format -> "format:${format.name}:$index" }) { _, format ->
-            CapabilityItemCard {
+            Card(onClick = { selected = format }, colors = CardDefaults.cardColors(containerColor = VulkanSurfaceRaised), shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(format.name, fontWeight = FontWeight.Medium)
                     CapabilityKeyValue("Status", if (format.supported) "SUPPORTED" else "NOT SUPPORTED")
@@ -2831,6 +3376,28 @@ private fun FormatsPage(device: DeviceReport?) {
                 }
             }
         }
+    }
+    selected?.let { format ->
+        val imageProperties = remember(device?.detailedProperties, format.name) {
+            device?.detailedProperties.orEmpty().filter { it.section == "Image Format Properties2" && (it.name == format.name || it.name.startsWith(format.name + " · ")) }
+        }
+        AlertDialog(
+            onDismissRequest = { selected = null },
+            title = { Text(format.name, style = MaterialTheme.typography.titleMedium) },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                CapabilityKeyValue("Runtime status", if (format.supported) "SUPPORTED" else "NOT SUPPORTED")
+                CapabilityKeyValue("Linear decoded", formatFeatureFlags(format.linear))
+                CapabilityKeyValue("Linear raw", "${java.lang.Long.toUnsignedString(format.linear)} · 0x${java.lang.Long.toUnsignedString(format.linear, 16).uppercase()}")
+                CapabilityKeyValue("Optimal decoded", formatFeatureFlags(format.optimal))
+                CapabilityKeyValue("Optimal raw", "${java.lang.Long.toUnsignedString(format.optimal)} · 0x${java.lang.Long.toUnsignedString(format.optimal, 16).uppercase()}")
+                CapabilityKeyValue("Buffer decoded", formatFeatureFlags(format.buffer))
+                CapabilityKeyValue("Buffer raw", "${java.lang.Long.toUnsignedString(format.buffer)} · 0x${java.lang.Long.toUnsignedString(format.buffer, 16).uppercase()}")
+                imageProperties.forEach { CapabilityKeyValue(it.name.removePrefix(format.name).removePrefix(" · ").ifBlank { "Image properties" }, it.value) }
+                if (imageProperties.isEmpty()) CapabilityKeyValue("Image Format Properties2", "Unavailable or not yet queried")
+                Text("VkFormatProperties3 64-bit Flags2 evidence is authoritative when available; legacy 32-bit values are fallback-only. Image Format Properties2 entries show only runtime query evidence for this exact VkFormat.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+            } },
+            confirmButton = { ExpressiveTextButton("Close") { selected = null } }
+        )
     }
 }
 
@@ -2858,7 +3425,9 @@ private fun PropertiesPage(device: DeviceReport?, onRequestQuery: (String) -> Un
             query.isBlank() || it.first.contains(query, true) || it.second.contains(query, true)
         }
     }
-    val propertyResultCount = filtered.size
+    val evidenceResultCount = filtered.size
+    val safetyEvidenceCount = filtered.count { it.section == "Vulkan Query Safety" }
+    val propertyResultCount = evidenceResultCount - safetyEvidenceCount
     val uniquePropertyNames = filtered.asSequence().map { it.name }.distinct().count()
     val limitResultCount = visibleLimits.size
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -2874,8 +3443,9 @@ private fun PropertiesPage(device: DeviceReport?, onRequestQuery: (String) -> Un
         item {
             val summary = when (filter) {
                 "Limits" -> "$limitResultCount limits"
-                "All" -> "$propertyResultCount query results · $uniquePropertyNames unique property names · $limitResultCount limits"
-                else -> "$propertyResultCount query results · $uniquePropertyNames unique property names"
+                "All" -> "$evidenceResultCount evidence rows · $propertyResultCount property/query rows · $safetyEvidenceCount safety diagnostics · $uniquePropertyNames unique names · $limitResultCount limits"
+                "Vulkan Query Safety" -> "$safetyEvidenceCount safety diagnostics · $uniquePropertyNames unique names"
+                else -> "$propertyResultCount property/query rows · $uniquePropertyNames unique names"
             }
             Text(summary, color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelMedium)
         }
@@ -2961,18 +3531,31 @@ private fun memoryTypeFlags(bits: Long): String = canonicalFlagNames(bits, listO
     0x100L to "VK_MEMORY_PROPERTY_RDMA_CAPABLE_BIT_NV"
 ))
 
-private fun queueCapabilityFlags(bits: Long): String = canonicalFlagNames(bits, listOf(
-    0x1L to "VK_QUEUE_GRAPHICS_BIT", 0x2L to "VK_QUEUE_COMPUTE_BIT", 0x4L to "VK_QUEUE_TRANSFER_BIT",
-    0x8L to "VK_QUEUE_SPARSE_BINDING_BIT", 0x10L to "VK_QUEUE_PROTECTED_BIT", 0x20L to "VK_QUEUE_VIDEO_DECODE_BIT_KHR",
-    0x40L to "VK_QUEUE_VIDEO_ENCODE_BIT_KHR", 0x100L to "VK_QUEUE_OPTICAL_FLOW_BIT_NV", 0x400L to "VK_QUEUE_DATA_GRAPH_BIT_ARM"
-))
+private fun queueCapabilityFlags(bits: Long): String {
+    if (bits == 0L) return "0 · no VkQueueFlagBits reported"
+    return canonicalFlagNames(bits, listOf(
+        0x1L to "VK_QUEUE_GRAPHICS_BIT", 0x2L to "VK_QUEUE_COMPUTE_BIT", 0x4L to "VK_QUEUE_TRANSFER_BIT",
+        0x8L to "VK_QUEUE_SPARSE_BINDING_BIT", 0x10L to "VK_QUEUE_PROTECTED_BIT", 0x20L to "VK_QUEUE_VIDEO_DECODE_BIT_KHR",
+        0x40L to "VK_QUEUE_VIDEO_ENCODE_BIT_KHR", 0x100L to "VK_QUEUE_OPTICAL_FLOW_BIT_NV", 0x400L to "VK_QUEUE_DATA_GRAPH_BIT_ARM"
+    ))
+}
 
-private fun videoCodecOperationFlags(bits: Long): String = canonicalFlagNames(bits, listOf(
-    0x1L to "VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR", 0x2L to "VK_VIDEO_CODEC_OPERATION_DECODE_H265_BIT_KHR",
-    0x4L to "VK_VIDEO_CODEC_OPERATION_DECODE_AV1_BIT_KHR", 0x8L to "VK_VIDEO_CODEC_OPERATION_DECODE_VP9_BIT_KHR",
-    0x10000L to "VK_VIDEO_CODEC_OPERATION_ENCODE_H264_BIT_KHR", 0x20000L to "VK_VIDEO_CODEC_OPERATION_ENCODE_H265_BIT_KHR",
-    0x40000L to "VK_VIDEO_CODEC_OPERATION_ENCODE_AV1_BIT_KHR"
-))
+private fun videoCodecOperationFlags(bits: Long): String {
+    if (bits == 0L) return "VK_VIDEO_CODEC_OPERATION_NONE_KHR"
+    return canonicalFlagNames(bits, listOf(
+        0x1L to "VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR", 0x2L to "VK_VIDEO_CODEC_OPERATION_DECODE_H265_BIT_KHR",
+        0x4L to "VK_VIDEO_CODEC_OPERATION_DECODE_AV1_BIT_KHR", 0x8L to "VK_VIDEO_CODEC_OPERATION_DECODE_VP9_BIT_KHR",
+        0x10000L to "VK_VIDEO_CODEC_OPERATION_ENCODE_H264_BIT_KHR", 0x20000L to "VK_VIDEO_CODEC_OPERATION_ENCODE_H265_BIT_KHR",
+        0x40000L to "VK_VIDEO_CODEC_OPERATION_ENCODE_AV1_BIT_KHR"
+    ))
+}
+
+private fun queueVideoCodecQueryState(queue: QueueEntry): String = when (queue.videoCodecQueryStatus) {
+    "available" -> "Available"
+    "not_applicable" -> "Not applicable${queue.videoCodecQueryReason.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""}"
+    "unavailable" -> "Unavailable${queue.videoCodecQueryReason.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""}"
+    else -> "Unknown · VkQueueFamilyVideoPropertiesKHR query evidence is not available"
+}
 
 private fun parseUnsignedHexLong(value: String?): Long? = value?.let { runCatching { java.lang.Long.parseUnsignedLong(it, 16) }.getOrNull() }
 
@@ -3169,19 +3752,6 @@ private fun profileSummary(result: ProfileResult): String = buildString {
     if (result.unknownBooleanLimits.isNotEmpty()) append(" · ${result.unknownBooleanLimits.size} boolean limit(s) unavailable")
 }
 
-private fun videoCodecOperationsName(bits: Long): String {
-    val names = buildList {
-        if ((bits and 0x00000001L) != 0L) add("decode H.264")
-        if ((bits and 0x00000002L) != 0L) add("decode H.265")
-        if ((bits and 0x00000004L) != 0L) add("decode AV1")
-        if ((bits and 0x00000008L) != 0L) add("decode VP9")
-        if ((bits and 0x00010000L) != 0L) add("encode H.264")
-        if ((bits and 0x00020000L) != 0L) add("encode H.265")
-        if ((bits and 0x00040000L) != 0L) add("encode AV1")
-    }
-    return if (names.isEmpty()) "None reported" else names.joinToString(", ")
-}
-
 @Composable
 private fun ProfilesPage(report: VulkanReport, device: DeviceReport?) {
     var query by remember { mutableStateOf("") }
@@ -3375,8 +3945,7 @@ private fun turnipSupportDescription(support: TurnipSupport): String = when (sup
 private fun SettingsPage(report: VulkanReport, mode: DriverMode, turnipSupport: TurnipSupport, onModeChanged: (DriverMode) -> Unit, onInstallDriverBundle: () -> Unit, collectionStatus: CollectionStatus, directUpdatesEnabled: Boolean, onDirectUpdatesChanged: (Boolean) -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val completeReportReady = report.devices.isNotEmpty() && collectionStatus != CollectionStatus.COLLECTING
-    val bundleDir = File(context.filesDir, "turnip")
-    val bundleInstalled = bundleDir.exists() && bundleDir.walkTopDown().any { it.isFile && it.extension.equals("so", true) }
+    val bundleInstalled = remember(mode, turnipSupport, collectionStatus) { resolveInstalledTurnipLibrary(context.filesDir) != null }
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             CapabilitySectionCard("Updates") {
@@ -3427,8 +3996,11 @@ private fun DriverOption(option: DriverMode, selected: Boolean, description: Str
 
 @Composable
 private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
+    val uriHandler = LocalUriHandler.current
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf("All") }
+    var selectedSupported by remember { mutableStateOf<ExtensionEntry?>(null) }
+    var selectedCatalog by remember { mutableStateOf<String?>(null) }
     val supported = remember(report, device) {
         (report.instanceExtensions + (device?.extensions ?: emptyList()))
             .sortedWith(compareBy<ExtensionEntry> { it.name }.thenBy { it.scope }.thenBy { it.specVersion })
@@ -3438,10 +4010,10 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
         if (device == null || device.deviceExtensionStatus == "available") KNOWN_VULKAN_EXTENSIONS.filterNot { it in supportedNames }.sorted() else emptyList()
     }
     val filteredSupported = remember(query, supported, filter) {
-        if (filter == "Not enumerated") emptyList() else supported.filter { query.isBlank() || it.name.contains(query, true) || it.scope.contains(query, true) }
+        if (filter == "Not enumerated") emptyList() else supported.filter { matchesExtensionExplorerQuery(it.name, it.scope, true, query) }
     }
     val filteredCatalog = remember(query, catalog, filter) {
-        if (filter == "Supported") emptyList() else catalog.filter { query.isBlank() || it.contains(query, true) }
+        if (filter == "Supported") emptyList() else catalog.filter { matchesExtensionExplorerQuery(it, "registry", false, query) }
     }
     val total = filteredSupported.size + filteredCatalog.size
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -3451,7 +4023,7 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
             if (device != null && device.deviceExtensionStatus != "available") {
                 Text("Device extension enumeration: ${device.deviceExtensionStatus.uppercase()}${if (device.deviceExtensionReason.isBlank()) "" else " — ${device.deviceExtensionReason}"}", color = ComposeColor(0xFFFFD76B), style = MaterialTheme.typography.bodySmall)
             }
-            ExpressiveSearchField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), placeholderText = "Search Vulkan extension names")
+            ExpressiveSearchField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), placeholderText = "Search · vendor:KHR promoted:1.3 depends:VK_KHR command:vkGet enum:STRUCTURE handler:true")
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("All", "Supported", "Not enumerated").forEach { value -> ExpressiveFilterChip(selected = filter == value, label = value, onClick = { filter = value }) }
             }
@@ -3459,7 +4031,7 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
             }
         }
         items(filteredSupported, key = { "supported:${it.scope}:${it.name}:${it.specVersion}" }) { extension ->
-            CapabilityItemCard {
+            Card(onClick = { selectedSupported = extension }, colors = CardDefaults.cardColors(containerColor = VulkanSurfaceRaised), shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(extension.name, fontWeight = FontWeight.SemiBold)
                     Text("SUPPORTED · ${extension.scope} · spec ${extension.specVersion}", color = ComposeColor(0xFF73C991), style = MaterialTheme.typography.labelSmall)
@@ -3467,7 +4039,7 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
             }
         }
         items(filteredCatalog, key = { "catalog:$it" }) { name ->
-            CapabilityItemCard(containerColor = ComposeColor(0xFF211B12)) {
+            Card(onClick = { selectedCatalog = name }, colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF211B12)), shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(name, fontWeight = FontWeight.SemiBold)
                     Text("NOT ENUMERATED · registry reference only", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.labelSmall)
@@ -3475,6 +4047,61 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
             }
         }
         if (total == 0) item { EmptyState("No matching extensions") }
+    }
+    selectedSupported?.let { extension ->
+        val group = vulkanExtensionQueryGroup(extension.name)
+        AlertDialog(
+            onDismissRequest = { selectedSupported = null },
+            title = { Text(extension.name, style = MaterialTheme.typography.titleMedium) },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                val ref = vulkanExtensionReference(extension.name)
+                CapabilityKeyValue("Runtime evidence", "Exact extension token enumerated")
+                CapabilityKeyValue("Scope", extension.scope)
+                CapabilityKeyValue("Runtime specVersion", extension.specVersion.toString())
+                CapabilityKeyValue("Registry author tag", ref.author)
+                CapabilityKeyValue("Registry baseline", "Vulkan 1.4.360")
+                CapabilityKeyValue("Embedded registry revision", ref.specVersion.ifBlank { "Unavailable in checked-in reference asset" })
+                CapabilityKeyValue("Extension type", ref.type.ifBlank { "Unavailable in checked-in reference asset" })
+                CapabilityKeyValue("Platform", ref.platform.ifBlank { "Platform independent or unavailable in checked-in reference asset" })
+                CapabilityKeyValue("Promoted to core", ref.promotedTo.ifBlank { "No embedded promotion record" })
+                CapabilityKeyValue("Registry requires", ref.requires.ifBlank { "No separate requires expression embedded" })
+                CapabilityKeyValue("Deprecated by", ref.deprecatedBy.ifBlank { "No embedded deprecation record" })
+                CapabilityKeyValue("Obsoleted by", ref.obsoletedBy.ifBlank { "No embedded obsoletion record" })
+                CapabilityKeyValue("Registry depends", ref.depends.ifBlank { "No dependency expression embedded" })
+                CapabilityKeyValue("Dedicated query handler", group ?: ref.queryGroup.ifBlank { "No dedicated property/feature handler required or cataloged" })
+                CapabilityKeyValue("Related commands", ref.commands.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "See authoritative Khronos extension page")
+                CapabilityKeyValue("Related enums/tokens", ref.enums.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "See authoritative Khronos extension page")
+                ExpressiveTextButton("Open Khronos specification") { uriHandler.openUri(ref.specUrl) }
+                Text("Runtime enumeration, registry metadata and dedicated feature/property query evidence remain separate. Missing embedded interface metadata is not guessed; the Khronos link is authoritative for the complete interface definition.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+            } },
+            confirmButton = { ExpressiveTextButton("Close") { selectedSupported = null } }
+        )
+    }
+    selectedCatalog?.let { name ->
+        AlertDialog(
+            onDismissRequest = { selectedCatalog = null },
+            title = { Text(name, style = MaterialTheme.typography.titleMedium) },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                val ref = vulkanExtensionReference(name)
+                CapabilityKeyValue("Runtime evidence", "Not enumerated in the completed runtime extension set")
+                CapabilityKeyValue("Registry author tag", ref.author)
+                CapabilityKeyValue("Registry baseline", "Vulkan 1.4.360")
+                CapabilityKeyValue("Embedded registry revision", ref.specVersion.ifBlank { "Unavailable in checked-in reference asset" })
+                CapabilityKeyValue("Extension type", ref.type.ifBlank { "Unavailable in checked-in reference asset" })
+                CapabilityKeyValue("Platform", ref.platform.ifBlank { "Platform independent or unavailable in checked-in reference asset" })
+                CapabilityKeyValue("Promoted to core", ref.promotedTo.ifBlank { "No embedded promotion record" })
+                CapabilityKeyValue("Registry requires", ref.requires.ifBlank { "No separate requires expression embedded" })
+                CapabilityKeyValue("Deprecated by", ref.deprecatedBy.ifBlank { "No embedded deprecation record" })
+                CapabilityKeyValue("Obsoleted by", ref.obsoletedBy.ifBlank { "No embedded obsoletion record" })
+                CapabilityKeyValue("Registry depends", ref.depends.ifBlank { "No dependency expression embedded" })
+                CapabilityKeyValue("Dedicated query handler", vulkanExtensionQueryGroup(name) ?: ref.queryGroup.ifBlank { "No dedicated handler cataloged" })
+                CapabilityKeyValue("Related commands", ref.commands.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "See authoritative Khronos extension page")
+                CapabilityKeyValue("Related enums/tokens", ref.enums.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "See authoritative Khronos extension page")
+                ExpressiveTextButton("Open Khronos specification") { uriHandler.openUri(ref.specUrl) }
+                Text("This is a registry reference, not an Unsupported claim. Missing embedded registry details are left unavailable rather than invented.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+            } },
+            confirmButton = { ExpressiveTextButton("Close") { selectedCatalog = null } }
+        )
     }
 }
 
@@ -3539,7 +4166,7 @@ private fun technicalReportJson(context: Context, report: VulkanReport, display:
             put("memoryHeaps", JSONArray().apply { d.heaps.forEach { heap -> put(JSONObject().apply { put("index", heap.index); put("size", heap.size); put("sizeU64", heap.size.toULong().toString()); put("flags", heap.flags); put("flagsU64", heap.flags.toULong().toString()); put("flagsCanonical", memoryHeapFlags(heap.flags)) }) } })
             put("memoryTypes", JSONArray().apply { d.memoryTypes.forEach { type -> put(JSONObject().apply { put("index", type.index); put("heap", type.heap); put("flags", type.flags); put("flagsU64", type.flags.toULong().toString()); put("flagsCanonical", memoryTypeFlags(type.flags)) }) } })
             put("queues", JSONArray().apply { d.queues.forEach { q -> put(JSONObject().apply {
-                put("index", q.index); put("count", q.count); put("timestampBits", q.timestampBits); put("flags", q.flags); put("flagsU64", q.flags.toULong().toString()); put("flagsCanonical", queueCapabilityFlags(q.flags)); put("graphics", q.graphics); put("compute", q.compute); put("transfer", q.transfer); put("sparse", q.sparse); put("protected", q.protected); put("videoDecode", q.videoDecode); put("videoEncode", q.videoEncode); put("opticalFlow", q.opticalFlow); put("dataGraph", q.dataGraph); put("unknownFlags", q.unknownFlags); put("granularity", q.granularity); put("videoCodecOperations", q.videoCodecOperations); put("videoCodecOperationsU64", q.videoCodecOperations.toULong().toString()); put("videoCodecOperationsCanonical", videoCodecOperationFlags(q.videoCodecOperations))
+                put("index", q.index); put("count", q.count); put("timestampBits", q.timestampBits); put("flags", q.flags); put("flagsU64", q.flags.toULong().toString()); put("flagsCanonical", queueCapabilityFlags(q.flags)); put("graphics", q.graphics); put("compute", q.compute); put("transfer", q.transfer); put("sparse", q.sparse); put("protected", q.protected); put("videoDecode", q.videoDecode); put("videoEncode", q.videoEncode); put("opticalFlow", q.opticalFlow); put("dataGraph", q.dataGraph); put("unknownFlags", q.unknownFlags); put("granularity", q.granularity); put("videoCodecOperations", q.videoCodecOperations); put("videoCodecOperationsU64", q.videoCodecOperations.toULong().toString()); put("videoCodecOperationsCanonical", if (q.videoCodecQueryStatus == "available") videoCodecOperationFlags(q.videoCodecOperations) else "Unknown"); put("videoCodecQueryStatus", q.videoCodecQueryStatus); put("videoCodecQueryReason", q.videoCodecQueryReason)
             }) } })
             put("formats", JSONArray().apply { d.formats.forEach { f -> put(JSONObject().apply { put("name", f.name); put("supported", f.supported); put("linear", f.linear); put("linearU64", f.linear.toULong().toString()); put("linearCanonical", formatFeatureFlags(f.linear)); put("optimal", f.optimal); put("optimalU64", f.optimal.toULong().toString()); put("optimalCanonical", formatFeatureFlags(f.optimal)); put("buffer", f.buffer); put("bufferU64", f.buffer.toULong().toString()); put("bufferCanonical", formatFeatureFlags(f.buffer)) }) } })
             put("surface", JSONObject().apply {
@@ -3629,6 +4256,7 @@ private suspend fun submitDatabaseReport(context: Context, report: VulkanReport,
             val body = readResponseTextLimited(response.body, 64 * 1024)
             if (response.isSuccessful) {
                 val id = runCatching { JSONObject(body).optString("id") }.getOrDefault("")
+                if (id.matches(Regex("[a-f0-9]{64}"))) context.getSharedPreferences("database_share", Context.MODE_PRIVATE).edit().putString("last_report_id", id).apply()
                 if (id.isBlank()) "Report submitted successfully." else "Report submitted successfully · ${id.take(12)}"
             } else {
                 val message = runCatching { JSONObject(body).optString("error") }.getOrDefault("").ifBlank { "HTTP ${response.code}" }
@@ -3637,6 +4265,8 @@ private suspend fun submitDatabaseReport(context: Context, report: VulkanReport,
         }
     }.getOrElse { "Submission failed: ${it.message ?: "network error"}" }
 }
+
+private fun safeFilePart(value: String): String = value.replace(Regex("[^A-Za-z0-9._-]+"), "_").trim('_').ifBlank { "Unknown-GPU" }
 
 private fun exportFileStem(report: VulkanReport): String {
     val gpuName = report.devices.firstOrNull()?.name?.trim().orEmpty().ifBlank { "Unknown-GPU" }
@@ -3798,11 +4428,14 @@ private fun reportToText(context: Context, report: VulkanReport, display: Displa
         appendLine("API: ${d.apiVersion}"); appendLine("Driver version: ${d.driverVersionText}"); appendLine("Vendor: ${d.vendorId}"); appendLine("Device ID: ${d.deviceId}"); appendLine("Type: ${d.deviceType}"); appendLine("Extended query status: ${d.extendedQueryStatus}"); appendLine("Extended query reason: ${d.extendedQueryReason}"); appendLine("Vulkan 1.4 status: ${d.vulkan14Status}"); appendLine("Vulkan 1.4 reason: ${d.vulkan14Reason}"); appendLine("Device extension enumeration status: ${d.deviceExtensionStatus}"); appendLine("Device extension enumeration reason: ${d.deviceExtensionReason}")
         appendLine(); appendLine("DEVICE LAYERS"); d.deviceLayers.forEach { appendLine("${it.name} | spec ${it.specVersion} | implementation ${it.implementationVersion} | ${it.description}"); it.extensions.forEach { ext -> appendLine("  ${ext.name} | spec ${ext.specVersion}") } }; appendLine(); appendLine("DEVICE EXTENSIONS"); d.extensions.forEach { appendLine("${it.name} | ${it.scope} | spec ${it.specVersion}") }
         appendLine(); appendLine("FEATURES"); d.features.forEach { appendLine("${it.name} = ${it.supported}") }
-        appendLine(); appendLine("DETAILED QUERY RESULTS (${d.detailedProperties.size} results; ${d.detailedProperties.map { "${it.section} / ${it.name}" }.distinct().size} unique report fields)"); d.detailedProperties.forEach { appendLine("[${it.section}] ${it.name} = ${it.value}") }
+        val detailedSafetyCount = d.detailedProperties.count { it.section == "Vulkan Query Safety" }
+        val detailedPropertyCount = d.detailedProperties.size - detailedSafetyCount
+        appendLine(); appendLine("DETAILED QUERY RESULTS (${d.detailedProperties.size} evidence rows; $detailedPropertyCount property/query rows; $detailedSafetyCount safety diagnostics; ${d.detailedProperties.map { "${it.section} / ${it.name}" }.distinct().size} unique report fields)"); d.detailedProperties.forEach { appendLine("[${it.section}] ${it.name} = ${it.value}") }
         appendLine(); appendLine("LIMITS"); d.limits.forEach { appendLine("${it.first} = ${it.second}") }
+        appendLine(); appendLine("QUERY SAFETY"); appendLine("Queue-family enumeration safety rejected = ${d.queueQuerySafetyRejected}"); appendLine("Memory-heap count safety rejected = ${d.memoryHeapSafetyRejected}"); appendLine("Memory-type count safety rejected = ${d.memoryTypeSafetyRejected}"); appendLine("Surface queue-family enumeration safety rejected = ${d.surfaceQueueQuerySafetyRejected}")
         appendLine(); appendLine("MEMORY HEAPS"); d.heaps.forEach { appendLine("Heap ${it.index}: ${formatBytes(it.size)} | flags=${memoryHeapFlags(it.flags)} | raw=${it.flags.toULong()} (0x${it.flags.toULong().toString(16).uppercase()})") }
         appendLine(); appendLine("MEMORY TYPES"); d.memoryTypes.forEach { appendLine("Type ${it.index}: heap ${it.heap} | flags=${memoryTypeFlags(it.flags)} | raw=${it.flags.toULong()} (0x${it.flags.toULong().toString(16).uppercase()})") }
-        appendLine(); appendLine("QUEUES"); d.queues.forEach { appendLine("Family ${it.index}: count=${it.count}, timestampBits=${it.timestampBits}, flags=${queueCapabilityFlags(it.flags)}, rawFlags=${it.flags.toULong()} (0x${it.flags.toULong().toString(16).uppercase()}), graphics=${it.graphics}, compute=${it.compute}, transfer=${it.transfer}, sparse=${it.sparse}, protected=${it.protected}, videoDecode=${it.videoDecode}, videoEncode=${it.videoEncode}, opticalFlow=${it.opticalFlow}, dataGraph=${it.dataGraph}, unknownFlags=0x${it.unknownFlags.toULong().toString(16).uppercase()}, granularity=${it.granularity}, videoCodecOperations=${videoCodecOperationFlags(it.videoCodecOperations)}, rawVideoCodecOperations=${it.videoCodecOperations.toULong()} (0x${it.videoCodecOperations.toULong().toString(16).uppercase()})") }
+        appendLine(); appendLine("QUEUES"); d.queues.forEach { appendLine("Family ${it.index}: count=${it.count}, timestampBits=${it.timestampBits}, flags=${queueCapabilityFlags(it.flags)}, rawFlags=${it.flags.toULong()} (0x${it.flags.toULong().toString(16).uppercase()}), graphics=${it.graphics}, compute=${it.compute}, transfer=${it.transfer}, sparse=${it.sparse}, protected=${it.protected}, videoDecode=${it.videoDecode}, videoEncode=${it.videoEncode}, opticalFlow=${it.opticalFlow}, dataGraph=${it.dataGraph}, unknownFlags=0x${it.unknownFlags.toULong().toString(16).uppercase()}, granularity=${it.granularity}, videoCodecQueryStatus=${it.videoCodecQueryStatus}, videoCodecQueryReason=${it.videoCodecQueryReason.ifBlank { "None" }}, videoCodecOperations=${if (it.videoCodecQueryStatus == "available") videoCodecOperationFlags(it.videoCodecOperations) else "Unknown"}, rawVideoCodecOperations=${if (it.videoCodecQueryStatus == "available") "${it.videoCodecOperations.toULong()} (0x${it.videoCodecOperations.toULong().toString(16).uppercase()})" else "Unknown"}") }
         appendLine(); appendLine("FORMATS"); d.formats.forEach { appendLine("${it.name}: ${if (it.supported) "SUPPORTED" else "NOT SUPPORTED"}, linear=${formatFeatureFlags(it.linear)} [raw ${it.linear.toULong()} / 0x${it.linear.toULong().toString(16).uppercase()}], optimal=${formatFeatureFlags(it.optimal)} [raw ${it.optimal.toULong()} / 0x${it.optimal.toULong().toString(16).uppercase()}], buffer=${formatFeatureFlags(it.buffer)} [raw ${it.buffer.toULong()} / 0x${it.buffer.toULong().toString(16).uppercase()}]") }
         appendLine(); appendLine("SURFACE")
         appendLine("Available=${d.surfaceAvailable}, presentation=${d.surfacePresentationSupported}")
@@ -3934,11 +4567,19 @@ private fun reportToHtml(context: Context, report: VulkanReport, display: Displa
         append("</tbody></table></div>")
         table("Device layers", "<th>Layer</th><th>Details</th>", d.deviceLayers.map { layer -> layer.name to htmlEscape("spec ${layer.specVersion}, implementation ${layer.implementationVersion}; ${layer.description}; extensions=${layer.extensions.joinToString(", ") { "${it.name}(${it.specVersion})" }.ifBlank { "none" }}") })
         table("Features", "<th>Feature</th><th>Status</th>", d.features.map { htmlEscape(it.name) to statusBadge(if (it.supported) "SUPPORTED" else "NOT SUPPORTED") })
-        table("Detailed query results (${d.detailedProperties.size} results; ${d.detailedProperties.map { "${it.section} / ${it.name}" }.distinct().size} unique report fields)", "<th>Section / property</th><th>Value</th>", d.detailedProperties.map { "${it.section} / ${it.name}" to htmlEscape(it.value) })
+        val htmlDetailedSafetyCount = d.detailedProperties.count { it.section == "Vulkan Query Safety" }
+        val htmlDetailedPropertyCount = d.detailedProperties.size - htmlDetailedSafetyCount
+        table("Detailed query results (${d.detailedProperties.size} evidence rows; $htmlDetailedPropertyCount property/query rows; $htmlDetailedSafetyCount safety diagnostics; ${d.detailedProperties.map { "${it.section} / ${it.name}" }.distinct().size} unique report fields)", "<th>Section / property</th><th>Value</th>", d.detailedProperties.map { "${it.section} / ${it.name}" to htmlEscape(it.value) })
         table("Limits", "<th>Limit</th><th>Value</th>", d.limits.map { it.first to htmlEscape(it.second) })
         table("Memory", "<th>Entry</th><th>Value</th>", d.heaps.map { "Heap ${it.index}" to htmlEscape("${formatBytes(it.size)} | flags=${memoryHeapFlags(it.flags)} | raw=${it.flags.toULong()} (0x${it.flags.toULong().toString(16).uppercase()})") } + d.memoryTypes.map { "Type ${it.index}" to htmlEscape("heap ${it.heap} | flags=${memoryTypeFlags(it.flags)} | raw=${it.flags.toULong()} (0x${it.flags.toULong().toString(16).uppercase()})") })
-        table("Queues", "<th>Family</th><th>Details</th>", d.queues.map { "${it.index}" to htmlEscape("count=${it.count}, timestampBits=${it.timestampBits}, flags=${queueCapabilityFlags(it.flags)}, rawFlags=${it.flags.toULong()} (0x${it.flags.toULong().toString(16).uppercase()}), graphics=${it.graphics}, compute=${it.compute}, transfer=${it.transfer}, sparse=${it.sparse}, protected=${it.protected}, videoDecode=${it.videoDecode}, videoEncode=${it.videoEncode}, opticalFlow=${it.opticalFlow}, dataGraph=${it.dataGraph}, unknownFlags=0x${it.unknownFlags.toULong().toString(16).uppercase()}, granularity=${it.granularity}, videoCodecOperations=${videoCodecOperationFlags(it.videoCodecOperations)}, rawVideoCodecOperations=${it.videoCodecOperations.toULong()} (0x${it.videoCodecOperations.toULong().toString(16).uppercase()})") })
+        table("Queues", "<th>Family</th><th>Details</th>", d.queues.map { "${it.index}" to htmlEscape("count=${it.count}, timestampBits=${it.timestampBits}, flags=${queueCapabilityFlags(it.flags)}, rawFlags=${it.flags.toULong()} (0x${it.flags.toULong().toString(16).uppercase()}), graphics=${it.graphics}, compute=${it.compute}, transfer=${it.transfer}, sparse=${it.sparse}, protected=${it.protected}, videoDecode=${it.videoDecode}, videoEncode=${it.videoEncode}, opticalFlow=${it.opticalFlow}, dataGraph=${it.dataGraph}, unknownFlags=0x${it.unknownFlags.toULong().toString(16).uppercase()}, granularity=${it.granularity}, videoCodecQueryStatus=${it.videoCodecQueryStatus}, videoCodecQueryReason=${it.videoCodecQueryReason.ifBlank { "None" }}, videoCodecOperations=${if (it.videoCodecQueryStatus == "available") videoCodecOperationFlags(it.videoCodecOperations) else "Unknown"}, rawVideoCodecOperations=${if (it.videoCodecQueryStatus == "available") "${it.videoCodecOperations.toULong()} (0x${it.videoCodecOperations.toULong().toString(16).uppercase()})" else "Unknown"}") })
         table("Formats", "<th>Format</th><th>Status / feature masks</th>", d.formats.map { htmlEscape(it.name) to "${statusBadge(if (it.supported) "SUPPORTED" else "NOT SUPPORTED")} ${htmlEscape("linear=${formatFeatureFlags(it.linear)} [raw ${it.linear.toULong()} / 0x${it.linear.toULong().toString(16).uppercase()}], optimal=${formatFeatureFlags(it.optimal)} [raw ${it.optimal.toULong()} / 0x${it.optimal.toULong().toString(16).uppercase()}], buffer=${formatFeatureFlags(it.buffer)} [raw ${it.buffer.toULong()} / 0x${it.buffer.toULong().toString(16).uppercase()}]")}" })
+        table("Query safety", "<th>Property</th><th>Value</th>", listOf(
+            "Queue-family enumeration safety rejected" to htmlEscape(d.queueQuerySafetyRejected.toString()),
+            "Memory-heap count safety rejected" to htmlEscape(d.memoryHeapSafetyRejected.toString()),
+            "Memory-type count safety rejected" to htmlEscape(d.memoryTypeSafetyRejected.toString()),
+            "Surface queue-family enumeration safety rejected" to htmlEscape(d.surfaceQueueQuerySafetyRejected.toString())
+        ))
         table("Surface query diagnostics", "<th>Property</th><th>Value</th>", listOf(
             "Surface available" to statusBadge(if (d.surfaceAvailable) "AVAILABLE" else "UNAVAILABLE"),
             "Presentation supported" to statusBadge(if (d.surfacePresentationSupported) "SUPPORTED" else "NOT SUPPORTED"),
@@ -4005,7 +4646,8 @@ private val KNOWN_VULKAN_EXTENSIONS = setOf(
     "VK_KHR_zero_initialize_workgroup_memory", "VK_NV_optical_flow", "VK_QCOM_filter_cubic_weights", "VK_QCOM_fragment_density_map_offset",
     "VK_QCOM_image_processing", "VK_QCOM_image_processing2", "VK_QCOM_multiview_per_view_render_areas", "VK_QCOM_multiview_per_view_viewports",
     "VK_QCOM_render_pass_shader_resolve", "VK_QCOM_render_pass_store_ops", "VK_QCOM_render_pass_transform", "VK_QCOM_rotated_copy_commands",
-    "VK_QCOM_tile_properties", "VK_QCOM_ycbcr_degamma"
+    "VK_QCOM_tile_properties", "VK_QCOM_ycbcr_degamma",
+    "VK_ARM_data_graph_neural_accelerator_statistics", "VK_ARM_data_graph_optical_flow", "VK_ARM_shader_instrumentation", "VK_EXT_descriptor_heap", "VK_EXT_graphics_pipeline_library", "VK_EXT_host_image_copy", "VK_EXT_mesh_shader", "VK_EXT_multisampled_render_to_swapchain", "VK_EXT_primitive_restart_index", "VK_EXT_sampler_filter_minmax", "VK_EXT_shader_long_vector", "VK_EXT_shader_object", "VK_EXT_shader_ocp_microscaling_types", "VK_EXT_shader_split_barrier", "VK_EXT_shader_subgroup_partitioned", "VK_EXT_shader_uniform_buffer_unsized_array", "VK_EXT_texture_compression_astc_3d", "VK_KHR_device_address_commands", "VK_KHR_device_fault", "VK_KHR_extended_flags", "VK_KHR_internally_synchronized_queues", "VK_KHR_opacity_micromap", "VK_KHR_shader_abort", "VK_KHR_shader_constant_data", "VK_KHR_shader_integer_dot_product", "VK_KHR_video_encode_feedback2", "VK_NV_compute_occupancy_priority", "VK_NV_cooperative_matrix_decode_vector", "VK_NV_push_constant_bank", "VK_QCOM_cooperative_matrix_conversion", "VK_QCOM_elapsed_timer_query", "VK_QCOM_image_processing3", "VK_QCOM_queue_perf_hint", "VK_QCOM_shader_multiple_wait_queues", "VK_SEC_pipeline_cache_incremental_mode", "VK_SEC_throttle_hint", "VK_VALVE_shader_mixed_float_dot_product"
 )
 
 private fun List<String>.distinctScopes(): String = distinct().joinToString(" / ")
@@ -4013,7 +4655,7 @@ private fun List<String>.distinctScopes(): String = distinct().joinToString(" / 
 private data class NavigationItem(val page: Page, val label: String, val icon: Int)
 
 private fun selectedNavigationPage(page: Page): Page = when (page) {
-    Page.Features, Page.Memory, Page.Queues, Page.Formats, Page.Properties, Page.Settings, Page.Info -> Page.Overview
+    Page.Features, Page.Memory, Page.Queues, Page.Formats, Page.Properties, Page.Analysis, Page.Settings, Page.Info -> Page.Overview
     else -> page
 }
 
@@ -4037,6 +4679,7 @@ private fun pageIcon(page: Page): Int = when (page) {
     Page.Properties -> R.drawable.ic_properties
     Page.Extensions -> R.drawable.ic_extensions
     Page.Profiles -> R.drawable.ic_extensions
+    Page.Analysis -> R.drawable.ic_properties
     Page.Settings -> R.drawable.ic_settings
     Page.Info -> R.drawable.ic_info
 }
@@ -4054,8 +4697,9 @@ private fun pageTransitionIndex(page: Page): Int = when (page) {
     Page.Formats -> 8
     Page.Properties -> 9
     Page.Profiles -> 10
-    Page.Settings -> 11
-    Page.Info -> 12
+    Page.Analysis -> 11
+    Page.Settings -> 12
+    Page.Info -> 13
 }
 
 private data class VendorInfo(val name: String, val logo: Int)

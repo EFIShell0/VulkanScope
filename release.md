@@ -1,16 +1,9 @@
-# VulkanScope 0.35.1
+# VulkanScope 0.41.3
 
-VulkanScope 0.35.1 is a full security, lifecycle and correctness follow-up to 0.35.0.
-
-## Changes
-- Cancels active GitHub update checks and APK downloads immediately when Direct GitHub updates are disabled.
-- Prevents an already-completed update download from opening the package installer after update opt-out.
-- Deletes rejected APK files from the private cache in addition to partial download cleanup.
-- Hardens Android signing verification for key rotation: the installed current signer must be in the candidate APK signing lineage; multi-signer packages require exact current signer-set equality.
-- Re-audits Vulkan 1.4.360 query coverage, Surface/WSI, formats, properties/limits, Display/HDR, Turnip, UI/TXT/HTML/Database completeness and native resource ownership.
-- Preserves the 0.34.8 64-bit VkFormatProperties3 / VkFormatFeatureFlags2 handling and 0.35.0 Material 3 Expressive build fix.
-
-## Version
-- Version: `0.35.1`
-- versionCode: `352`
-- Vulkan published specification/query baseline: `1.4.360`
+- Separated queue capability support from `VkQueueFamilyVideoPropertiesKHR` query availability.
+- `VkQueueFlags == 0` is no longer mislabeled as `VK_NONE`; it is shown as zero queue capability bits.
+- A successfully queried zero `VkVideoCodecOperationFlagsKHR` mask is shown canonically as `VK_VIDEO_CODEC_OPERATION_NONE_KHR`.
+- Missing `VK_KHR_video_queue` is reported as Not applicable for video-codec-operation queries; failed or missing query evidence remains Unavailable/Unknown instead of being inferred as unsupported.
+- Queue UI, TXT, HTML and Database technicalReport now carry the same video codec query state and reason.
+- Corrected the Vulkan 1.4.360 known queue-bit mask to `0x57F`, so `VK_QUEUE_SPARSE_BINDING_BIT` is no longer duplicated as an unknown bit.
+- Preserved Vulkan 1.4.360, schema 2 / technicalReport 3, all 0.41.2 safety hardening, and the 1469 property/query + 4 safety diagnostic evidence split.

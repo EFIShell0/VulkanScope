@@ -15,7 +15,6 @@ ap.add_argument('--out', required=True)
 args=ap.parse_args()
 cr=Path(args.capsviewer_root); header=Path(args.header).read_text(encoding='utf-8', errors='ignore'); root=ET.parse(args.registry).getroot()
 
-# Parse canonical physical-device structs and fields from the real header.
 struct_fields={}
 for m in re.finditer(r'typedef\s+struct\s+(VkPhysicalDevice\w*)\s*\{(.*?)\}\s*\1\s*;', header, re.S):
     name, body=m.groups()
@@ -33,7 +32,6 @@ for p in files:
     try: texts.append((p,p.read_text(encoding='utf-8', errors='ignore')))
     except Exception: pass
 
-# Source-level references: a struct name plus member access within a bounded window.
 struct_refs=set(); field_refs={}
 for p,t in texts:
     for sm in re.finditer(r'\b(VkPhysicalDevice\w*)\b', t):
@@ -54,7 +52,6 @@ for s,fields in canonical_fields.items():
     diff=sorted(wanted-used)
     if diff: partial.append({'struct':s,'missingFields':diff,'referencedFields':sorted(used)})
 
-# Vendor hinting is source-derived, not inferred from GPU models.
 vendor_counts={}
 for s in struct_refs:
     for vendor in ('AMD','AMDX','ARM','QCOM','NV','NVX','INTEL','IMG','MESA','VALVE','HUAWEI','SEC'):

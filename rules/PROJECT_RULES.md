@@ -36,7 +36,7 @@
 - C++20 and Vulkan for native collection.
 - Native/JNI boundary must remain small.
 - Vulkan registry and specification data are authoritative references for naming and semantics.
-- Native Vulkan compilation must use canonical Khronos Vulkan-Headers 1.4.357 or newer only when explicitly verified at build time; runtime must never fetch headers or registry data.
+- Native Vulkan compilation for the current release must use the explicitly verified canonical Khronos Vulkan-Headers 1.4.360 baseline; a future baseline may replace it only after an explicit upstream audit. Runtime must never fetch headers or registry data.
 - Core Vulkan feature queries and version-promoted feature queries must remain distinguishable.
 
 ## Surface and display
@@ -426,3 +426,101 @@
 - Vulkan 1.4.360 core and validated extension query coverage, exact runtime extension evidence, 64-bit VkFormatProperties3 data, Surface/WSI evidence, Display/HDR separation, Turnip safety gates and complete-report semantics must not regress.
 - UI, TXT, HTML and Database technical reports must continue consuming the same complete Vulkan dataset without selective omission.
 - Native Vulkan instance/surface/window/library ownership must remain deterministically released on every validated path; no known resource leak may be shipped.
+
+## Release 0.40.0 local analysis and optional tests
+- Application version is 0.40.0 with versionCode 400.
+- Analysis snapshots, comparisons, watch lists and self-test results are local-only and must not mutate canonical TXT, HTML or Database capability evidence.
+- Portable analysis snapshots use the separate `VulkanScopeAnalysisSnapshot1` schema. Import is explicit through Android SAF and bounded to 8 MiB.
+- Diff and regression-candidate output describes evidence changes only and must never be presented as proof of a driver defect or unsupported capability.
+- Specification/profile minimum comparison reuses the existing runtime-only profile evaluator; unavailable requirements remain UNKNOWN.
+- Watched tokens are local preferences and must not change collection or query behavior.
+- Format detail preserves decoded canonical names plus raw unsigned values; unknown future bits remain visible.
+- Extension detail distinguishes exact runtime enumeration from dedicated feature/property query evidence and must not infer support from registry membership alone.
+- Optional Vulkan self-tests require explicit user action and execute through the existing isolated probe service with a 30 second client timeout.
+- Self-test failure is test evidence only and never rewrites reported Vulkan feature/extension support.
+- The self-test uses the currently selected system/Turnip loader path, requests no optional device extensions or features, bounds queue-family enumeration to 4096 entries and performs no workload dispatch.
+- The self-test may create only the minimum objects required for VkDevice, shader-module and compute-pipeline creation checks and must destroy pipeline, layout, shader module, device and instance before returning.
+- Vulkan published/query baseline remains 1.4.360.
+- Canonical Database schema remains schema 2 / technicalReport 3.
+
+
+## Release 0.40.1 analysis build-fix requirements
+- Application version is 0.40.1 with versionCode 401.
+- The 0.40.0 Analysis, comparison, watched-capability, format/extension detail and optional self-test feature set remains functionally unchanged except for build-correctness fixes required by this release.
+- Analysis snapshot applicationVersion comes from installed package metadata and must not depend on generated BuildConfig availability.
+- Experimental Material 3 Expressive APIs used by Analysis are opted into only at the Analysis composable scope.
+- Native self-test pipeline-layout VkResult evidence must be consumed and surfaced as explicit test evidence so the configured -Werror build gate has no unused native metadata.
+- Pipeline-layout self-test failure remains active-test evidence only and must not alter Vulkan capability support state.
+- All target ABIs remain arm64-v8a, armeabi-v7a and x86_64; no ABI may be removed to work around a build failure.
+- Canonical Database schema remains schema 2 / technicalReport 3 and the 0.40.0 local Analysis schema remains VulkanScopeAnalysisSnapshot1.
+
+
+## Release 0.40.2 full application audit requirements
+- Application version is 0.40.2 with versionCode 402.
+- Current upstream technical claims are checked against Khronos Vulkan 1.4.360 dated 2026-08-14 and Android API 37 Display.HdrCapabilities; HLG+ remains canonical value 6 and runtime loader/device/driver versions remain separate evidence.
+- Analysis snapshot import remains explicit SAF-only and 8 MiB bounded, and additionally validates schema shape, entry count, key length and value length before UI use. Imported nested/non-string evidence values are rejected rather than coerced.
+- Analysis snapshot export must never silently truncate data; an over-limit snapshot is rejected with explicit user-visible status.
+- Compare/Diff must remain lazy and searchable and must not silently omit rows through a fixed display-count cap. Regression labels remain evidence-change candidates only.
+- Watched capabilities remain local-only, are bounded to 256 entries and must not alter collection/query behavior.
+- Per-format detail must surface already-collected Image Format Properties2 evidence for the exact selected VkFormat when available, without inferring missing image-format support.
+- Probe result polling must enforce the 64 MiB read bound while streaming the file, not only by a pre-read file-length check.
+- Activity destruction must terminate any still-running isolated Vulkan probe process after canceling update work so stale native collection does not continue after its UI owner is gone.
+- Optional self-tests may create a Vulkan object only when the matching destroy path is also available. Missing safe create/destroy paths are UNAVAILABLE test evidence, not unsupported capability evidence.
+- Self-test VkPipeline, VkPipelineLayout, VkShaderModule, VkDevice and VkInstance ownership remains deterministic and is destroyed in reverse dependency order before return.
+- No 0.40.2 change may mutate canonical TXT, HTML or Database capability evidence, schema 2 / technicalReport 3, Turnip/SAF behavior, update security, Vulkan 1.4.360 query coverage, ABI support or capability-state semantics.
+
+- Every two-stage Vulkan enumeration that allocates from a driver-reported count must revalidate the second-stage returned count against the actual allocation capacity before resize, indexing or serialization; a larger second-stage count is safety-rejected rather than trusted.
+- Native queue-family, memory-heap, memory-type and Surface queue-family safety-rejection evidence must be consumed by the application and remain visible through the in-app UI plus the existing detailedProperties -> TXT -> HTML -> technicalReport -> Database path.
+- Sparse Image Format Properties2 safety-rejection serialization must remain valid JSON; safety fallback paths are release-gated just like successful query paths.
+
+## Release 0.41.0 advanced analysis, registry reference and sharing requirements
+- Application version is 0.41.0 with versionCode 410.
+- Vulkan published/query baseline remains Vulkan 1.4.360 dated 2026-08-14; runtime loader, device API and driver versions remain separate evidence.
+- Analysis keeps canonical capability collection immutable. Graph, query syntax, diagnostic score, QR/permalink sharing, watch lists, imported snapshots and optional tests must not alter TXT, HTML or Database evidence.
+- Capability dependency graph edges come only from checked-in registry-reference dependency expressions. Expression references are not presented as mandatory runtime support and runtime enumeration/query evidence is displayed separately.
+- Dependency graph expansion is bounded to four levels and 64 unique nodes and must terminate on cycles. The dedicated visual graph renders at most 24 nodes for legibility while the complete bounded traversal remains accessible below it.
+- Advanced local query syntax is presentation-only. Unknown query fields fall back to literal text matching rather than changing capability state.
+- Extension explorer supports vendor, scope, promotion, dependency, command, enum, query-handler and runtime-enumeration filters. Missing embedded registry metadata remains explicitly unavailable and is never invented.
+- Every known extension exposed by the built-in extension catalog has a checked-in Vulkan 1.4.360 registry-reference entry or a safe authoritative Khronos URL fallback. The runtime never downloads or parses vk.xml.
+- Driver diagnostic evidence score is derived only from explicit VulkanScope collection/safety anomalies. It is never described as Vulkan conformance, performance, benchmark, hardware quality or vendor reliability.
+- QR codes are generated locally on device. QR generation must not use a remote service, analytics endpoint or additional runtime network request.
+- Shared report links target only the fixed official HTTPS VulkanScope Database origin and only a server-returned lowercase 64-hex report id may be persisted as the last submitted report id.
+- Database report/compare permalinks and submission trends are presentation features only. Trend percentages describe loaded VulkanScope submissions and must never be labeled market share. Missing extension tokens must not be reclassified as unsupported.
+- Existing Database schema remains schema 2 / technicalReport 3. No 0.41.0 analysis/share feature may add automatic report upload or new persistent device identifiers.
+- ZXing Core is a build dependency only for local QR matrix generation. No ZXing network component, camera permission or remote QR service is permitted.
+- The 0.40.2 native count hardening, deterministic resource ownership, probe bounds, update security, Turnip/SAF behavior, three ABI targets and complete-report parity must not regress.
+
+## Release 0.41.1 Analysis Compose build-fix requirements
+- Application version is 0.41.1 with versionCode 411.
+- All 0.41.0 advanced analysis, registry-reference, visual graph, search, diagnostic score, local QR/permalink and Database-sharing semantics remain functionally unchanged except for compile-correctness and recomposition-safety fixes required by this release.
+- Compose state and `remember` calculations used by Analysis must execute at `@Composable` function scope or inside an actual composable lambda, never directly inside the non-composable `LazyListScope` builder.
+- Diff rows, profile evaluations, dependency graph entries/nodes, diagnostic evidence score, watched-evidence index and share-link state are computed before LazyColumn item declaration so the release build compiles and repeated work is not introduced inside lazy item construction.
+- Watched evidence must use an explicit bounded key/value representation; `Map.Entry` objects must not be treated as `Pair` values.
+- The 0.40.2 native count/resource hardening, 0.41.0 registry/query-handler parity, three ABI targets, canonical schema 2 / technicalReport 3, update security, Turnip/SAF behavior and report parity must not regress.
+- No capability state, report schema, Database submission semantics or runtime network permission is changed by this build-fix release.
+
+## Release 0.41.2 full correctness, compatibility and reporting audit requirements
+- Application version is 0.41.2 with versionCode 412.
+- The published/query baseline is Vulkan 1.4.360 dated 2026-08-14. Active native checkpoints and completed reports must not emit the obsolete 1.4.357 provenance value. Runtime loader, device API and driver versions remain separate evidence.
+- The Properties & Limits destination keeps all four Vulkan Query Safety evidence rows required by 0.40.2. The total evidence count must distinguish property/query rows from safety diagnostics so four safety rows are not presented as four newly added Vulkan capabilities. The same distinction must be visible in TXT and HTML detailed-query headings.
+- Surface-format and present-mode two-stage enumerations accept only VK_SUCCESS or VK_INCOMPLETE as enumerable states, enforce their dedicated bounds, revalidate the returned second-stage count against allocated capacity, retry boundedly when VK_INCOMPLETE is returned, and mark incomplete results as positive evidence only. Missing entries from an incomplete enumeration must never be inferred unsupported.
+- Surface enumeration completeness and safety diagnostics must be consumed by the normal Surface capability/report path. A native completeness field may not be generated and then discarded by Kotlin/report consumers.
+- Cooperative-matrix, Vulkan Video, Vulkan Tool and sparse-image multi-stage collection must never serialize default/uninitialized entries after a failed data query. A returned count larger than the bounded allocation must fail closed as unavailable/safety-rejected evidence rather than index beyond the vector.
+- Installed Turnip resolution supersedes the legacy arbitrary first-.so fallback. A bundle is selectable only when there is exactly one bounded meta.json with schemaVersion 1, one bare declared Vulkan .so libraryName, exactly one matching private-file entry, canonical containment inside the app-private Turnip root, and a readable non-empty library. Import paths and metadata remain bounded.
+- Turnip import is offered only on Android 9+ arm64-v8a devices that satisfy the existing runtime Qualcomm Adreno support gate. Driver capability must still never be inferred from a marketing GPU name alone.
+- VulkanProbeService must remain compatible with minSdk 24. Production probe publication must not reference java.nio.file APIs introduced in API 26. Result publication uses an exact 64 MiB UTF-8 byte bound, flush/sync, same-filesystem atomic rename, temporary-file cleanup on failure, deterministic Surface release and worker shutdown.
+- AndroidX/QR dependency pins used by this release are core-ktx 1.19.0, lifecycle-runtime-compose 2.11.0, Compose UI/foundation/animation 1.12.0, Material 3 1.5.0-alpha26, OkHttp 5.2.0 and ZXing Core 3.5.4. Updating a dependency must not add runtime network endpoints, camera permissions, analytics or capability inference.
+- Checked-in Vulkan metadata generators must validate VK_HEADER_VERSION 360 without stale/broken regular-expression baselines. Generated metadata remains informational until a validated runtime query path consumes it.
+- Canonical report schemas remain submission schema 2 / technicalReport 3. No 0.41.2 hardening may truncate a complete report, silently drop safety evidence, add automatic upload, add a persistent device identifier, or weaken the fixed official Database endpoint.
+- 0.41.0 advanced analysis, 0.41.1 Compose scope fixes, update provenance/signature checks, bounded imports, three target ABIs, native Werror policy, local QR generation, Android TV/D-pad usability and complete UI/TXT/HTML/Database parity must not regress.
+
+
+## Release 0.41.3 queue and Vulkan Video evidence semantics
+- `VkQueueFamilyProperties.queueFlags` is direct queue-capability evidence. A false Graphics/Compute/Transfer/Sparse/Protected/Video Decode/Video Encode/Optical Flow/Data Graph value means the corresponding runtime queue flag bit was not reported for that queue family.
+- A zero `VkQueueFlags` value must be displayed as numeric zero with an explicit no-capability-bits description. VulkanScope must not invent a generic `VK_NONE` token for `VkQueueFlags`.
+- `VkQueueFamilyVideoPropertiesKHR::videoCodecOperations` is valid evidence only when the `VK_KHR_video_queue` query path actually ran for that queue family.
+- If `VK_KHR_video_queue` is not enumerated, video-codec-operation query state is Not applicable. If the query path fails or returns no queue-family evidence, state is Unavailable or Unknown as appropriate. Neither case may be converted to a zero mask or Unsupported.
+- When `VkQueueFamilyVideoPropertiesKHR` is successfully queried and `videoCodecOperations == 0`, the canonical Vulkan name is `VK_VIDEO_CODEC_OPERATION_NONE_KHR`.
+- Queue/video query state and reason must be preserved consistently in UI, TXT, HTML and schema-2 / technicalReport-3 Database submission.
+- Query availability and capability support are separate concepts. A reported boolean property value of false may coexist with an Available query state and must not be relabeled Unsupported unless the field itself is a defined capability-support boolean.
+- The complete Vulkan 1.4.360 `VkQueueFlagBits` known mask is `0x57F`; `VK_QUEUE_SPARSE_BINDING_BIT (0x8)` must not be duplicated into unknown queue bits.

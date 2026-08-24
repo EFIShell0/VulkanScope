@@ -1,67 +1,13 @@
-# VulkanScope 0.35.1
+# VulkanScope 0.41.3
 
-- Hardened update cancellation, signing-lineage verification and rejected-APK cache cleanup.
-- Re-audited Vulkan 1.4.360 query/report completeness, security, lifecycle and native resource ownership.
-- Preserved 64-bit format-feature reporting and Material 3 Expressive behavior.
+## Queue and Vulkan Video semantics
+- Fixed zero queue flag presentation so `VkQueueFlags` no longer uses a nonexistent generic `VK_NONE` name.
+- Added explicit per-queue video-codec query state and reason.
+- `VK_VIDEO_CODEC_OPERATION_NONE_KHR` is used only when `VkQueueFamilyVideoPropertiesKHR` was actually queried and returned a zero mask.
+- Missing or failed video-property queries remain Not applicable, Unavailable or Unknown and are never converted to Unsupported.
+- Queue support booleans continue to come directly from `VkQueueFamilyProperties.queueFlags`; `false` therefore means the corresponding queue capability bit is not reported.
+- Fixed the known queue-bit mask from `0x577` to the Vulkan 1.4.360 `0x57F`, including `VK_QUEUE_SPARSE_BINDING_BIT`.
 
-# 0.35.0
-
-- Fixed release compilation against AndroidX Compose Material3 1.5.0-alpha26 by using the current `ShortNavigationBarItemDefaults.colors` selected-label parameters.
-- Preserved the full 0.34.9 Material 3 Expressive UI redesign, VulkanScope dark/red identity, navigation hierarchy and behavior.
-- No Vulkan collection, FormatFeatureFlags2, report/export, Database, Turnip/SAF or update behavior changed.
-
-# 0.34.8
-
-- Completed `VK_KHR_format_feature_flags2` / Vulkan 1.3 format-feature data flow: `VkFormatProperties3` 64-bit masks now feed the main Formats model, UI, structured report, TXT and HTML exports, with legacy `VkFormatProperties` fallback only when FormatFeatureFlags2 is unavailable.
-- Added unsigned 64-bit parsing for format-feature masks so future high-bit values remain lossless and unknown bits can still be preserved by the canonical/raw formatter.
-- Refreshed Settings and Info icons with rounded Material 3 Expressive-aligned vector artwork while preserving existing navigation geometry, touch targets and VulkanScope visual hierarchy.
-
-# 0.34.7
-
-- Direct GitHub updates are now enabled by default on fresh installations so users receive release checks without prior setup.
-- Existing users' saved update preference is preserved; disabling Direct GitHub updates still stops startup checks.
-- Obtainium remains an optional external update manager and its informational guidance and portable configuration are retained.
-- The Add to Obtainium button remains removed.
-
-# 0.34.6
-
-- Removed the Add to Obtainium action from Settings to keep update controls minimal.
-- Kept Direct GitHub updates opt-in and disabled by default.
-- Kept Obtainium guidance as informational text and retained the portable obtainium-config.json.
-
-# 0.34.5
-
-- Replaced IzzyOnDroid-specific update messaging with Obtainium-oriented update management.
-- Added one-tap Obtainium import configured to select the universal APK from official GitHub Releases.
-- Kept the built-in updater opt-in and disabled by default.
-- Updated first-install and consent messaging to avoid duplicate update-manager notifications.
-- Added `obtainium-config.json`.
-
-# 0.34.4
-
-- Added a one-time seven-second first-install information banner for the default-disabled direct GitHub updater, reusing the existing update-status banner design.
-- Direct GitHub updates remain opt-in and disabled by default; IzzyOnDroid bypass consent remains mandatory.
-
-# 0.34.2
-
-- Full UI/TXT/HTML/Database report-path parity audit.
-- Added canonical + raw Vulkan masks to TXT/HTML memory, queue and format reporting.
-- Added instance-layer extensions to TXT.
-- Added implemented registry-structure names to TXT/HTML provenance.
-- Expanded local Android security/build provenance presentation.
-- Preserved 0.34.0 Host Image Copy array reporting through every complete-report consumer.
-- versionName 0.34.2 / versionCode 343.
-
-# 0.34.0
-
-- Completed strict Host Image Copy field parity for VulkanCapsViewer 4.12.
-- Added bounded two-call pCopySrcLayouts/pCopyDstLayouts collection and canonical VkImageLayout names with raw values.
-- Corrected field-audit alias handling for promoted EXT/KHR/core structures.
-- Updated published Vulkan provenance to 1.4.360.
-- Bumped versionName to 0.34.0 and versionCode to 341.
-
-## 0.34.3
-- Made the direct GitHub self-updater opt-in and disabled by default.
-- Added a Settings consent gate describing the official APK source and IzzyOnDroid screening/verification bypass.
-- Added Fastlane metadata for IzzyOnDroid repository ingestion.
-- Preserved Vulkan 1.4.360 capability/reporting behavior.
+## Reporting parity
+- UI, TXT, HTML and Database technicalReport expose identical queue/video query semantics.
+- Canonical schema versions remain unchanged.

@@ -8,8 +8,8 @@ errors = []
 gradle = (root / 'app/build.gradle.kts').read_text(encoding='utf-8')
 version = re.search(r'versionName\s*=\s*"([^"]+)"', gradle)
 code = re.search(r'versionCode\s*=\s*(\d+)', gradle)
-if not version or version.group(1) != '0.35.1': errors.append('versionName mismatch')
-if not code or code.group(1) != '352': errors.append('versionCode mismatch')
+if not version or version.group(1) != '0.41.3': errors.append('versionName mismatch')
+if not code or code.group(1) != '413': errors.append('versionCode mismatch')
 abi_line = re.search(r'abiFilters \+= listOf\(([^\n]+)\)', gradle)
 if not abi_line or any(x not in abi_line.group(1) for x in ['arm64-v8a', 'armeabi-v7a', 'x86_64']): errors.append('required ABI set is incomplete')
 if '"x86"' in gradle: errors.append('x86 ABI must remain excluded')
@@ -28,6 +28,14 @@ if 'import androidx.compose.ui.text.style.TextAlign' not in kt: errors.append('T
 for needle in ['reportToText', 'reportToHtml', 'registryCoverage', 'instanceExtensions', 'deviceExtensions']:
     if needle not in kt + cpp: errors.append(f'missing report/export path: {needle}')
 if re.search(r'\bTODO\b|\bFIXME\b', cpp + kt): errors.append('TODO/FIXME marker remains in production source')
+for source_path in list((root / 'app/src/main/java').rglob('*.kt')) + list((root / 'app/src/main/cpp').glob('*')) + list((root / 'tools').glob('*.py')):
+    if not source_path.is_file():
+        continue
+    source_text = source_path.read_text(encoding='utf-8', errors='ignore')
+    if source_path.suffix == '.py':
+        if re.search(r'^(?!#!)\s*#', source_text, re.MULTILINE): errors.append(f'source-code comment remains: {source_path.relative_to(root)}')
+    elif source_path.suffix in {'.kt', '.cpp', '.c', '.h', '.hpp'}:
+        if re.search(r'^\s*//|^\s*/\*', source_text, re.MULTILINE): errors.append(f'source-code comment remains: {source_path.relative_to(root)}')
 if 'android:usesCleartextTraffic="false"' not in manifest: errors.append('cleartext traffic must be disabled')
 for needle in ['packageSigningCertificatesMatch', 'archiveVersionCode <= installedVersionCode', 'toHttpUrlOrNull', 'baseUrl.username.isNotEmpty()', 'target.parentFile?.canonicalFile']:
     if needle not in kt: errors.append(f'missing update/network hardening: {needle}')
@@ -61,13 +69,11 @@ if 'Download APK' not in kt or 'Downloaded versionCode' not in kt:
 
 
 
-# 0.33.0 intentionally restores the complete Turnip/SAF behavior from VulkanScope 0.32.4.
 for needle in [
     'ActivityResultContracts.OpenDocument()',
-    'driverPickerLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))',
-    'return root.walkTopDown().firstOrNull { it.isFile && it.extension.equals("so", true) && it.length() > 0L }'
+    'driverPickerLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))'
 ]:
-    if needle not in kt: errors.append(f'missing restored 0.32.4 Turnip/SAF behavior: {needle}')
+    if needle not in kt: errors.append(f'missing restored Turnip/SAF picker behavior: {needle}')
 for forbidden in [
     'Driver import was deferred because Vulkan collection is still active.',
     'Wait for the current Vulkan collection pass to finish before changing drivers.',
@@ -76,7 +82,6 @@ for forbidden in [
 ]:
     if forbidden in kt: errors.append(f'post-0.32.4 Turnip behavior remains: {forbidden}')
 
-# 0.33.1 changes only Settings interactivity: the restored 0.32.4 Turnip/SAF internals remain intact.
 for needle in [
     'completeReportReady && turnipSupport == TurnipSupport.SUPPORTED',
     'if (completeReportReady) "Uses Android\'s system Vulkan loader/driver." else "Waiting for complete Vulkan collection"',
@@ -127,12 +132,32 @@ coverage_kt = (root / 'app/src/main/java/com/efishell/vulkanscope/CapsViewer412E
 coverage_extensions = set(re.findall(r'\"(VK_[A-Za-z0-9_]+)\"', coverage_kt))
 if len(coverage_extensions) != 301: errors.append(f'CapsViewer 4.12 physical-device extension coverage mismatch: {len(coverage_extensions)}')
 
+if '\"Sparse Image Format Properties2\",\"name\":\"' in cpp:
+    errors.append('sparse image safety fallback must emit valid JSON without an extra name quote')
+for needle in [
+    'count > values.size()',
+    'count > devices.size()',
+    'count > layers.size()',
+    'queueCount > queueCapacity',
+    'qcount > queueCapacity',
+    'toolCount > toolCapacity',
+    'formatCount > formats.size()',
+    'gc <= groupCapacity'
+]:
+    if needle not in cpp: errors.append(f'missing second-stage enumeration capacity defense: {needle}')
+for needle in [
+    'Vulkan Query Safety',
+    'Queue-family enumeration safety rejected',
+    'Memory-heap count safety rejected',
+    'Memory-type count safety rejected',
+    'Surface queue-family enumeration safety rejected'
+]:
+    if needle not in kt: errors.append(f'missing query-safety report/UI parity evidence: {needle}')
 if 'groupName.rfind("ext::", 0) == 0' not in cpp: errors.append('generic exhaustive extension query dispatch is missing')
 if '.map { "ext::$it" }' not in kt: errors.append('runtime-enumerated exhaustive extension scheduling is missing')
 if 'for (group in newGroups)' not in kt: errors.append('isolated complete-report queries must execute sequentially')
 if 'payload.size > 2 * 1024 * 1024' not in kt: errors.append('complete-report submission bound must match current Database transport')
 
-# Every validated device-extension descriptor must have an implemented native query branch.
 descriptor_groups = set(re.findall(r'\{\"([^\"]+)\", \"device-extension\"', catalog))
 implemented_groups = set(re.findall(r'std::strcmp\(groupName, \"([^\"]+)\"\)', cpp))
 implemented_extension_branches = set(re.findall(r'std::strcmp\(extensionName, "([^"]+)"\)', cpp))
@@ -223,14 +248,11 @@ if kt.count('metric("GPU", report.devices.firstOrNull()?.name ?: "Unknown")') !=
 
 for needle in [
     'val visibleLimits = remember(query, device?.limits)',
-    'val propertyResultCount = filtered.size',
     'val uniquePropertyNames = filtered.asSequence().map { it.name }.distinct().count()',
     'val limitResultCount = visibleLimits.size',
-    '"Limits" -> "$limitResultCount limits"',
-    '"All" -> "$propertyResultCount query results · $uniquePropertyNames unique property names · $limitResultCount limits"',
-    'else -> "$propertyResultCount query results · $uniquePropertyNames unique property names"'
+    '"Limits" -> "$limitResultCount limits"'
 ]:
-    if needle not in kt: errors.append(f'missing 0.33.10 Properties & Limits summary-semantics requirement: {needle}')
+    if needle not in kt: errors.append(f'missing Properties & Limits summary-semantics requirement: {needle}')
 if 'filtered.size + visibleLimits.size' in kt:
     errors.append('All summary must not merge property query results with limit rows')
 if '(filtered.asSequence().map { it.name } + visibleLimits.asSequence().map { it.first })' in kt:
@@ -245,7 +267,7 @@ for needle in [
     'flags=${memoryHeapFlags(it.flags)} | raw=${it.flags.toULong()}',
     'flags=${memoryTypeFlags(it.flags)} | raw=${it.flags.toULong()}',
     'flags=${queueCapabilityFlags(it.flags)}, rawFlags=${it.flags.toULong()}',
-    'videoCodecOperations=${videoCodecOperationFlags(it.videoCodecOperations)}',
+    'videoCodecOperations=${if (it.videoCodecQueryStatus == "available") videoCodecOperationFlags(it.videoCodecOperations) else "Unknown"}',
     'linear=${formatFeatureFlags(it.linear)} [raw ${it.linear.toULong()}',
     '"Implemented structs" to htmlEscape(report.registryCoverage.implementedPhysicalDeviceStructs.joinToString(", "))',
     '"Security patch" to htmlEscape(Build.VERSION.SECURITY_PATCH.ifBlank { "Unavailable" })'
@@ -273,10 +295,10 @@ for needle in [
     if needle not in kt: errors.append(f'missing 0.33.3 reporting/runtime audit fix: {needle}')
 if 'surface?.release()' not in probe_service:
     errors.append('isolated probe Surface parcel must be released deterministically')
-if 'pmc <= kMaxPresentModeEntries' not in cpp:
+if 'count > kMaxPresentModeEntries' not in cpp:
     errors.append('present-mode enumeration must use the dedicated safety bound')
-if 'ATOMIC_MOVE' not in probe_service and 'renameTo(file)' not in probe_service:
-    errors.append('probe result publication must be atomic')
+if 'Os.rename(temp.path, file.path)' not in probe_service:
+    errors.append('probe result publication must use app-private atomic rename')
 if 'VK_MAX_MEMORY_HEAPS' not in cpp or 'VK_MAX_MEMORY_TYPES' not in cpp:
     errors.append('memory enumeration safety limits must use canonical Vulkan array bounds')
 if 'kMaxSparseImageFormatEntries' not in cpp:
@@ -399,12 +421,251 @@ for icon_name in functional_icons:
 if 'ic_action_github.xml' not in {p.name for p in (root / 'app/src/main/res/drawable').glob('*.xml')}:
     errors.append('GitHub brand icon asset is missing')
 
+for needle in ['activeUpdateCheckCall', 'activeUpdateDownloadCall', 'updateDownloadJob', 'archiveHistory.containsAll(installedCurrent)', 'runCatching { target.delete() }', 'if (!directUpdatesEnabled) {']:
+    if needle not in kt:
+        errors.append(f'missing 0.35.1 updater hardening: {needle}')
+for needle in ['Analysis("Analysis")', 'Page.Analysis -> AnalysisPage(report, device, display, driverMode)', 'VulkanScopeAnalysisSnapshot1', 'ActivityResultContracts.OpenDocument()', 'ActivityResultContracts.CreateDocument("application/json")', 'vulkanSnapshotDiff', 'vulkanProfileRequirements()', 'getSharedPreferences("analysis_tools"', 'Minimal SPIR-V shader module', 'Minimal compute pipeline creation']:
+    if needle not in kt + cpp:
+        errors.append(f'missing 0.40.0 analysis/test requirement: {needle}')
+if 'readBoundedAnalysisBytes(input, ANALYSIS_MAX_SNAPSHOT_BYTES)' not in kt or 'ANALYSIS_MAX_SNAPSHOT_BYTES = 8 * 1024 * 1024' not in kt:
+    errors.append('0.40.0 snapshot import bound is missing')
+if 'collectVulkanSelfTest' not in cpp or 'queueCount > 4096' not in cpp or 'groupName == "selftest"' not in cpp:
+    errors.append('0.40.0 isolated Vulkan self-test contract is incomplete')
+if '## Release 0.40.0 local analysis and optional tests' not in (root / 'rules/PROJECT_RULES.md').read_text(encoding='utf-8'):
+    errors.append('PROJECT_RULES is missing the 0.40.0 analysis/test contract')
+if not (root / 'rules/0.40.0_ANALYSIS_COMPARE_TESTS_AUDIT.md').is_file():
+    errors.append('0.40.0 analysis/test audit is missing')
+if not (root / 'fastlane/metadata/android/en-US/changelogs/400.txt').is_file():
+    errors.append('0.40.0 fastlane changelog is missing')
+if 'BuildConfig.VERSION_NAME' in kt:
+    errors.append('0.40.1 Analysis must not depend on BuildConfig.VERSION_NAME')
+if '@OptIn(ExperimentalMaterial3ExpressiveApi::class)\n@Composable\nprivate fun AnalysisPage' not in kt:
+    errors.append('0.40.1 Analysis Material 3 Expressive opt-in is missing or too broad')
+if 'Minimal pipeline layout' not in cpp or 'layoutResult == VK_SUCCESS' not in cpp:
+    errors.append('0.40.1 pipeline-layout self-test evidence is not consumed')
+if '## Release 0.40.1 analysis build-fix requirements' not in (root / 'rules/PROJECT_RULES.md').read_text(encoding='utf-8'):
+    errors.append('PROJECT_RULES is missing the 0.40.1 build-fix contract')
+if not (root / 'rules/0.40.1_ANALYSIS_BUILD_FIX_AUDIT.md').is_file():
+    errors.append('0.40.1 build-fix audit is missing')
+if not (root / 'fastlane/metadata/android/en-US/changelogs/401.txt').is_file():
+    errors.append('0.40.1 fastlane changelog is missing')
+
+for needle in ['validateAnalysisSnapshot', 'ANALYSIS_MAX_ENTRIES = 32768', 'ANALYSIS_MAX_WATCHED = 256', 'readFileTextLimited(resultFile, maxProbeResultBytes.toInt())', 'items(diffRows, key = { it.key })', 'Image Format Properties2', 'Safe shader create/destroy path unavailable', 'completed_with_unavailable', 'stopVulkanProbeProcess()']:
+    if needle not in kt + cpp:
+        errors.append(f'missing 0.40.2 full-audit hardening: {needle}')
+if 'rows.take(2500)' in kt:
+    errors.append('0.40.2 Compare must not silently truncate diff rows')
+if '## Release 0.40.2 full application audit requirements' not in (root / 'rules/PROJECT_RULES.md').read_text(encoding='utf-8'):
+    errors.append('PROJECT_RULES is missing the 0.40.2 full-audit contract')
+if not (root / 'rules/0.40.2_FULL_APPLICATION_AUDIT.md').is_file():
+    errors.append('0.40.2 full-audit record is missing')
+if not (root / 'fastlane/metadata/android/en-US/changelogs/402.txt').is_file():
+    errors.append('0.40.2 fastlane changelog is missing')
+
+ext_ref = json.loads((root / 'registry/generated/extension_reference.json').read_text(encoding='utf-8'))
+if ext_ref.get('baseline') != 'Vulkan 1.4.360': errors.append('0.41.0 extension-reference baseline mismatch')
+known_block = kt[kt.index('private val KNOWN_VULKAN_EXTENSIONS'):kt.index('private fun List<String>.distinctScopes')]
+known_extensions = set(re.findall(r'"(VK_[^"]+)"', known_block))
+reference_names = {x.get('name') for x in ext_ref.get('entries', []) if isinstance(x, dict)}
+missing_reference = sorted(known_extensions - reference_names)
+if missing_reference: errors.append('0.41.0 known extensions missing registry reference: ' + ', '.join(missing_reference))
+isolated_block_match = re.search(r'private val ISOLATED_EXTENSION_GROUPS = linkedMapOf\((.*?)\n\)', kt, re.S)
+if not isolated_block_match:
+    errors.append('0.41.0 isolated extension query map missing')
+else:
+    isolated_pairs = re.findall(r'"([^"]+)"\s+to\s+"([^"]+)"', isolated_block_match.group(1))
+    isolated_by_name = {name: group for group, name in isolated_pairs}
+    missing_known_handlers = sorted(set(isolated_by_name) - known_extensions)
+    if missing_known_handlers:
+        errors.append('0.41.0 query-handled extensions missing known catalog: ' + ', '.join(missing_known_handlers))
+    reference_by_name = {x.get('name'): x for x in ext_ref.get('entries', []) if isinstance(x, dict)}
+    missing_handler_refs = sorted(set(isolated_by_name) - set(reference_by_name))
+    if missing_handler_refs:
+        errors.append('0.41.0 query-handled extensions missing reference entry: ' + ', '.join(missing_handler_refs))
+    mismatched_handler_refs = sorted(name for name, group in isolated_by_name.items() if name in reference_by_name and str(reference_by_name[name].get('queryGroup','')) != group)
+    if mismatched_handler_refs:
+        errors.append('0.41.0 query-handler/reference mapping mismatch: ' + ', '.join(mismatched_handler_refs))
+if 'vulkanExtensionQueryGroup(name) != null || ref.queryGroup.isNotBlank()' not in kt:
+    errors.append('0.41.0 handler:true filter must include the authoritative app query map')
+for entry in ext_ref.get('entries', []):
+    if not re.fullmatch(r'VK_[A-Z0-9]+_[A-Za-z0-9_]+', str(entry.get('name',''))): errors.append('0.41.0 extension reference contains non-extension token'); break
+    if not str(entry.get('specUrl','')).startswith('https://registry.khronos.org/vulkan/specs/latest/man/html/VK_'): errors.append('0.41.0 extension reference has non-authoritative URL'); break
+for needle in ['dependencyGraphEntries', 'maxDepth: Int = 4', 'maxNodes: Int = 64', 'Driver diagnostic evidence score', 'not a Vulkan conformance result', 'depends:VK_KHR', '"command" -> ref.commands.any', '"enum" -> ref.enums.any', 'VulkanQrCode(sharedReportUrl', 'databaseReportUrl(lastSharedReportId)', 'database_share', 'watchedEvidence']:
+    if needle not in kt: errors.append(f'missing 0.41.0 advanced-analysis requirement: {needle}')
+
+graph_kt_path = root / 'app/src/main/java/com/efishell/vulkanscope/VulkanDependencyGraph.kt'
+qr_kt_path = root / 'app/src/main/java/com/efishell/vulkanscope/VulkanQrCode.kt'
+if not graph_kt_path.is_file():
+    errors.append('0.41.0 visual dependency graph source missing')
+else:
+    graph_kt = graph_kt_path.read_text(encoding='utf-8')
+    for needle in ['Canvas(', 'drawLine(', 'shown = nodes.take(24)', 'horizontalScroll(rememberScrollState())', 'VulkanGraphNode']:
+        if needle not in graph_kt: errors.append(f'missing 0.41.0 visual graph requirement: {needle}')
+if not qr_kt_path.is_file():
+    errors.append('0.41.0 local QR renderer source missing')
+else:
+    qr_kt = qr_kt_path.read_text(encoding='utf-8')
+    for needle in ['QRCodeWriter().encode(', 'BarcodeFormat.QR_CODE', 'ErrorCorrectionLevel.M', 'Canvas(', 'Color.Black']:
+        if needle not in qr_kt: errors.append(f'missing 0.41.0 local QR requirement: {needle}')
+    if 'https://' in qr_kt or 'http://' in qr_kt: errors.append('0.41.0 QR renderer must not contain a remote QR/network endpoint')
+if 'VulkanDependencyGraph(visualGraphNodes' not in kt:
+    errors.append('0.41.0 visual graph is not integrated into Analysis')
+if 'driverHealth.score?.let { "$it / 100" } ?: "Unavailable"' not in kt:
+    errors.append('0.41.0 diagnostic score must not display an unavailable report as 0/100')
+
+if 'com.google.zxing:core:3.5.4' not in gradle: errors.append('0.41.2 local QR dependency pin missing')
+if not (root / 'tools/generate_extension_reference.py').is_file(): errors.append('0.41.0 vk.xml extension-reference generator missing')
+if '## Release 0.41.0 advanced analysis, registry reference and sharing requirements' not in (root / 'rules/PROJECT_RULES.md').read_text(encoding='utf-8'): errors.append('PROJECT_RULES is missing 0.41.0 contract')
+if not (root / 'rules/0.41.0_ADVANCED_ANALYSIS_DATABASE_AUDIT.md').is_file(): errors.append('0.41.0 audit record missing')
+if not (root / 'fastlane/metadata/android/en-US/changelogs/410.txt').is_file(): errors.append('0.41.0 fastlane changelog missing')
+
+if '## Release 0.41.1 Analysis Compose build-fix requirements' not in (root / 'rules/PROJECT_RULES.md').read_text(encoding='utf-8'):
+    errors.append('PROJECT_RULES is missing 0.41.1 contract')
+if not (root / 'rules/0.41.1_ANALYSIS_COMPOSE_BUILD_FIX_AUDIT.md').is_file():
+    errors.append('0.41.1 audit record missing')
+if not (root / 'fastlane/metadata/android/en-US/changelogs/411.txt').is_file():
+    errors.append('0.41.1 fastlane changelog missing')
+for forbidden in [
+    'val rows = remember(baseline, current, includeUnchanged, diffQuery)',
+    'val rootRef = remember(rootToken)',
+    'val graphEntries = remember(rootToken)',
+    'val visualNodes = remember(graphEntries, report, device)',
+    'val health = remember(report, device)',
+    'val entries = remember(current)',
+    'val watchEvidence = remember(entries, watched)',
+    'val sharePrefs = remember { context.getSharedPreferences("database_share", Context.MODE_PRIVATE) }'
+]:
+    analysis_start = kt.find('private fun AnalysisPage(')
+    lazy_start = kt.find('LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues()', analysis_start)
+    analysis_end = kt.find('\n@Composable', lazy_start + 1)
+    analysis_lazy_body = kt[lazy_start:analysis_end if analysis_end >= 0 else len(kt)] if lazy_start >= 0 else ''
+    if forbidden in analysis_lazy_body:
+        errors.append('0.41.1 forbidden composable state calculation remains inside LazyListScope: ' + forbidden)
+if '.map { it.key to it.value }' not in kt:
+    errors.append('0.41.1 watched evidence must convert Map.Entry to explicit Pair values')
+if 'val diffRows = remember(baseline, current, includeUnchanged, diffQuery)' not in kt:
+    errors.append('0.41.1 diff calculation is not hoisted to composable scope')
+if 'val visualGraphNodes = remember(graphEntries, report, device)' not in kt:
+    errors.append('0.41.1 graph calculation is not hoisted to composable scope')
+
+
+rules_text = (root / 'rules/PROJECT_RULES.md').read_text(encoding='utf-8')
+if '## Release 0.41.2 full correctness, compatibility and reporting audit requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 0.41.2 full-audit contract')
+if not (root / 'rules/0.41.2_FULL_APPLICATION_AUDIT.md').is_file():
+    errors.append('0.41.2 full-audit record is missing')
+if not (root / 'fastlane/metadata/android/en-US/changelogs/412.txt').is_file():
+    errors.append('0.41.2 fastlane changelog is missing')
+for needle in [
+    'val evidenceResultCount = filtered.size',
+    'val safetyEvidenceCount = filtered.count { it.section == "Vulkan Query Safety" }',
+    'val propertyResultCount = evidenceResultCount - safetyEvidenceCount',
+    '$evidenceResultCount evidence rows · $propertyResultCount property/query rows · $safetyEvidenceCount safety diagnostics',
+    '$detailedPropertyCount property/query rows; $detailedSafetyCount safety diagnostics',
+    '$htmlDetailedPropertyCount property/query rows; $htmlDetailedSafetyCount safety diagnostics'
+]:
+    if needle not in kt:
+        errors.append(f'missing 0.41.2 query/evidence count separation: {needle}')
+for needle in [
+    'SurfaceFormatEnumeration',
+    'SurfacePresentModeEnumeration',
+    'for (uint32_t attempt = 0; attempt < 4; ++attempt)',
+    'returnedCount > capacity',
+    'formatEnumerationComplete',
+    'presentModeEnumerationComplete',
+    'Partial: VK_INCOMPLETE; returned entries are positive evidence only.',
+    'data query count exceeded the bounded allocation.'
+]:
+    if needle not in cpp:
+        errors.append(f'missing 0.41.2 bounded enumeration hardening: {needle}')
+if '"vulkanRegistryVersion":"1.4.357"' in cpp:
+    errors.append('obsolete Vulkan 1.4.357 provenance remains in active native source')
+if cpp.count('vulkanRegistryVersion\\":\\"1.4.360') < 3:
+    errors.append('all active native checkpoint provenance paths must report Vulkan 1.4.360')
+for needle in [
+    'private fun resolveInstalledTurnipLibrary(filesDir: File): File?',
+    'metadataFiles.size != 1',
+    'metadata.optInt("schemaVersion", -1) != 1',
+    'declared.contains(\'/\')',
+    'declared.contains(\'\\\\\')',
+    '!declared.endsWith(".so", true)',
+    '!declared.contains("vulkan", true)',
+    'libraries.size != 1',
+    'canonicalLibrary.path.startsWith(rootPrefix)',
+    'readFileTextLimited(metadataFiles.single(), 1024 * 1024)',
+    'entry.name.length > 1024',
+    'Build.VERSION.SDK_INT < 28 || !Build.SUPPORTED_ABIS.contains("arm64-v8a")'
+]:
+    if needle not in kt:
+        errors.append(f'missing 0.41.2 strict Turnip requirement: {needle}')
+if 'return root.walkTopDown().firstOrNull { it.isFile && it.extension.equals("so", true)' in kt:
+    errors.append('legacy arbitrary first-.so Turnip fallback must not return after 0.41.2')
+for needle in [
+    'class ProbeBoundedOutputStream',
+    '64L * 1024L * 1024L',
+    'stream.fd.sync()',
+    'Os.rename(temp.path, file.path)',
+    'surface?.release()',
+    'worker.shutdownNow()'
+]:
+    if needle not in probe_service:
+        errors.append(f'missing 0.41.2 probe publication/lifecycle hardening: {needle}')
+if 'java.nio.file' in probe_service or 'Files.move' in probe_service or 'StandardCopyOption' in probe_service:
+    errors.append('minSdk 24 probe service must not use API-26-only java.nio.file publication APIs')
+for needle in [
+    'androidx.core:core-ktx:1.19.0',
+    'androidx.lifecycle:lifecycle-runtime-compose:2.11.0',
+    'androidx.compose.ui:ui:1.12.0',
+    'androidx.compose.foundation:foundation:1.12.0',
+    'androidx.compose.animation:animation:1.12.0',
+    'androidx.compose.material3:material3:1.5.0-alpha26',
+    'com.squareup.okhttp3:okhttp:5.2.0',
+    'com.google.zxing:core:3.5.4'
+]:
+    if needle not in gradle:
+        errors.append(f'missing 0.41.2 dependency baseline: {needle}')
+field_generator = (root / 'tools/generate_extension_field_coverage.py').read_text(encoding='utf-8')
+if "int(version_match.group(1)) != 360" not in field_generator or "r'#define\\s+VK_HEADER_VERSION\\s+(\\d+)\\b'" not in field_generator:
+    errors.append('0.41.2 extension field generator must validate VK_HEADER_VERSION 360 with a valid word boundary')
+for stale in ['vulkanscope.cpp.pre0412audit', 'MainActivity.kt.pre0412audit']:
+    if list(root.rglob(stale)):
+        errors.append(f'release package contains stale source backup: {stale}')
+if list(root.rglob('__pycache__')) or list(root.rglob('*.pyc')):
+    errors.append('release package contains Python cache artifacts')
+
+if '## Release 0.41.3 queue and Vulkan Video evidence semantics' not in rules_text:
+    errors.append('PROJECT_RULES is missing 0.41.3 queue/video semantics contract')
+if not (root / 'rules/0.41.3_QUEUE_VIDEO_SEMANTICS_AUDIT.md').is_file():
+    errors.append('0.41.3 queue/video audit record is missing')
+if not (root / 'fastlane/metadata/android/en-US/changelogs/413.txt').is_file():
+    errors.append('0.41.3 fastlane changelog is missing')
+for needle in [
+    'val videoCodecQueryStatus: String = "unknown"',
+    'val videoCodecQueryReason: String = ""',
+    '0 · no VkQueueFlagBits reported',
+    'VK_VIDEO_CODEC_OPERATION_NONE_KHR',
+    'videoCodecQueryStatus',
+    'videoCodecQueryReason',
+    'queueVideoCodecQueryState(queue)',
+    'hasVideoQueueExtension',
+    'VK_KHR_video_queue was not enumerated for this device.',
+    'val knownQueueFlags = 0x57FL'
+]:
+    if needle not in kt:
+        errors.append(f'missing 0.41.3 queue/video semantics: {needle}')
+if 'if (queue.videoCodecOperations != 0L) CapabilityKeyValue("Video codec operations"' in kt:
+    errors.append('0.41.3 must not hide a successfully queried zero video codec mask')
+if 'private fun queueCapabilityFlags(bits: Long): String = canonicalFlagNames' in kt:
+    errors.append('0.41.3 queue flags require explicit zero-mask semantics')
+
+if '~0x577u' in cpp or '0x577L' in kt:
+    errors.append('obsolete queue known-bit mask 0x577 remains; Vulkan 1.4.360 mask is 0x57F')
+if '~0x57Fu' not in cpp:
+    errors.append('native queue unknown-bit mask must include sparse binding bit in 0x57F known mask')
+
 if errors:
     for error in errors: print(f'FAIL: {error}')
     raise SystemExit(1)
 print('VulkanScope release verification: PASS')
 
-for needle in ['activeUpdateCheckCall', 'activeUpdateDownloadCall', 'updateDownloadJob', 'archiveHistory.containsAll(installedCurrent)', 'runCatching { target.delete() }', 'if (!directUpdatesEnabled) {']:
-    if needle not in kt:
-        errors.append(f'missing 0.35.1 updater hardening: {needle}')
 print(f'version={version.group(1)} code={code.group(1)} baseline=Vulkan 1.4.360 schema=6 compileHeaders=0b7f383797fa7be53ae28213e001ae60668ee511')
