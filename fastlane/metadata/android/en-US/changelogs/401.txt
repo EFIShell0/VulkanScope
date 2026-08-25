@@ -1,1 +1,0 @@
-Fixed VulkanScope 0.40.0 release-build errors in the new Analysis/self-test implementation: runtime package version lookup replaces BuildConfig usage, Material 3 Expressive opt-in is scoped to Analysis, and pipeline-layout self-test evidence is now consumed explicitly under the native -Werror build gate.

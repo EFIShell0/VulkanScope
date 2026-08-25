@@ -22,7 +22,7 @@
 - VK_QCOM_image_processing3: https://docs.vulkan.org/refpages/latest/refpages/source/VK_QCOM_image_processing3.html
 - VK_QCOM_shader_multiple_wait_queues: https://docs.vulkan.org/refpages/latest/refpages/source/VK_QCOM_shader_multiple_wait_queues.html
 
-The current published Khronos Vulkan specification rechecked for VulkanScope 0.41.4 is Vulkan 1.4.360 (2026-08-14). VulkanScope pins Vulkan-Headers commit 0b7f383797fa7be53ae28213e001ae60668ee511 with VK_HEADER_VERSION 360, matching the project's published/query baseline while runtime loader, device API and driver versions remain separate evidence.
+The current published Khronos Vulkan specification rechecked for VulkanScope 0.41.2 is Vulkan 1.4.360 (2026-08-14). VulkanScope pins Vulkan-Headers commit 0b7f383797fa7be53ae28213e001ae60668ee511 with VK_HEADER_VERSION 360, matching the project's published/query baseline while runtime loader, device API and driver versions remain separate evidence.
 
 - VulkanScope 0.10.0 registry-driven query catalog and verification tools.
 
@@ -68,21 +68,3 @@ The runtime never downloads or parses these sources; the checked-in query catalo
 - Android system Os API reference for app-private atomic rename: https://developer.android.com/reference/android/system/Os
 - AndroidX Core 1.19.0 release notes: https://developer.android.com/jetpack/androidx/releases/core
 - AndroidX Lifecycle 2.11.0 release notes: https://developer.android.com/jetpack/androidx/releases/lifecycle
-
-
-## 0.41.4 security/build sources
-- Kotlin build-cache deserialization advisory CVE-2026-53914 / GHSA-r937-wjx7-w2jp: https://osv.dev/vulnerability/GHSA-r937-wjx7-w2jp
-- Kotlin release status: https://kotlinlang.org/docs/releases.html
-- Android Gradle Plugin 9.3 compatibility: https://developer.android.com/build/releases/agp-9-3-0-release-notes
-- Current AndroidX version table: https://developer.android.com/jetpack/androidx/versions
-
-## 0.41.5 Analysis/Profile sources
-- Current Vulkan specification: https://registry.khronos.org/vulkan/specs/latest/html/vkspec.html — Vulkan 1.4.360 dated 2026-08-14.
-- Vulkan Profiles overview: https://github.com/KhronosGroup/Vulkan-Profiles/blob/main/OVERVIEW.md
-- Vulkan Profiles changelog: https://github.com/KhronosGroup/Vulkan-Profiles/blob/main/CHANGELOG.md
-- Android 17 requirements: https://github.com/KhronosGroup/Vulkan-Profiles/blob/main/profiles/Android/VP_ANDROID_17_requirements.json
-- Android 16 requirements: https://github.com/KhronosGroup/Vulkan-Profiles/blob/main/profiles/Android/VP_ANDROID_16_requirements.json
-- Android 15 requirements: https://github.com/KhronosGroup/Vulkan-Profiles/blob/main/profiles/Android/VP_ANDROID_15_requirements.json
-- Android Vulkan Profile 2025: https://github.com/KhronosGroup/Vulkan-Profiles/blob/main/profiles/Android/VP_ANDROID_vulkan_profile_2025.json
-- Khronos Roadmap profiles: https://github.com/KhronosGroup/Vulkan-Headers/tree/main/registry/profiles
-

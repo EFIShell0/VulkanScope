@@ -1,1 +1,0 @@
-Improved Analysis snapshots, filters and comparison completeness; updated current Android/Roadmap profile minimums with patch-level Vulkan API checks; made partial profile evaluation UNKNOWN instead of overclaiming PASS; targeted optional self-tests to the selected GPU; and updated Database permalinks for the current Database route format.

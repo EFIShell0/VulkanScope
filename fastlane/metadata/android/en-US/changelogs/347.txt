@@ -1,1 +1,0 @@
-Removed the Add to Obtainium button while keeping the optional Direct GitHub updates toggle and concise Obtainium guidance. The portable Obtainium configuration remains included.

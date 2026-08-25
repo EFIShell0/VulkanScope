@@ -1,1 +1,0 @@
-Fixed the 0.41.5 release Kotlin compilation regression by restoring the required Compose runtime mutableIntStateOf import for Analysis dependency-graph depth state and added a release gate to catch missing primitive Compose state imports before packaging.

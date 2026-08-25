@@ -1,1 +1,0 @@
-Inspect Vulkan capabilities, extensions, limits, drivers, display and HDR.

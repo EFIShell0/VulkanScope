@@ -1,3 +1,0 @@
-Full Material 3 Expressive UI pass while preserving VulkanScope's dark/red identity and navigation.
-Updated navigation, search, chips, switches, driver selection, dialogs, status/loading surfaces and functional icons.
-No Vulkan collection, reporting, Database, Turnip/SAF or update behavior changed.

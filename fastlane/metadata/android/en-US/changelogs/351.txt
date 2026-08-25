@@ -1,1 +1,0 @@
-Fixed Material 3 Expressive short navigation colors for AndroidX Material3 1.5.0-alpha26 release compilation while preserving the 0.34.9 Expressive UI redesign.

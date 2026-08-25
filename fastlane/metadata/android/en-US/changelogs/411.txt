@@ -1,1 +1,0 @@
-Fixed 0.41.0 Analysis Compose release-build errors while preserving all advanced analysis and Vulkan capability features.

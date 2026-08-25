@@ -1,1 +1,0 @@
-Adds a one-time seven-second startup information banner explaining that direct GitHub updates are disabled by default and can be enabled from Settings. The banner uses the existing update-status visual language.

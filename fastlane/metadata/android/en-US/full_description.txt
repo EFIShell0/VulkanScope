@@ -1,5 +1,0 @@
-VulkanScope is an open-source Android Vulkan capability inspector.
-
-It reports Vulkan API and driver information, features, properties and limits, extensions, formats, memory, queues, Surface/WSI, Vulkan Video, profiles, Display/HDR metadata and detailed query provenance. Reports can be exported as TXT or self-contained HTML and explicitly submitted to VulkanScope Database.
-
-Direct GitHub APK update checks are enabled by default on fresh installations and can be disabled in Settings. Obtainium can alternatively manage updates from the official VulkanScope GitHub Releases source using the universal APK from the official release channel.

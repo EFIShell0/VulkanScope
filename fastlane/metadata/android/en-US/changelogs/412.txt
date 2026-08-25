@@ -1,1 +1,0 @@
-Hardened Surface and multi-stage Vulkan enumeration, corrected Vulkan 1.4.360 provenance, clarified 1473 evidence-row semantics, strengthened Turnip validation, and fixed Android 7 probe-result publication compatibility.

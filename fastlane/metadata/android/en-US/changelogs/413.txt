@@ -1,1 +1,0 @@
-Corrected queue and Vulkan Video availability/support semantics, canonical zero-mask naming, and queue reporting parity.

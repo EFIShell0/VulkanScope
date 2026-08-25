@@ -1,1 +1,0 @@
-Full rules-based audit: hardened Vulkan enumeration/count safety, fixed Sparse Image Format Properties2 safety-path JSON, preserved queue/memory/Surface safety diagnostics across UI and complete reports, hardened Analysis/probe bounds, removed Compare truncation, and made optional Vulkan self-tests fail closed with deterministic ownership.

@@ -1,1 +1,0 @@
-Direct GitHub updates are now enabled by default on fresh installations while preserving the user toggle and optional Obtainium guidance. Existing saved preferences remain unchanged.
