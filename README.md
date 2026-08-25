@@ -4,7 +4,7 @@
 
 Database: https://efishell0.github.io/VulkanScope_database/
 
-**Current version: 0.41.3**
+**Current version: 0.41.7**
 
 This app supports **Obtainium**. Identifying the storage links of Obtainium is sufficient.
 

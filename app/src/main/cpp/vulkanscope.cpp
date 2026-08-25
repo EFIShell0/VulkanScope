@@ -1081,6 +1081,7 @@ DeviceExtensionEnumeration enumerateDeviceExtensions(VulkanApi& api, VkPhysicalD
     if (!api.enumerateDeviceExtensionProperties) {
         return {{}, "unavailable", "vkEnumerateDeviceExtensionProperties is unavailable in the active Vulkan stack."};
     }
+    std::vector<VkExtensionProperties> partialValues;
     for (uint32_t attempt = 0; attempt < 4; ++attempt) {
         uint32_t count = 0;
         const VkResult countResult = api.enumerateDeviceExtensionProperties(device, nullptr, &count, nullptr);
@@ -1094,18 +1095,23 @@ DeviceExtensionEnumeration enumerateDeviceExtensions(VulkanApi& api, VkPhysicalD
             if (countResult == VK_SUCCESS) return {{}, "available", "The Vulkan implementation reported zero device extensions."};
             continue;
         }
-        std::vector<VkExtensionProperties> values(count);
-        const VkResult dataResult = api.enumerateDeviceExtensionProperties(device, nullptr, &count, values.data());
+        const uint32_t capacity = count;
+        std::vector<VkExtensionProperties> values(capacity);
+        uint32_t returnedCount = capacity;
+        const VkResult dataResult = api.enumerateDeviceExtensionProperties(device, nullptr, &returnedCount, values.data());
+        if (returnedCount > capacity) {
+            return {{}, "unavailable", "The device-extension data query returned a count larger than the bounded allocation."};
+        }
+        values.resize(returnedCount);
         if (dataResult == VK_SUCCESS) {
-            if (count > values.size()) return {{}, "unavailable", "The device-extension data query returned a count larger than the bounded allocation."};
-            values.resize(count);
             return {std::move(values), "available", ""};
         }
         if (dataResult != VK_INCOMPLETE) {
             return {{}, "unavailable", std::string("Data query failed. VkResult=") + std::to_string(dataResult)};
         }
+        if (!values.empty()) partialValues = std::move(values);
     }
-    return {{}, "incomplete", "Device-extension enumeration remained VK_INCOMPLETE after four bounded attempts."};
+    return {std::move(partialValues), "incomplete", "Device-extension enumeration remained VK_INCOMPLETE after four bounded attempts; returned entries are retained as partial positive evidence only."};
 }
 
 const std::vector<VkExtensionProperties>& deviceExtensions(const DeviceExtensionEnumeration& enumeration) {
@@ -1612,15 +1618,27 @@ void appendCoreProperties(std::ostringstream& out, uint32_t apiVersion, VulkanAp
     constexpr uint32_t kMaxVulkan14LayoutEntries = 65536;
     std::vector<VkImageLayout> copySrc;
     std::vector<VkImageLayout> copyDst;
+    bool copySrcWithinLimit = false;
+    bool copyDstWithinLimit = false;
+    bool copySrcCollected = false;
+    bool copyDstCollected = false;
     api.queryProperties2(device, &base);
     if (targetMinor == 4 && minor >= 4) {
-        const bool copySrcWithinLimit = p14.copySrcLayoutCount <= kMaxVulkan14LayoutEntries;
-        const bool copyDstWithinLimit = p14.copyDstLayoutCount <= kMaxVulkan14LayoutEntries;
+        copySrcWithinLimit = p14.copySrcLayoutCount <= kMaxVulkan14LayoutEntries;
+        copyDstWithinLimit = p14.copyDstLayoutCount <= kMaxVulkan14LayoutEntries;
         if (copySrcWithinLimit) copySrc.resize(p14.copySrcLayoutCount);
         if (copyDstWithinLimit) copyDst.resize(p14.copyDstLayoutCount);
+        const size_t copySrcCapacity = copySrc.size();
+        const size_t copyDstCapacity = copyDst.size();
         p14.pCopySrcLayouts = copySrcWithinLimit && !copySrc.empty() ? copySrc.data() : nullptr;
         p14.pCopyDstLayouts = copyDstWithinLimit && !copyDst.empty() ? copyDst.data() : nullptr;
-        if (copySrcWithinLimit && copyDstWithinLimit) api.queryProperties2(device, &base);
+        if (copySrcWithinLimit || copyDstWithinLimit) api.queryProperties2(device, &base);
+        copySrcCollected = copySrcWithinLimit && p14.copySrcLayoutCount <= copySrcCapacity;
+        copyDstCollected = copyDstWithinLimit && p14.copyDstLayoutCount <= copyDstCapacity;
+        if (copySrcCollected) copySrc.resize(p14.copySrcLayoutCount);
+        else copySrc.clear();
+        if (copyDstCollected) copyDst.resize(p14.copyDstLayoutCount);
+        else copyDst.clear();
     }
     if (targetMinor == 1 && minor >= 1) {
         appendProperty(out, first, "Core 1.1", "deviceUUID", hexBytes(p11.deviceUUID, 16));
@@ -1702,19 +1720,19 @@ void appendCoreProperties(std::ostringstream& out, uint32_t apiVersion, VulkanAp
         appendProperty(out, first, "Core 1.4", "defaultRobustnessImages", p14.defaultRobustnessImages);
         appendProperty(out, first, "Core 1.4", "copySrcLayoutCount", p14.copySrcLayoutCount);
         appendProperty(out, first, "Core 1.4", "copyDstLayoutCount", p14.copyDstLayoutCount);
-        if (p14.copySrcLayoutCount <= kMaxVulkan14LayoutEntries) {
-            std::string srcLayouts;
-            for (uint32_t i = 0; i < p14.copySrcLayoutCount && i < copySrc.size(); ++i) { if (i) srcLayouts += ", "; srcLayouts += imageLayoutValueString(copySrc[i]); }
-            appendProperty(out, first, "Core 1.4", "pCopySrcLayouts", srcLayouts);
-        } else {
+        if (!copySrcWithinLimit) {
             appendProperty(out, first, "Core 1.4", "pCopySrcLayouts", "Unavailable: safety cap exceeded");
-        }
-        if (p14.copyDstLayoutCount <= kMaxVulkan14LayoutEntries) {
-            std::string dstLayouts;
-            for (uint32_t i = 0; i < p14.copyDstLayoutCount && i < copyDst.size(); ++i) { if (i) dstLayouts += ", "; dstLayouts += imageLayoutValueString(copyDst[i]); }
-            appendProperty(out, first, "Core 1.4", "pCopyDstLayouts", dstLayouts);
+        } else if (!copySrcCollected) {
+            appendProperty(out, first, "Core 1.4", "pCopySrcLayouts", "Unavailable: returned layout count exceeded the bounded allocation");
         } else {
+            appendProperty(out, first, "Core 1.4", "pCopySrcLayouts", imageLayoutListString(copySrc.data(), static_cast<uint32_t>(copySrc.size())));
+        }
+        if (!copyDstWithinLimit) {
             appendProperty(out, first, "Core 1.4", "pCopyDstLayouts", "Unavailable: safety cap exceeded");
+        } else if (!copyDstCollected) {
+            appendProperty(out, first, "Core 1.4", "pCopyDstLayouts", "Unavailable: returned layout count exceeded the bounded allocation");
+        } else {
+            appendProperty(out, first, "Core 1.4", "pCopyDstLayouts", imageLayoutListString(copyDst.data(), static_cast<uint32_t>(copyDst.size())));
         }
         appendProperty(out, first, "Core 1.4", "optimalTilingLayoutUUID", hexBytes(p14.optimalTilingLayoutUUID, 16));
         appendBoolProperty(out, first, "Core 1.4", "identicalMemoryTypeRequirements", p14.identicalMemoryTypeRequirements);
@@ -2679,11 +2697,17 @@ std::string collectVulkanExtensionGroup(const char* driverMode, const char* driv
             const bool dstWithinLimit = hostProperties.copyDstLayoutCount <= kMaxHostImageCopyLayoutEntries;
             std::vector<VkImageLayout> srcLayouts(srcWithinLimit ? hostProperties.copySrcLayoutCount : 0);
             std::vector<VkImageLayout> dstLayouts(dstWithinLimit ? hostProperties.copyDstLayoutCount : 0);
+            const size_t srcCapacity = srcLayouts.size();
+            const size_t dstCapacity = dstLayouts.size();
             hostProperties.pCopySrcLayouts = srcWithinLimit && !srcLayouts.empty() ? srcLayouts.data() : nullptr;
             hostProperties.pCopyDstLayouts = dstWithinLimit && !dstLayouts.empty() ? dstLayouts.data() : nullptr;
-            if (srcWithinLimit && dstWithinLimit) api.queryProperties2(devices[i], &hostQuery);
-            addProperty("pCopySrcLayouts", srcWithinLimit ? imageLayoutListString(srcLayouts.data(), static_cast<uint32_t>(srcLayouts.size())) : "Unavailable: layout count exceeds the 65536-entry safety bound.");
-            addProperty("pCopyDstLayouts", dstWithinLimit ? imageLayoutListString(dstLayouts.data(), static_cast<uint32_t>(dstLayouts.size())) : "Unavailable: layout count exceeds the 65536-entry safety bound.");
+            if (srcWithinLimit || dstWithinLimit) api.queryProperties2(devices[i], &hostQuery);
+            const bool srcCollected = srcWithinLimit && hostProperties.copySrcLayoutCount <= srcCapacity;
+            const bool dstCollected = dstWithinLimit && hostProperties.copyDstLayoutCount <= dstCapacity;
+            if (srcCollected) srcLayouts.resize(hostProperties.copySrcLayoutCount); else srcLayouts.clear();
+            if (dstCollected) dstLayouts.resize(hostProperties.copyDstLayoutCount); else dstLayouts.clear();
+            addProperty("pCopySrcLayouts", !srcWithinLimit ? "Unavailable: layout count exceeds the 65536-entry safety bound." : !srcCollected ? "Unavailable: returned layout count exceeded the bounded allocation." : imageLayoutListString(srcLayouts.data(), static_cast<uint32_t>(srcLayouts.size())));
+            addProperty("pCopyDstLayouts", !dstWithinLimit ? "Unavailable: layout count exceeds the 65536-entry safety bound." : !dstCollected ? "Unavailable: returned layout count exceeded the bounded allocation." : imageLayoutListString(dstLayouts.data(), static_cast<uint32_t>(dstLayouts.size())));
         }
         if (runtimePNextAdded > 0) addProperty("generatedRuntimePNextTypes", std::to_string(runtimePNextAdded));
         if (std::strcmp(extensionName, "VK_EXT_cooperative_matrix_maintenance1") == 0) {
@@ -3356,9 +3380,15 @@ std::string collectVulkan14(const char* driverMode, const char* driverIcdPath, c
         const bool copyDstWithinLimit = p14.copyDstLayoutCount <= kMaxVulkan14LayoutEntries;
         std::vector<VkImageLayout> copySrcLayouts(copySrcWithinLimit ? p14.copySrcLayoutCount : 0);
         std::vector<VkImageLayout> copyDstLayouts(copyDstWithinLimit ? p14.copyDstLayoutCount : 0);
+        const size_t copySrcCapacity = copySrcLayouts.size();
+        const size_t copyDstCapacity = copyDstLayouts.size();
         p14.pCopySrcLayouts = copySrcWithinLimit && !copySrcLayouts.empty() ? copySrcLayouts.data() : nullptr;
         p14.pCopyDstLayouts = copyDstWithinLimit && !copyDstLayouts.empty() ? copyDstLayouts.data() : nullptr;
-        if (copySrcWithinLimit && copyDstWithinLimit) api.queryProperties2(devices[i], &properties2);
+        if (copySrcWithinLimit || copyDstWithinLimit) api.queryProperties2(devices[i], &properties2);
+        const bool copySrcCollected = copySrcWithinLimit && p14.copySrcLayoutCount <= copySrcCapacity;
+        const bool copyDstCollected = copyDstWithinLimit && p14.copyDstLayoutCount <= copyDstCapacity;
+        if (copySrcCollected) copySrcLayouts.resize(p14.copySrcLayoutCount); else copySrcLayouts.clear();
+        if (copyDstCollected) copyDstLayouts.resize(p14.copyDstLayoutCount); else copyDstLayouts.clear();
 
         VkPhysicalDeviceVulkan14Features v14{};
         v14.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES;
@@ -3405,12 +3435,8 @@ std::string collectVulkan14(const char* driverMode, const char* driverIcdPath, c
         addProp("defaultRobustnessImages", std::to_string(p14.defaultRobustnessImages));
         addProp("copySrcLayoutCount", std::to_string(p14.copySrcLayoutCount));
         addProp("copyDstLayoutCount", std::to_string(p14.copyDstLayoutCount));
-        std::string srcLayouts;
-        for (uint32_t j = 0; j < p14.copySrcLayoutCount && j < copySrcLayouts.size(); ++j) { if (j) srcLayouts += ", "; srcLayouts += imageLayoutValueString(copySrcLayouts[j]); }
-        std::string dstLayouts;
-        for (uint32_t j = 0; j < p14.copyDstLayoutCount && j < copyDstLayouts.size(); ++j) { if (j) dstLayouts += ", "; dstLayouts += imageLayoutValueString(copyDstLayouts[j]); }
-        addProp("pCopySrcLayouts", copySrcWithinLimit ? srcLayouts : "Unavailable: safety cap exceeded");
-        addProp("pCopyDstLayouts", copyDstWithinLimit ? dstLayouts : "Unavailable: safety cap exceeded");
+        addProp("pCopySrcLayouts", !copySrcWithinLimit ? "Unavailable: safety cap exceeded" : !copySrcCollected ? "Unavailable: returned layout count exceeded the bounded allocation" : imageLayoutListString(copySrcLayouts.data(), static_cast<uint32_t>(copySrcLayouts.size())));
+        addProp("pCopyDstLayouts", !copyDstWithinLimit ? "Unavailable: safety cap exceeded" : !copyDstCollected ? "Unavailable: returned layout count exceeded the bounded allocation" : imageLayoutListString(copyDstLayouts.data(), static_cast<uint32_t>(copyDstLayouts.size())));
         addProp("optimalTilingLayoutUUID", hexBytes(p14.optimalTilingLayoutUUID, 16));
         addProp("identicalMemoryTypeRequirements", p14.identicalMemoryTypeRequirements == VK_TRUE ? "true" : "false");
         out << "]}";
@@ -3631,6 +3657,10 @@ std::string collectVulkanAdvancedGroup(const char* driverMode, const char* drive
             const VkImageTiling tilings[] = {VK_IMAGE_TILING_LINEAR, VK_IMAGE_TILING_OPTIMAL};
             const bool hasOpaqueFd = hasExt("VK_KHR_external_memory_fd");
             const bool hasAhb = hasExt("VK_ANDROID_external_memory_android_hardware_buffer");
+            uint32_t baseAttempts = 0, baseSuccess = 0, baseFormatUnsupported = 0, baseOtherErrors = 0;
+            uint32_t externalAttempts[2] = {0, 0}, externalSuccess[2] = {0, 0}, externalFormatUnsupported[2] = {0, 0}, externalOtherErrors[2] = {0, 0};
+            int32_t firstBaseOtherResult = 0;
+            int32_t firstExternalOtherResult[2] = {0, 0};
             for (VkFormat fmt : knownFormatValues()) {
                 if (!shouldQueryFormat(fmt, apiVersion, devExts)) continue;
                 for (uint32_t tiling : tilings) {
@@ -3638,28 +3668,52 @@ std::string collectVulkanAdvancedGroup(const char* driverMode, const char* drive
                     const bool handleEnabled[2] = {hasOpaqueFd, hasAhb};
                     VkPhysicalDeviceImageFormatInfo2 info{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2, nullptr, fmt, VK_IMAGE_TYPE_2D, static_cast<VkImageTiling>(tiling), VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0};
                     VkImageFormatProperties2 props{VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2, nullptr, {}};
+                    ++baseAttempts;
                     const VkResult baseResult = api.getPhysicalDeviceImageFormatProperties2(devices[i], &info, &props);
                     if (baseResult == VK_SUCCESS) {
+                        ++baseSuccess;
                         if (!firstProp) out << ','; firstProp = false;
                         std::ostringstream value; value << "tiling=" << (tiling == VK_IMAGE_TILING_LINEAR ? "LINEAR" : "OPTIMAL") << ", extent=" << props.imageFormatProperties.maxExtent.width << " × " << props.imageFormatProperties.maxExtent.height << " × " << props.imageFormatProperties.maxExtent.depth << ", mipLevels=" << props.imageFormatProperties.maxMipLevels << ", arrayLayers=" << props.imageFormatProperties.maxArrayLayers << ", sampleCounts=0x" << std::hex << props.imageFormatProperties.sampleCounts << ", maxResourceSize=" << std::dec << props.imageFormatProperties.maxResourceSize;
                         out << "{\"section\":\"Image Format Properties2\",\"name\":" << jsonString(formatName(fmt) + " · " + (tiling == VK_IMAGE_TILING_LINEAR ? std::string("LINEAR") : std::string("OPTIMAL"))) << ",\"value\":" << jsonString(value.str()) << '}';
+                    } else if (baseResult == VK_ERROR_FORMAT_NOT_SUPPORTED) {
+                        ++baseFormatUnsupported;
+                    } else {
+                        ++baseOtherErrors;
+                        if (firstBaseOtherResult == 0) firstBaseOtherResult = static_cast<int32_t>(baseResult);
                     }
-                    if (baseResult == VK_SUCCESS) {
-                        for (uint32_t handleIndex = 0; handleIndex < 2; ++handleIndex) {
-                            if (!handleEnabled[handleIndex]) continue;
-                            VkPhysicalDeviceExternalImageFormatInfo extImageInfo{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO, nullptr, handleTypes[handleIndex]};
-                            VkExternalImageFormatProperties extImageProps{VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES, nullptr, {}};
-                            info.pNext = &extImageInfo;
-                            props = {VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2, &extImageProps, {}};
-                            const VkResult r = api.getPhysicalDeviceImageFormatProperties2(devices[i], &info, &props);
-                            if (r != VK_SUCCESS) continue;
+
+                    for (uint32_t handleIndex = 0; handleIndex < 2; ++handleIndex) {
+                        if (!handleEnabled[handleIndex]) continue;
+                        ++externalAttempts[handleIndex];
+                        VkPhysicalDeviceExternalImageFormatInfo extImageInfo{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO, nullptr, handleTypes[handleIndex]};
+                        VkExternalImageFormatProperties extImageProps{VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES, nullptr, {}};
+                        info.pNext = &extImageInfo;
+                        props = {VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2, &extImageProps, {}};
+                        const VkResult r = api.getPhysicalDeviceImageFormatProperties2(devices[i], &info, &props);
+                        if (r == VK_SUCCESS) {
+                            ++externalSuccess[handleIndex];
                             if (!firstProp) out << ','; firstProp = false;
                             std::ostringstream value; value << "tiling=" << (tiling == VK_IMAGE_TILING_LINEAR ? "LINEAR" : "OPTIMAL") << ", extent=" << props.imageFormatProperties.maxExtent.width << " × " << props.imageFormatProperties.maxExtent.height << " × " << props.imageFormatProperties.maxExtent.depth << ", mipLevels=" << props.imageFormatProperties.maxMipLevels << ", arrayLayers=" << props.imageFormatProperties.maxArrayLayers << ", sampleCounts=0x" << std::hex << props.imageFormatProperties.sampleCounts << ", maxResourceSize=" << std::dec << props.imageFormatProperties.maxResourceSize << ", externalHandle=" << (handleIndex == 0 ? "OPAQUE_FD" : "ANDROID_HARDWARE_BUFFER") << ", externalMemoryFeatures=0x" << std::hex << extImageProps.externalMemoryProperties.externalMemoryFeatures << ", exportFromImported=0x" << extImageProps.externalMemoryProperties.exportFromImportedHandleTypes << ", compatibleHandles=0x" << extImageProps.externalMemoryProperties.compatibleHandleTypes;
                             out << "{\"section\":\"Image Format Properties2\",\"name\":" << jsonString(formatName(fmt) + " · " + (tiling == VK_IMAGE_TILING_LINEAR ? std::string("LINEAR") : std::string("OPTIMAL")) + " · " + (handleIndex == 0 ? std::string("OPAQUE_FD") : std::string("ANDROID_HARDWARE_BUFFER"))) << ",\"value\":" << jsonString(value.str()) << '}';
+                        } else if (r == VK_ERROR_FORMAT_NOT_SUPPORTED) {
+                            ++externalFormatUnsupported[handleIndex];
+                        } else {
+                            ++externalOtherErrors[handleIndex];
+                            if (firstExternalOtherResult[handleIndex] == 0) firstExternalOtherResult[handleIndex] = static_cast<int32_t>(r);
                         }
                     }
                 }
             }
+            auto emitImageFormatSummary = [&](const std::string& name, uint32_t attempts, uint32_t successes, uint32_t unsupported, uint32_t otherErrors, int32_t firstOtherResult) {
+                if (!firstProp) out << ','; firstProp = false;
+                std::ostringstream value;
+                value << "attempted=" << attempts << ", success=" << successes << ", formatNotSupported=" << unsupported << ", otherErrors=" << otherErrors;
+                if (otherErrors) value << ", firstOtherVkResult=" << firstOtherResult;
+                out << "{\"section\":\"Image Format Properties2 Query Diagnostics\",\"name\":" << jsonString(name) << ",\"value\":" << jsonString(value.str()) << '}';
+            };
+            emitImageFormatSummary("Base image-format queries", baseAttempts, baseSuccess, baseFormatUnsupported, baseOtherErrors, firstBaseOtherResult);
+            if (hasOpaqueFd) emitImageFormatSummary("OPAQUE_FD external image-format queries", externalAttempts[0], externalSuccess[0], externalFormatUnsupported[0], externalOtherErrors[0], firstExternalOtherResult[0]);
+            if (hasAhb) emitImageFormatSummary("ANDROID_HARDWARE_BUFFER external image-format queries", externalAttempts[1], externalSuccess[1], externalFormatUnsupported[1], externalOtherErrors[1], firstExternalOtherResult[1]);
             out << "]}";
         } else if (group && std::strcmp(group, "external") == 0) {
             addDevicePrefix(i);
@@ -3826,7 +3880,7 @@ std::string collectVulkanSimpleFeatureGroup(const char* driverMode, const char* 
 }
 
 
-std::string collectVulkanSelfTest(const char* driverMode, const char* driverIcdPath, const char* driverBundlePath, const char* hookLibDir) {
+std::string collectVulkanSelfTest(const char* driverMode, const char* driverIcdPath, const char* driverBundlePath, const char* hookLibDir, uint32_t targetVendorId, uint32_t targetDeviceId) {
     VulkanApi api;
     if (!api.open(driverMode, driverIcdPath, driverBundlePath, hookLibDir)) return std::string("{\"status\":\"unavailable\",\"reason\":") + jsonString(api.openError.empty() ? "Vulkan loader unavailable" : api.openError) + ",\"tests\":[]}";
     uint32_t loaderVersion = VK_API_VERSION_1_0;
@@ -3845,7 +3899,16 @@ std::string collectVulkanSelfTest(const char* driverMode, const char* driverIcdP
         api.destroyInstance(instance, nullptr);
         return "{\"status\":\"unavailable\",\"reason\":\"No physical Vulkan device was available for self-test.\",\"tests\":[]}";
     }
-    VkPhysicalDevice physical = enumerated.second.front();
+    VkPhysicalDevice physical = VK_NULL_HANDLE;
+    for (VkPhysicalDevice candidate : enumerated.second) {
+        VkPhysicalDeviceProperties properties{};
+        getDevicePropertiesPrimary(api, candidate, properties);
+        if (properties.vendorID == targetVendorId && properties.deviceID == targetDeviceId) { physical = candidate; break; }
+    }
+    if (physical == VK_NULL_HANDLE) {
+        api.destroyInstance(instance, nullptr);
+        return "{\"status\":\"unavailable\",\"reason\":\"The selected Vulkan physical device was not found in the isolated self-test process.\",\"tests\":[]}";
+    }
     uint32_t queueCount = 0;
     api.getPhysicalDeviceQueueFamilyProperties(physical, &queueCount, nullptr);
     if (queueCount == 0 || queueCount > 4096) {
@@ -4000,8 +4063,23 @@ Java_com_efishell_vulkanscope_VulkanProbeService_collectVulkanQueryData(JNIEnv* 
     const std::string groupName = group ? group : "";
     const auto* descriptor = vulkanscope_registry::findQueryDescriptor(groupName.c_str());
     std::string result;
-    if (groupName == "selftest") {
-        result = collectVulkanSelfTest(driverMode, driverIcdPath, driverBundlePath, hookLibDir);
+    if (groupName.rfind("selftest:", 0) == 0) {
+        uint32_t targetVendorId = 0;
+        uint32_t targetDeviceId = 0;
+        const size_t first = groupName.find(':');
+        const size_t second = groupName.find(':', first + 1);
+        bool targetValid = first != std::string::npos && second != std::string::npos && second + 1 < groupName.size();
+        if (targetValid) {
+            const std::string vendorText = groupName.substr(first + 1, second - first - 1);
+            const std::string deviceText = groupName.substr(second + 1);
+            char* vendorEnd = nullptr;
+            char* deviceEnd = nullptr;
+            const unsigned long vendor = std::strtoul(vendorText.c_str(), &vendorEnd, 10);
+            const unsigned long device = std::strtoul(deviceText.c_str(), &deviceEnd, 10);
+            targetValid = !vendorText.empty() && !deviceText.empty() && vendorEnd && *vendorEnd == '\0' && deviceEnd && *deviceEnd == '\0' && vendor <= UINT32_MAX && device <= UINT32_MAX;
+            if (targetValid) { targetVendorId = static_cast<uint32_t>(vendor); targetDeviceId = static_cast<uint32_t>(device); }
+        }
+        result = targetValid ? collectVulkanSelfTest(driverMode, driverIcdPath, driverBundlePath, hookLibDir, targetVendorId, targetDeviceId) : "{\"status\":\"unavailable\",\"reason\":\"Invalid selected Vulkan self-test target.\",\"tests\":[]}";
     } else if (groupName == "metadata") {
         result = collectVulkanMetadata(driverMode, driverIcdPath, driverBundlePath, hookLibDir);
     } else if (groupName.rfind("ext::", 0) == 0) {

@@ -8,8 +8,8 @@ errors = []
 gradle = (root / 'app/build.gradle.kts').read_text(encoding='utf-8')
 version = re.search(r'versionName\s*=\s*"([^"]+)"', gradle)
 code = re.search(r'versionCode\s*=\s*(\d+)', gradle)
-if not version or version.group(1) != '0.41.3': errors.append('versionName mismatch')
-if not code or code.group(1) != '413': errors.append('versionCode mismatch')
+if not version or version.group(1) != '0.41.7': errors.append('versionName mismatch')
+if not code or code.group(1) != '417': errors.append('versionCode mismatch')
 abi_line = re.search(r'abiFilters \+= listOf\(([^\n]+)\)', gradle)
 if not abi_line or any(x not in abi_line.group(1) for x in ['arm64-v8a', 'armeabi-v7a', 'x86_64']): errors.append('required ABI set is incomplete')
 if '"x86"' in gradle: errors.append('x86 ABI must remain excluded')
@@ -248,7 +248,8 @@ if kt.count('metric("GPU", report.devices.firstOrNull()?.name ?: "Unknown")') !=
 
 for needle in [
     'val visibleLimits = remember(query, device?.limits)',
-    'val uniquePropertyNames = filtered.asSequence().map { it.name }.distinct().count()',
+    'val uniquePropertyNames = filtered.asSequence().filterNot { it.section == "Vulkan Query Safety" }.map { it.name }.distinct().count()',
+    'val uniqueSafetyNames = filtered.asSequence().filter { it.section == "Vulkan Query Safety" }.map { it.name }.distinct().count()',
     'val limitResultCount = visibleLimits.size',
     '"Limits" -> "$limitResultCount limits"'
 ]:
@@ -429,7 +430,7 @@ for needle in ['Analysis("Analysis")', 'Page.Analysis -> AnalysisPage(report, de
         errors.append(f'missing 0.40.0 analysis/test requirement: {needle}')
 if 'readBoundedAnalysisBytes(input, ANALYSIS_MAX_SNAPSHOT_BYTES)' not in kt or 'ANALYSIS_MAX_SNAPSHOT_BYTES = 8 * 1024 * 1024' not in kt:
     errors.append('0.40.0 snapshot import bound is missing')
-if 'collectVulkanSelfTest' not in cpp or 'queueCount > 4096' not in cpp or 'groupName == "selftest"' not in cpp:
+if 'collectVulkanSelfTest' not in cpp or 'queueCount > 4096' not in cpp or 'groupName.rfind("selftest:", 0) == 0' not in cpp:
     errors.append('0.40.0 isolated Vulkan self-test contract is incomplete')
 if '## Release 0.40.0 local analysis and optional tests' not in (root / 'rules/PROJECT_RULES.md').read_text(encoding='utf-8'):
     errors.append('PROJECT_RULES is missing the 0.40.0 analysis/test contract')
@@ -490,7 +491,7 @@ if 'vulkanExtensionQueryGroup(name) != null || ref.queryGroup.isNotBlank()' not 
 for entry in ext_ref.get('entries', []):
     if not re.fullmatch(r'VK_[A-Z0-9]+_[A-Za-z0-9_]+', str(entry.get('name',''))): errors.append('0.41.0 extension reference contains non-extension token'); break
     if not str(entry.get('specUrl','')).startswith('https://registry.khronos.org/vulkan/specs/latest/man/html/VK_'): errors.append('0.41.0 extension reference has non-authoritative URL'); break
-for needle in ['dependencyGraphEntries', 'maxDepth: Int = 4', 'maxNodes: Int = 64', 'Driver diagnostic evidence score', 'not a Vulkan conformance result', 'depends:VK_KHR', '"command" -> ref.commands.any', '"enum" -> ref.enums.any', 'VulkanQrCode(sharedReportUrl', 'databaseReportUrl(lastSharedReportId)', 'database_share', 'watchedEvidence']:
+for needle in ['dependencyGraphEntries', 'maxDepth: Int = 4', 'maxNodes: Int = 64', 'Heuristic diagnostic evidence score', 'not a Vulkan conformance result', 'depends:VK_KHR', '"command" -> ref.commands.any', '"enum" -> ref.enums.any', 'VulkanQrCode(sharedReportUrl', 'databaseReportUrl(lastSharedReportId)', 'database_share', 'watchedEvidence']:
     if needle not in kt: errors.append(f'missing 0.41.0 advanced-analysis requirement: {needle}')
 
 graph_kt_path = root / 'app/src/main/java/com/efishell/vulkanscope/VulkanDependencyGraph.kt'
@@ -541,10 +542,12 @@ for forbidden in [
     analysis_lazy_body = kt[lazy_start:analysis_end if analysis_end >= 0 else len(kt)] if lazy_start >= 0 else ''
     if forbidden in analysis_lazy_body:
         errors.append('0.41.1 forbidden composable state calculation remains inside LazyListScope: ' + forbidden)
-if '.map { it.key to it.value }' not in kt:
-    errors.append('0.41.1 watched evidence must convert Map.Entry to explicit Pair values')
-if 'val diffRows = remember(baseline, current, includeUnchanged, diffQuery)' not in kt:
-    errors.append('0.41.1 diff calculation is not hoisted to composable scope')
+if 'preview += key to value' not in kt or 'ArrayList<Pair<String, String>>(10)' not in kt:
+    errors.append('watched evidence must retain a bounded explicit Pair preview')
+if 'currentEntries.filter' in kt and '.toList()' in kt[kt.find('val watchedEvidence'):kt.find('val visibleWatched')]:
+    errors.append('watched evidence must not materialize an unbounded match list')
+if 'val diffRows = remember(tab, baseline, current, includeUnchanged, diffQuery, diffStateFilter, diffKindFilter)' not in kt:
+    errors.append('Analysis diff calculation is not hoisted and filter-aware at composable scope')
 if 'val visualGraphNodes = remember(graphEntries, report, device)' not in kt:
     errors.append('0.41.1 graph calculation is not hoisted to composable scope')
 
@@ -663,6 +666,125 @@ if '~0x577u' in cpp or '0x577L' in kt:
 if '~0x57Fu' not in cpp:
     errors.append('native queue unknown-bit mask must include sparse binding bit in 0x57F known mask')
 
+
+if '## Release 0.41.4 full application hardening and reporting audit' not in rules_text:
+    errors.append('PROJECT_RULES is missing 0.41.4 full-audit contract')
+if not (root / 'rules/0.41.4_FULL_APPLICATION_AUDIT.md').is_file():
+    errors.append('0.41.4 full application audit record is missing')
+if not (root / 'fastlane/metadata/android/en-US/changelogs/414.txt').is_file():
+    errors.append('0.41.4 fastlane changelog is missing')
+for needle in [
+    'private val databaseHttpClient = ipv6PreferredHttpClient.newBuilder()',
+    '.followRedirects(false)',
+    '.followSslRedirects(false)',
+    'databaseHttpClient.newCall(request).execute()',
+    'put("videoCodecOperations", if (q.videoCodecQueryStatus == "available") q.videoCodecOperations else JSONObject.NULL)',
+    'put("videoCodecOperationsU64", if (q.videoCodecQueryStatus == "available") q.videoCodecOperations.toULong().toString() else JSONObject.NULL)',
+    'Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(7.dp)',
+    'unique diagnostics'
+]:
+    if needle not in kt:
+        errors.append(f'missing 0.41.4 reporting/security/usability hardening: {needle}')
+if 'returned entries are retained as partial positive evidence only' not in cpp:
+    errors.append('0.41.4 device-extension VK_INCOMPLETE partial evidence retention missing')
+for needle in ['if (copySrcWithinLimit || copyDstWithinLimit) api.queryProperties2(device, &base);', 'const bool copySrcCollected = copySrcWithinLimit && p14.copySrcLayoutCount <= copySrcCapacity;', 'if (srcWithinLimit || dstWithinLimit) api.queryProperties2(devices[i], &hostQuery);', 'const bool srcCollected = srcWithinLimit && hostProperties.copySrcLayoutCount <= srcCapacity;']:
+    if needle not in cpp:
+        errors.append(f'missing 0.41.4 Host Image Copy independent bound/returned-count hardening: {needle}')
+gradle_properties = (root / 'gradle.properties').read_text(encoding='utf-8')
+for needle in ['org.gradle.caching=false', 'kotlin.caching.enabled=false']:
+    if needle not in gradle_properties:
+        errors.append(f'missing build-cache hardening: {needle}')
+if 'put("videoCodecOperations", q.videoCodecOperations)' in kt or 'put("videoCodecOperationsU64", q.videoCodecOperations.toULong().toString())' in kt:
+    errors.append('technicalReport must not serialize a zero video codec mask when the query is unavailable/not applicable')
+
+if '## Release 0.41.5 Analysis, Profiles and Database compatibility requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 0.41.5 Analysis/Profile/Database contract')
+if not (root / 'rules/0.41.5_ANALYSIS_PROFILE_DATABASE_AUDIT.md').is_file():
+    errors.append('0.41.5 Analysis/Profile/Database audit record is missing')
+if not (root / 'fastlane/metadata/android/en-US/changelogs/415.txt').is_file():
+    errors.append('0.41.5 fastlane changelog is missing')
+if '## Release 0.41.6 Kotlin compile-gate requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 0.41.6 Kotlin compile-gate contract')
+if not (root / 'rules/0.41.6_KOTLIN_COMPILE_FIX_AUDIT.md').is_file():
+    errors.append('0.41.6 Kotlin compile-fix audit record is missing')
+if not (root / 'fastlane/metadata/android/en-US/changelogs/416.txt').is_file():
+    errors.append('0.41.6 fastlane changelog is missing')
+
+if '## Release 0.41.7 Image Format Properties2 correctness requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 0.41.7 Image Format Properties2 contract')
+if not (root / 'rules/0.41.7_IMAGE_FORMAT_PROPERTIES2_AUDIT.md').is_file():
+    errors.append('0.41.7 Image Format Properties2 audit record is missing')
+if not (root / 'fastlane/metadata/android/en-US/changelogs/417.txt').is_file():
+    errors.append('0.41.7 fastlane changelog is missing')
+image_format_start = cpp.find('} else if (group && std::strcmp(group, "imageFormat2") == 0) {')
+image_format_end = cpp.find('} else if (group && std::strcmp(group, "external") == 0) {', image_format_start)
+image_format_block = cpp[image_format_start:image_format_end] if image_format_start >= 0 and image_format_end > image_format_start else ''
+if not image_format_block:
+    errors.append('0.41.7 Image Format Properties2 query group is missing')
+else:
+    if 'if (baseResult == VK_SUCCESS) {\n                        for (uint32_t handleIndex = 0; handleIndex < 2; ++handleIndex)' in image_format_block:
+        errors.append('external image-format queries are still gated by handle-less base success')
+    for needle in ['externalAttempts[2]', 'ANDROID_HARDWARE_BUFFER external image-format queries', 'OPAQUE_FD external image-format queries', 'formatNotSupported=', 'firstOtherVkResult=']:
+        if needle not in image_format_block:
+            errors.append(f'missing 0.41.7 Image Format Properties2 diagnostic: {needle}')
+    if image_format_block.find('for (uint32_t handleIndex = 0; handleIndex < 2; ++handleIndex)') < image_format_block.find('const VkResult baseResult'):
+        errors.append('external image-format query ordering is invalid')
+if 'mutableIntStateOf(' in kt and 'import androidx.compose.runtime.mutableIntStateOf' not in kt:
+    errors.append('mutableIntStateOf is used without the required Compose runtime import')
+if 'mutableLongStateOf(' in kt and 'import androidx.compose.runtime.mutableLongStateOf' not in kt:
+    errors.append('mutableLongStateOf is used without the required Compose runtime import')
+if 'mutableFloatStateOf(' in kt and 'import androidx.compose.runtime.mutableFloatStateOf' not in kt:
+    errors.append('mutableFloatStateOf is used without the required Compose runtime import')
+if 'mutableDoubleStateOf(' in kt and 'import androidx.compose.runtime.mutableDoubleStateOf' not in kt:
+    errors.append('mutableDoubleStateOf is used without the required Compose runtime import')
+for needle in [
+    'apiVersionAtLeast',
+    'VP_ANDROID_17_requirements',
+    '"1.4.335"',
+    'VP_ANDROID_vulkan_profile_2025',
+    '"1.1.128"',
+    'VP_KHR_roadmap_2026',
+    '"1.4.328"',
+    'completeCoverage',
+    'hasUnknown || !requirements.completeCoverage',
+    'maximumLimits',
+    'extensionPromotedToSatisfied',
+    'snapshotDeviceExtensionsComplete',
+    'snapshotSurfaceFormatsComplete',
+    'diffStateFilter',
+    'diffKindFilter',
+    'graphDepth',
+    'watchStateFilter',
+    'Heuristic diagnostic evidence score',
+    'if (tab == 3) heuristicDiagnosticEvidenceScore',
+    'databaseReportUrl(lastSharedReportId)',
+    '/#reports/',
+    'runVulkanSelfTests(target.vendorIdRaw, target.deviceIdRaw)',
+    'collectVulkanSelfTest(driverMode, driverIcdPath, driverBundlePath, hookLibDir, targetVendorId, targetDeviceId)',
+    'The selected Vulkan physical device was not found in the isolated self-test process.'
+]:
+    if needle not in kt + cpp:
+        errors.append(f'missing 0.41.5 Analysis/Profile requirement: {needle}')
+for needle in ['memory/heap/', 'memory/type/', 'videoQueryStatus', 'query/deviceExtensionStatus', 'safety/surfaceFormatRejected', 'display/hdrCapabilityStatus', 'registry/reportSchema', 'profile/']:
+    if needle not in kt:
+        errors.append(f'0.41.5 snapshot evidence coverage missing: {needle}')
+
+for needle in [
+    'fun putCompatible(base: String, value: String, index: Int)',
+    'putCompatible("extension/device/${item.name}"',
+    'putCompatible("feature/${item.name}"',
+    'putCompatible("limit/${item.first}"',
+    'putCompatible("format/${item.name}"',
+    'if (tab == 0 || tab == 4) vulkanAnalysisSnapshot',
+    'entries["surface/formatQuerySecondAttempted"] == "true"',
+    'entries["surface/formatQueryResultSecond"] == "0"',
+]:
+    if needle not in kt:
+        errors.append(f'0.41.5 Analysis compatibility/optimization invariant missing: {needle}')
+if 'groupName.rfind("selftest:", 0) == 0' not in cpp or 'properties.vendorID == targetVendorId && properties.deviceID == targetDeviceId' not in cpp:
+    errors.append('0.41.5 self-test selected-device targeting is incomplete')
+if 'std::stoul' in cpp or 'catch (...)' in cpp[cpp.find('groupName.rfind("selftest:", 0)'):cpp.find('groupName == "metadata"')]:
+    errors.append('0.41.5 self-test target parsing must not require C++ exception handling')
 if errors:
     for error in errors: print(f'FAIL: {error}')
     raise SystemExit(1)
