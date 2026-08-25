@@ -1,13 +1,8 @@
-# VulkanScope 0.41.3
+# VulkanScope 0.41.6
 
-## Queue and Vulkan Video semantics
-- Fixed zero queue flag presentation so `VkQueueFlags` no longer uses a nonexistent generic `VK_NONE` name.
-- Added explicit per-queue video-codec query state and reason.
-- `VK_VIDEO_CODEC_OPERATION_NONE_KHR` is used only when `VkQueueFamilyVideoPropertiesKHR` was actually queried and returned a zero mask.
-- Missing or failed video-property queries remain Not applicable, Unavailable or Unknown and are never converted to Unsupported.
-- Queue support booleans continue to come directly from `VkQueueFamilyProperties.queueFlags`; `false` therefore means the corresponding queue capability bit is not reported.
-- Fixed the known queue-bit mask from `0x577` to the Vulkan 1.4.360 `0x57F`, including `VK_QUEUE_SPARSE_BINDING_BIT`.
-
-## Reporting parity
-- UI, TXT, HTML and Database technicalReport expose identical queue/video query semantics.
-- Canonical schema versions remain unchanged.
+- Fixed the release-blocking Kotlin compilation error in `AnalysisPage`: `mutableIntStateOf` is now imported from `androidx.compose.runtime`.
+- Retained primitive Int state for dependency-graph depth instead of falling back to boxed state.
+- Added release-verifier checks that fail when supported primitive Compose state factories are referenced without their required runtime imports.
+- Preserved all 0.41.5 Analysis, Profile, selected-device self-test and Database permalink behavior.
+- Preserved Vulkan 1.4.360, Android API 37, arm64-v8a/armeabi-v7a/x86_64, schema 2 / technicalReport 3 and existing security/report-completeness rules.
+- The libadrenotools messages visible earlier in native compilation are third-party warnings; they were not the cause of the Kotlin build failure and are not suppressed by this patch.

@@ -1,0 +1,1 @@
+Added offline report comparison and regression analysis, Vulkan profile/minimum analysis, detailed format/extension inspection, persistent watched capabilities, and isolated optional Vulkan device/shader/pipeline self-tests.

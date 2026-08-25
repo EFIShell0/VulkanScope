@@ -1,0 +1,1 @@
+Built-in GitHub updates are now opt-in and disabled by default. Enabling direct updates requires a clear IzzyOnDroid screening-bypass warning. Added release metadata for IzzyOnDroid.

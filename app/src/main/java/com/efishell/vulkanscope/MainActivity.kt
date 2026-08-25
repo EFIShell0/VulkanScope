@@ -123,6 +123,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -318,6 +319,7 @@ private data class DeviceReport(
     val vendorId: String,
     val vendorIdRaw: Long,
     val deviceId: String,
+    val deviceIdRaw: Long,
     val deviceType: String,
     val deviceLayers: List<LayerEntry>,
     val extensions: List<ExtensionEntry>,
@@ -412,6 +414,11 @@ private val ipv6PreferredHttpClient = OkHttpClient.Builder()
     .readTimeout(20, TimeUnit.SECONDS)
     .followRedirects(true)
     .followSslRedirects(true)
+    .build()
+
+private val databaseHttpClient = ipv6PreferredHttpClient.newBuilder()
+    .followRedirects(false)
+    .followSslRedirects(false)
     .build()
 
 private val ipv6PreferredDownloadClient = ipv6PreferredHttpClient.newBuilder()
@@ -1397,7 +1404,7 @@ class MainActivity : ComponentActivity() {
         groups.forEach(::requestQueryGroup)
     }
 
-    internal suspend fun runVulkanSelfTests(): String = runServiceProbe("selftest", null, 30_000L)
+    internal suspend fun runVulkanSelfTests(vendorId: Long, deviceId: Long): String = runServiceProbe("selftest:$vendorId:$deviceId", null, 30_000L)
 
     private suspend fun runProbe(surface: Surface?): String = runServiceProbe("base", surface, 45_000L)
 
@@ -1538,6 +1545,21 @@ private fun apiAtLeast(value: String, major: Int, minor: Int): Boolean {
     val parsedMajor = parts.getOrNull(0)?.toIntOrNull() ?: return false
     val parsedMinor = parts.getOrNull(1)?.toIntOrNull() ?: return false
     return parsedMajor > major || (parsedMajor == major && parsedMinor >= minor)
+}
+
+private fun apiVersionAtLeast(value: String, required: String): Boolean {
+    fun parse(version: String): Triple<Int, Int, Int>? {
+        val parts = version.trim().split('.')
+        val major = parts.getOrNull(0)?.toIntOrNull() ?: return null
+        val minor = parts.getOrNull(1)?.toIntOrNull() ?: return null
+        val patch = parts.getOrNull(2)?.toIntOrNull() ?: 0
+        return Triple(major, minor, patch)
+    }
+    val actual = parse(value) ?: return false
+    val minimum = parse(required) ?: return false
+    return actual.first > minimum.first ||
+        actual.first == minimum.first && (actual.second > minimum.second ||
+            actual.second == minimum.second && actual.third >= minimum.third)
 }
 
 private fun mergeMetadataReport(base: VulkanReport, raw: String): VulkanReport {
@@ -1994,6 +2016,7 @@ private fun parseReport(raw: String): VulkanReport {
             "0x${item.optLong("vendorId").toString(16).uppercase()}",
             item.optLong("vendorId"),
             "0x${item.optLong("deviceId").toString(16).uppercase()}",
+            item.optLong("deviceId"),
             deviceTypeName(item.optInt("deviceType")),
             deviceLayers,
             extensions,
@@ -2940,37 +2963,92 @@ private fun validateAnalysisSnapshot(obj: JSONObject): JSONObject {
     return obj
 }
 
-private data class VulkanAnalysisDiff(val key: String, val baseline: String?, val current: String?, val state: String)
+private data class VulkanAnalysisDiff(val key: String, val baseline: String?, val current: String?, val state: String) {
+    val kind: String get() = key.substringBefore('/').lowercase()
+}
 
 private fun vulkanAnalysisEntries(report: VulkanReport, device: DeviceReport?, display: DisplayReport, mode: DriverMode): JSONObject = JSONObject().apply {
+    fun putCompatible(base: String, value: String, index: Int) {
+        if (!has(base)) put(base, value) else put("$base/duplicate/$index", value)
+    }
     put("identity/loaderVersion", report.loaderVersion)
     put("identity/driverMode", mode.label)
+    put("query/reportError", report.error ?: "")
+    report.instanceExtensions.forEachIndexed { index, item -> putCompatible("extension/instance/${item.name}", "present · spec ${item.specVersion}", index) }
+    report.instanceLayers.forEachIndexed { index, layer ->
+        put("layer/instance/${layer.name}/$index", "spec=${layer.specVersion};implementation=${layer.implementationVersion};description=${layer.description}")
+        layer.extensions.forEachIndexed { extensionIndex, extension -> put("layer/instance/${layer.name}/extension/${extension.name}/$extensionIndex", "present · spec ${extension.specVersion}") }
+    }
     if (device != null) {
         put("identity/deviceName", device.name)
         put("identity/deviceApiVersion", device.apiVersion)
         put("identity/driverVersion", device.driverVersionText.ifBlank { device.driverVersion })
         put("identity/vendorId", device.vendorId)
         put("identity/deviceId", device.deviceId)
-        report.instanceExtensions.forEach { put("extension/instance/${it.name}", "present · spec ${it.specVersion}") }
-        device.extensions.forEach { put("extension/device/${it.name}", "present · spec ${it.specVersion}") }
-        device.features.forEach { put("feature/${it.name}", if (it.supported) "supported" else "not supported") }
-        device.limits.forEach { put("limit/${it.first}", it.second) }
-        device.formats.forEach { put("format/${it.name}", "supported=${it.supported};linear=${java.lang.Long.toUnsignedString(it.linear)};optimal=${java.lang.Long.toUnsignedString(it.optimal)};buffer=${java.lang.Long.toUnsignedString(it.buffer)}") }
+        put("identity/deviceType", device.deviceType)
+        put("query/deviceExtensionStatus", device.deviceExtensionStatus)
+        put("query/deviceExtensionReason", device.deviceExtensionReason)
+        put("query/extendedStatus", device.extendedQueryStatus)
+        put("query/extendedReason", device.extendedQueryReason)
+        put("query/vulkan14Status", device.vulkan14Status)
+        put("query/vulkan14Reason", device.vulkan14Reason)
+        device.deviceLayers.forEachIndexed { index, layer ->
+            put("layer/device/${layer.name}/$index", "spec=${layer.specVersion};implementation=${layer.implementationVersion};description=${layer.description}")
+            layer.extensions.forEachIndexed { extensionIndex, extension -> put("layer/device/${layer.name}/extension/${extension.name}/$extensionIndex", "present · spec ${extension.specVersion}") }
+        }
+        device.extensions.forEachIndexed { index, item -> putCompatible("extension/device/${item.name}", "present · spec ${item.specVersion}", index) }
+        device.features.forEachIndexed { index, item -> putCompatible("feature/${item.name}", if (item.supported) "supported" else "not supported", index) }
+        device.limits.forEachIndexed { index, item -> putCompatible("limit/${item.first}", item.second, index) }
+        device.heaps.forEach { heap -> put("memory/heap/${heap.index}", "size=${heap.size};flags=${java.lang.Long.toUnsignedString(heap.flags)}") }
+        device.memoryTypes.forEach { type -> put("memory/type/${type.index}", "heap=${type.heap};flags=${java.lang.Long.toUnsignedString(type.flags)}") }
+        device.queues.forEach { queue ->
+            put("queue/${queue.index}", "count=${queue.count};timestampBits=${queue.timestampBits};flags=${java.lang.Long.toUnsignedString(queue.flags)};granularity=${queue.granularity}")
+            put("queue/${queue.index}/videoQueryStatus", queue.videoCodecQueryStatus)
+            put("queue/${queue.index}/videoQueryReason", queue.videoCodecQueryReason)
+            if (queue.videoCodecQueryStatus == "available") put("queue/${queue.index}/videoCodecOperations", java.lang.Long.toUnsignedString(queue.videoCodecOperations))
+        }
+        device.formats.forEachIndexed { index, item -> putCompatible("format/${item.name}", "supported=${item.supported};linear=${java.lang.Long.toUnsignedString(item.linear)};optimal=${java.lang.Long.toUnsignedString(item.optimal)};buffer=${java.lang.Long.toUnsignedString(item.buffer)}", index) }
         device.detailedProperties.forEachIndexed { index, item -> put("property/${item.section}/${item.name}/$index", item.value) }
-        device.surfaceCapabilities.forEach { put("surface/capability/${it.first}", it.second) }
-        device.surfaceFormats.forEach { put("surface/format/${it.format}/${it.colorSpace}", "${it.classification};supported=${it.supported}") }
-        device.presentModes.forEach { put("surface/presentMode/$it", "present") }
-        device.presentationQueues.forEach { put("surface/presentationQueue/${it.first}", it.second.toString()) }
+        put("surface/available", device.surfaceAvailable.toString())
+        put("surface/presentationSupported", device.surfacePresentationSupported.toString())
+        put("surface/colorSpaceExtensionAvailable", device.surfaceColorSpaceExtensionAvailable.toString())
+        put("surface/colorSpaceExtensionEnabled", device.surfaceColorSpaceExtensionEnabled.toString())
+        put("surface/formatQueryResult", device.surfaceFormatQueryResult.toString())
+        put("surface/formatQueryResultSecond", device.surfaceFormatQueryResultSecond.toString())
+        put("surface/formatQuerySecondAttempted", device.surfaceFormatQuerySecondAttempted.toString())
+        device.surfaceCapabilities.forEachIndexed { index, item -> putCompatible("surface/capability/${item.first}", item.second, index) }
+        device.surfaceFormats.forEachIndexed { index, item -> putCompatible("surface/format/${item.format}/${item.colorSpace}", "${item.classification};supported=${item.supported}", index) }
+        device.presentModes.forEachIndexed { index, item -> putCompatible("surface/presentMode/$item", "present", index) }
+        device.presentationQueues.forEachIndexed { index, item -> putCompatible("surface/presentationQueue/${item.first}", item.second.toString(), index) }
+        put("safety/queueRejected", device.queueQuerySafetyRejected.toString())
+        put("safety/memoryHeapRejected", device.memoryHeapSafetyRejected.toString())
+        put("safety/memoryTypeRejected", device.memoryTypeSafetyRejected.toString())
+        put("safety/surfaceQueueRejected", device.surfaceQueueQuerySafetyRejected.toString())
+        put("safety/surfaceFormatRejected", device.surfaceFormatQuerySafetyRejected.toString())
+        vulkanProfileRequirements().forEach { profile ->
+            val result = evaluateProfile(report, device, profile)
+            put("profile/${profile.name}", "${result.status};revision=${profile.revision};minimum=${profile.minApiVersion};coverage=${result.coverageNote}")
+        }
     }
     put("display/resolution", display.resolution)
     put("display/refreshRate", display.refreshRate)
     put("display/wideGamut", display.wideGamut?.toString() ?: "Unavailable")
-    display.hdrTypes.forEach { put("display/hdr/$it", "present") }
+    put("display/preferredWideGamut", display.preferredWideGamut)
+    put("display/hdrCapabilityStatus", display.hdrCapabilityStatus)
+    put("display/minLuminance", display.minLuminance)
+    put("display/maxLuminance", display.maxLuminance)
+    put("display/averageLuminance", display.averageLuminance)
+    display.hdrTypes.forEachIndexed { index, item -> putCompatible("display/hdr/$item", "present", index) }
+    display.modes.forEachIndexed { index, item -> put("display/mode/$index", item) }
     put("registry/baseline", report.registryCoverage.baseline)
     put("registry/headerBaseline", report.registryCoverage.headerBaseline)
-    put("registry/catalogSchema", report.registryCoverage.catalogSchemaVersion)
+    put("registry/catalogSchema", report.registryCoverage.catalogSchemaVersion.toString())
+    put("registry/reportSchema", report.registryCoverage.reportSchema)
+    put("registry/implementedStructCount", report.registryCoverage.implementedPhysicalDeviceStructCount.toString())
+    put("registry/runtimeQueryGroupCount", report.registryCoverage.validatedRuntimeQueryGroupCount.toString())
+    put("registry/runtimeExtensionTokenCount", report.registryCoverage.runtimeExtensionTokenCount.toString())
+    put("registry/instanceDependencyCandidateCount", report.registryCoverage.instanceDependencyCandidateCount.toString())
 }
-
 private fun vulkanAnalysisSnapshot(report: VulkanReport, device: DeviceReport?, display: DisplayReport, mode: DriverMode, applicationVersion: String): JSONObject = JSONObject()
     .put("schema", "VulkanScopeAnalysisSnapshot1")
     .put("applicationVersion", applicationVersion)
@@ -2978,19 +3056,36 @@ private fun vulkanAnalysisSnapshot(report: VulkanReport, device: DeviceReport?, 
 
 private fun objectStringMap(obj: JSONObject): Map<String, String> = linkedMapOf<String, String>().apply { obj.keys().forEach { key -> put(key, obj.optString(key, "Unavailable")) } }
 
+private fun snapshotDeviceExtensionsComplete(entries: Map<String, String>): Boolean = entries["query/deviceExtensionStatus"] == "available"
+
+private fun snapshotSurfaceFormatsComplete(entries: Map<String, String>): Boolean =
+    entries["surface/available"] == "true" && entries["surface/formatQuerySecondAttempted"] == "true" &&
+        entries["surface/formatQueryResultSecond"] == "0" && entries["safety/surfaceFormatRejected"] != "true"
+
 private fun vulkanSnapshotDiff(baseline: JSONObject, current: JSONObject): List<VulkanAnalysisDiff> {
     val old = objectStringMap(baseline.optJSONObject("entries") ?: JSONObject())
     val now = objectStringMap(current.optJSONObject("entries") ?: JSONObject())
+    val currentDeviceExtensionsComplete = snapshotDeviceExtensionsComplete(now)
+    val currentSurfaceFormatsComplete = snapshotSurfaceFormatsComplete(now)
     return (old.keys + now.keys).toSortedSet().map { key ->
         val before = old[key]
         val after = now[key]
         val beforeSupported = before == "supported" || before == "present" || before?.contains("supported=true") == true || before?.startsWith("present · spec ") == true
         val afterUnsupported = after == "not supported" || after?.contains("supported=false") == true
-        val regression = (key.startsWith("extension/") || key.startsWith("feature/") || key.startsWith("surface/format/")) && before != null && (after == null || (beforeSupported && afterUnsupported))
+        val removalHasCompleteEvidence = when {
+            key.startsWith("extension/device/") -> currentDeviceExtensionsComplete
+            key.startsWith("surface/format/") -> currentSurfaceFormatsComplete
+            else -> true
+        }
+        val regression = before != null && when {
+            key.startsWith("feature/") -> beforeSupported && afterUnsupported
+            key.startsWith("extension/device/") || key.startsWith("surface/format/") -> removalHasCompleteEvidence && (after == null || beforeSupported && afterUnsupported)
+            else -> false
+        }
         val state = when {
             before == null -> "Added"
             after == null && regression -> "Removed · regression candidate"
-            after == null -> "Removed"
+            after == null -> "Removed · evidence incomplete/changed"
             before == after -> "Unchanged"
             regression -> "Changed · regression candidate"
             else -> "Changed"
@@ -2998,13 +3093,12 @@ private fun vulkanSnapshotDiff(baseline: JSONObject, current: JSONObject): List<
         VulkanAnalysisDiff(key, before, after, state)
     }
 }
-
 private fun vulkanExtensionQueryGroup(name: String): String? = ISOLATED_EXTENSION_GROUPS.entries.firstOrNull { it.value == name }?.key
 
-private data class DriverDiagnosticScore(val score: Int?, val level: String, val factors: List<String>)
+private data class HeuristicDiagnosticScore(val score: Int?, val level: String, val factors: List<String>)
 
-private fun driverDiagnosticScore(report: VulkanReport, device: DeviceReport?): DriverDiagnosticScore {
-    if (device == null) return DriverDiagnosticScore(null, "Unavailable", listOf("No completed physical-device report is available"))
+private fun heuristicDiagnosticEvidenceScore(report: VulkanReport, device: DeviceReport?): HeuristicDiagnosticScore {
+    if (device == null) return HeuristicDiagnosticScore(null, "Unavailable", listOf("No completed physical-device report is available"))
     var score = 100
     val factors = mutableListOf<String>()
     fun deduct(points: Int, label: String) {
@@ -3026,7 +3120,7 @@ private fun driverDiagnosticScore(report: VulkanReport, device: DeviceReport?): 
         else -> "Severe explicit collection anomalies"
     }
     if (factors.isEmpty()) factors += "No explicit collection/safety anomaly was recorded by VulkanScope"
-    return DriverDiagnosticScore(score, level, factors)
+    return HeuristicDiagnosticScore(score, level, factors)
 }
 
 private fun analysisQueryTokens(query: String): List<String> = Regex("\\\"([^\\\"]+)\\\"|\\S+").findAll(query).map { it.groups[1]?.value ?: it.value }.toList()
@@ -3133,7 +3227,7 @@ private fun matchesFormatExplorerQuery(format: FormatEntry, query: String): Bool
     }
 }
 
-private fun databaseReportUrl(id: String): String = OFFICIAL_DATABASE_WEB_URL + "?report=" + Uri.encode(id)
+private fun databaseReportUrl(id: String): String = OFFICIAL_DATABASE_WEB_URL.trimEnd('/') + "/#reports/" + Uri.encode(id) + "/Overview"
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -3145,16 +3239,23 @@ private fun AnalysisPage(report: VulkanReport, device: DeviceReport?, display: D
     var baseline by remember { mutableStateOf<JSONObject?>(null) }
     var analysisStatus by remember { mutableStateOf("No baseline imported") }
     var diffQuery by remember { mutableStateOf("") }
+    var diffStateFilter by remember { mutableStateOf("All") }
+    var diffKindFilter by remember { mutableStateOf("All") }
     var includeUnchanged by remember { mutableStateOf(false) }
+    var profileQuery by remember { mutableStateOf("") }
+    var profileStatusFilter by remember { mutableStateOf("All") }
     var watchInput by remember { mutableStateOf("") }
+    var watchQuery by remember { mutableStateOf("") }
+    var watchStateFilter by remember { mutableStateOf("All") }
     var graphInput by remember { mutableStateOf("VK_KHR_swapchain") }
+    var graphDepth by remember { mutableIntStateOf(4) }
     val prefs = remember { context.getSharedPreferences("analysis_tools", Context.MODE_PRIVATE) }
     var watched by remember { mutableStateOf(prefs.getStringSet("watched", emptySet())?.toSet() ?: emptySet()) }
     var testRunning by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf<JSONObject?>(null) }
     val packageInfo = remember(context) { runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull() }
     val applicationVersion = packageInfo?.versionName ?: "Unknown"
-    val current = remember(report, device, display, mode, applicationVersion) { vulkanAnalysisSnapshot(report, device, display, mode, applicationVersion) }
+    val current = remember(tab, report, device, display, mode, applicationVersion) { if (tab == 0 || tab == 4) vulkanAnalysisSnapshot(report, device, display, mode, applicationVersion) else JSONObject().put("schema", "VulkanScopeAnalysisSnapshot1").put("applicationVersion", applicationVersion).put("entries", JSONObject()) }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
             val result = withContext(Dispatchers.IO) {
@@ -3171,7 +3272,8 @@ private fun AnalysisPage(report: VulkanReport, device: DeviceReport?, display: D
         if (uri != null) scope.launch {
             val result = withContext(Dispatchers.IO) {
                 runCatching {
-                    val bytes = current.toString(2).toByteArray(Charsets.UTF_8)
+                    val validated = validateAnalysisSnapshot(JSONObject(current.toString()))
+                    val bytes = validated.toString(2).toByteArray(Charsets.UTF_8)
                     if (bytes.size > ANALYSIS_MAX_SNAPSHOT_BYTES) error("Current analysis snapshot exceeds 8 MiB and was not truncated")
                     val output = context.contentResolver.openOutputStream(uri, "wt") ?: error("Unable to open snapshot destination")
                     output.use { it.write(bytes) }
@@ -3180,29 +3282,52 @@ private fun AnalysisPage(report: VulkanReport, device: DeviceReport?, display: D
             analysisStatus = result.fold({ "Snapshot exported successfully" }, { it.message ?: "Snapshot export failed" })
         }
     }
-    val diffRows = remember(baseline, current, includeUnchanged, diffQuery) {
-        baseline?.let { vulkanSnapshotDiff(it, current) }.orEmpty().filter { row ->
-            (includeUnchanged || row.state != "Unchanged") && matchesAnalysisQuery(row, diffQuery)
+    val diffRows = remember(tab, baseline, current, includeUnchanged, diffQuery, diffStateFilter, diffKindFilter) {
+        if (tab != 0) emptyList() else baseline?.let { vulkanSnapshotDiff(it, current) }.orEmpty().filter { row ->
+            val stateOk = diffStateFilter == "All" || when (diffStateFilter) {
+                "Added" -> row.state == "Added"
+                "Removed" -> row.state.startsWith("Removed")
+                "Changed" -> row.state.startsWith("Changed")
+                "Regression" -> row.state.contains("regression candidate")
+                else -> true
+            }
+            val kindOk = diffKindFilter == "All" || row.kind.equals(diffKindFilter, true)
+            (includeUnchanged || row.state != "Unchanged") && stateOk && kindOk && matchesAnalysisQuery(row, diffQuery)
         }
     }
-    val profileResults = remember(report, device) { vulkanProfileRequirements().map { evaluateProfile(report, device, it) } }
+    val profileResults = remember(tab, report, device, profileQuery, profileStatusFilter) {
+        if (tab != 1) emptyList() else vulkanProfileRequirements().map { evaluateProfile(report, device, it) }.filter { result ->
+            (profileStatusFilter == "All" || result.status == profileStatusFilter) && result.name.contains(profileQuery, true)
+        }
+    }
     val graphRootToken = graphInput.trim()
-    val graphRootRef = remember(graphRootToken) { if (graphRootToken.startsWith("VK_")) vulkanExtensionReference(graphRootToken) else null }
-    val graphEntries = remember(graphRootToken) { dependencyGraphEntries(graphRootToken) }
+    val graphRootRef = remember(tab, graphRootToken) { if (tab == 2 && graphRootToken.startsWith("VK_")) vulkanExtensionReference(graphRootToken) else null }
+    val graphEntries = remember(tab, graphRootToken, graphDepth) { if (tab == 2) dependencyGraphEntries(graphRootToken, graphDepth) else emptyList() }
     val visualGraphNodes = remember(graphEntries, report, device) {
         graphEntries.take(24).map { entry ->
             VulkanGraphNode(entry.token, entry.depth, entry.parent, dependencyRuntimeEvidence(entry.token, report, device))
         }
     }
-    val driverHealth = remember(report, device) { driverDiagnosticScore(report, device) }
+    val driverHealth = remember(tab, report, device) { if (tab == 3) heuristicDiagnosticEvidenceScore(report, device) else HeuristicDiagnosticScore(null, "Not evaluated", emptyList()) }
     val currentEntries = remember(current) { objectStringMap(current.optJSONObject("entries") ?: JSONObject()) }
-    val watchedEvidence = remember(currentEntries, watched) {
-        watched.associateWith { token ->
-            val matches = currentEntries.asSequence()
-                .filter { (key, _) -> key.contains(token, true) }
-                .map { it.key to it.value }
-                .toList()
-            matches.size to matches.take(10)
+    val watchedEvidence = remember(tab, currentEntries, watched) {
+        if (tab != 4) emptyMap() else watched.associateWith { token ->
+            var count = 0
+            val preview = ArrayList<Pair<String, String>>(10)
+            currentEntries.forEach { (key, value) ->
+                if (key.contains(token, true)) {
+                    count += 1
+                    if (preview.size < 10) preview += key to value
+                }
+            }
+            count to preview.toList()
+        }
+    }
+    val visibleWatched = remember(tab, watched, watchedEvidence, watchQuery, watchStateFilter) {
+        if (tab != 4) emptyList() else watched.sorted().filter { token ->
+            val matched = (watchedEvidence[token]?.first ?: 0) > 0
+            val stateOk = watchStateFilter == "All" || (watchStateFilter == "Matched" && matched) || (watchStateFilter == "Missing" && !matched)
+            stateOk && (watchQuery.isBlank() || token.contains(watchQuery, true))
         }
     }
     val sharePrefs = remember { context.getSharedPreferences("database_share", Context.MODE_PRIVATE) }
@@ -3224,6 +3349,8 @@ private fun AnalysisPage(report: VulkanReport, device: DeviceReport?, display: D
                 ExpressiveActionButton("Export analysis snapshot", "Portable local JSON for system-driver, Turnip or device comparison", R.drawable.ic_action_html) { exportLauncher.launch("VulkanScope-${safeFilePart(device?.name ?: "Unknown-GPU")}-analysis.json") }
                 if (baseline != null) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) { Switch(checked = includeUnchanged, onCheckedChange = { includeUnchanged = it }); Text("Show unchanged", style = MaterialTheme.typography.bodySmall) }
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("All", "Added", "Removed", "Changed", "Regression").forEach { value -> ExpressiveFilterChip(selected = diffStateFilter == value, label = value, onClick = { diffStateFilter = value }) } }
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("All", "extension", "feature", "format", "property", "limit", "memory", "queue", "surface", "display", "profile", "query", "safety").forEach { value -> ExpressiveFilterChip(selected = diffKindFilter == value, label = value, onClick = { diffKindFilter = value }) } }
                     ExpressiveSearchField(value = diffQuery, onValueChange = { diffQuery = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "Search · state:changed kind:feature vendor:KHR core:1.4 changed:true")
                 }
             } }
@@ -3245,13 +3372,15 @@ private fun AnalysisPage(report: VulkanReport, device: DeviceReport?, display: D
             }
         } else if (tab == 1) {
             item { CapabilitySectionCard("Specification/profile minimum comparison") {
-                Text("VulkanScope reuses its runtime-only Khronos/Android profile evaluator. Missing query evidence remains UNKNOWN and is never converted to unsupported.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                Text("This lightweight evaluator checks only evidence classes VulkanScope can map safely. Official profiles may also require properties, formats, queue-family properties, video profiles, variants or required profiles; when full official coverage is not proven the result remains UNKNOWN rather than claiming PASS.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
                 CapabilityKeyValue("Published Vulkan baseline", report.registryCoverage.baseline.ifBlank { "Vulkan 1.4.360" })
+                ExpressiveSearchField(value = profileQuery, onValueChange = { profileQuery = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "Search profiles…")
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("All", "FAIL", "UNKNOWN", "PASS").forEach { value -> ExpressiveFilterChip(selected = profileStatusFilter == value, label = value, onClick = { profileStatusFilter = value }) } }
             } }
             items(profileResults, key = { it.name }) { result -> CapabilityItemCard {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     CapabilityKeyValue(result.name, profileSummary(result))
-                    result.failingLimits.takeIf { it.isNotEmpty() }?.let { CapabilityKeyValue("Below required minimum", it.joinToString("; ")) }
+                    result.failingLimits.takeIf { it.isNotEmpty() }?.let { CapabilityKeyValue("Verified limit failures", it.joinToString("; ")) }
                     result.unknownLimits.takeIf { it.isNotEmpty() }?.let { CapabilityKeyValue("Unavailable limits", it.joinToString("; ")) }
                 }
             } }
@@ -3259,6 +3388,7 @@ private fun AnalysisPage(report: VulkanReport, device: DeviceReport?, display: D
             item { CapabilitySectionCard("Capability dependency graph") {
                 Text("Registry dependency edges and runtime enumeration are shown as separate evidence. A registry edge never fabricates runtime support.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
                 ExpressiveSearchField(value = graphInput, onValueChange = { graphInput = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "VK_KHR_swapchain")
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { (1..4).forEach { depth -> ExpressiveFilterChip(selected = graphDepth == depth, label = "Depth $depth", onClick = { graphDepth = depth }) } }
                 CapabilityKeyValue("Root", graphRootToken.ifBlank { "Enter a Vulkan extension token" })
                 graphRootRef?.let {
                     CapabilityKeyValue("Registry depends", it.depends.ifBlank { "No dependency expression embedded for this token" })
@@ -3288,10 +3418,10 @@ private fun AnalysisPage(report: VulkanReport, device: DeviceReport?, display: D
                 }
             }
         } else if (tab == 3) {
-            item { CapabilitySectionCard("Driver diagnostic evidence score") {
+            item { CapabilitySectionCard("Heuristic diagnostic evidence score") {
                 CapabilityKeyValue("Score", driverHealth.score?.let { "$it / 100" } ?: "Unavailable")
                 CapabilityKeyValue("Interpretation", driverHealth.level)
-                Text("This is not a Vulkan conformance result, benchmark, performance score or hardware-quality claim. It summarizes only explicit collection/safety anomalies observed by VulkanScope.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                Text("This heuristic is not a Vulkan conformance result, benchmark, performance score or hardware-quality claim. It summarizes only explicit collection/safety anomalies observed by VulkanScope.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
             } }
             items(driverHealth.factors, key = { it }) { factor -> CapabilityItemCard { Column(Modifier.padding(14.dp)) { Text(factor) } } }
         } else if (tab == 4) {
@@ -3300,10 +3430,12 @@ private fun AnalysisPage(report: VulkanReport, device: DeviceReport?, display: D
                 CapabilityKeyValue("Watch-list usage", "${watched.size} / $ANALYSIS_MAX_WATCHED")
                 ExpressiveTextButton("Add to watch list") {
                     val token = watchInput.trim()
-                    if (token.isNotEmpty() && token.length <= 256 && (token in watched || watched.size < ANALYSIS_MAX_WATCHED)) { watched = watched + token; prefs.edit().putStringSet("watched", watched).apply(); watchInput = "" }
+                    if (token.isNotEmpty() && token.length <= 256 && token !in watched && watched.size < ANALYSIS_MAX_WATCHED) { watched = watched + token; prefs.edit().putStringSet("watched", watched).apply(); watchInput = "" }
                 }
+                ExpressiveSearchField(value = watchQuery, onValueChange = { watchQuery = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "Filter watched entries…")
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("All", "Matched", "Missing").forEach { value -> ExpressiveFilterChip(selected = watchStateFilter == value, label = value, onClick = { watchStateFilter = value }) } }
             } }
-            items(watched.sorted(), key = { it }) { token ->
+            items(visibleWatched, key = { it }) { token ->
                 val evidence = watchedEvidence[token] ?: (0 to emptyList<Pair<String, String>>())
                 CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     CapabilityKeyValue(token, if (evidence.first == 0) "Not present in current snapshot" else "${evidence.first} matching evidence item(s)")
@@ -3328,11 +3460,13 @@ private fun AnalysisPage(report: VulkanReport, device: DeviceReport?, display: D
         } else {
             item { CapabilitySectionCard("Optional active tests") {
                 Text("Active tests are isolated from capability collection. FAIL means the test failed; it does not rewrite the reported feature as unsupported.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-                ExpressiveActionButton("Run Vulkan self-tests", "VkDevice creation, minimal SPIR-V shader-module creation and minimal compute-pipeline creation", R.drawable.ic_action_update, enabled = !testRunning && activity != null) {
+                CapabilityKeyValue("Target GPU", device?.let { "${it.name} · ${it.vendorId}:${it.deviceId}" } ?: "Unavailable")
+                ExpressiveActionButton("Run Vulkan self-tests", "Selected GPU only · VkDevice, minimal SPIR-V shader-module, pipeline-layout and compute-pipeline creation", R.drawable.ic_action_update, enabled = !testRunning && activity != null && device != null) {
                     val host = activity ?: return@ExpressiveActionButton
+                    val target = device ?: return@ExpressiveActionButton
                     testRunning = true
                     scope.launch {
-                        testResult = withContext(Dispatchers.IO) { runCatching { JSONObject(host.runVulkanSelfTests()) }.getOrElse { JSONObject().put("status", "unavailable").put("reason", it.message ?: "Self-test failed") } }
+                        testResult = withContext(Dispatchers.IO) { runCatching { JSONObject(host.runVulkanSelfTests(target.vendorIdRaw, target.deviceIdRaw)) }.getOrElse { JSONObject().put("status", "unavailable").put("reason", it.message ?: "Self-test failed") } }
                         testRunning = false
                     }
                 }
@@ -3384,7 +3518,7 @@ private fun FormatsPage(device: DeviceReport?) {
         AlertDialog(
             onDismissRequest = { selected = null },
             title = { Text(format.name, style = MaterialTheme.typography.titleMedium) },
-            text = { Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 CapabilityKeyValue("Runtime status", if (format.supported) "SUPPORTED" else "NOT SUPPORTED")
                 CapabilityKeyValue("Linear decoded", formatFeatureFlags(format.linear))
                 CapabilityKeyValue("Linear raw", "${java.lang.Long.toUnsignedString(format.linear)} · 0x${java.lang.Long.toUnsignedString(format.linear, 16).uppercase()}")
@@ -3428,7 +3562,8 @@ private fun PropertiesPage(device: DeviceReport?, onRequestQuery: (String) -> Un
     val evidenceResultCount = filtered.size
     val safetyEvidenceCount = filtered.count { it.section == "Vulkan Query Safety" }
     val propertyResultCount = evidenceResultCount - safetyEvidenceCount
-    val uniquePropertyNames = filtered.asSequence().map { it.name }.distinct().count()
+    val uniquePropertyNames = filtered.asSequence().filterNot { it.section == "Vulkan Query Safety" }.map { it.name }.distinct().count()
+    val uniqueSafetyNames = filtered.asSequence().filter { it.section == "Vulkan Query Safety" }.map { it.name }.distinct().count()
     val limitResultCount = visibleLimits.size
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
@@ -3444,7 +3579,7 @@ private fun PropertiesPage(device: DeviceReport?, onRequestQuery: (String) -> Un
             val summary = when (filter) {
                 "Limits" -> "$limitResultCount limits"
                 "All" -> "$evidenceResultCount evidence rows · $propertyResultCount property/query rows · $safetyEvidenceCount safety diagnostics · $uniquePropertyNames unique names · $limitResultCount limits"
-                "Vulkan Query Safety" -> "$safetyEvidenceCount safety diagnostics · $uniquePropertyNames unique names"
+                "Vulkan Query Safety" -> "$safetyEvidenceCount safety diagnostics · $uniqueSafetyNames unique diagnostics"
                 else -> "$propertyResultCount property/query rows · $uniquePropertyNames unique names"
             }
             Text(summary, color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelMedium)
@@ -3638,61 +3773,98 @@ private fun formatFeatureFlags(bits: Long): String = canonicalFlagNames(bits, li
     0x800000000000000L to "VK_FORMAT_FEATURE_2_COPY_IMAGE_INDIRECT_DST_BIT_KHR"
 ))
 
-private data class ProfileResult(val name: String, val revision: String, val status: String, val missingExtensions: List<String>, val missingFeatures: List<String>, val unknownFeatures: List<String>, val failingLimits: List<String>, val unknownLimits: List<String>, val failingBooleanLimits: List<String> = emptyList(), val unknownBooleanLimits: List<String> = emptyList())
+private data class ProfileResult(
+    val name: String,
+    val revision: String,
+    val status: String,
+    val missingExtensions: List<String>,
+    val unknownExtensions: List<String>,
+    val missingFeatures: List<String>,
+    val unknownFeatures: List<String>,
+    val failingLimits: List<String>,
+    val unknownLimits: List<String>,
+    val failingBooleanLimits: List<String> = emptyList(),
+    val unknownBooleanLimits: List<String> = emptyList(),
+    val coverageNote: String = ""
+)
 
 private data class ProfileRequirements(
     val name: String,
     val revision: String,
-    val minApiMinor: Int,
-    val extensions: List<String>,
-    val features: List<String>,
-    val limits: Map<String, Long>,
-    val booleanLimits: Map<String, Boolean> = emptyMap()
+    val minApiVersion: String,
+    val extensions: List<String> = emptyList(),
+    val features: List<String> = emptyList(),
+    val minimumLimits: Map<String, Long> = emptyMap(),
+    val maximumLimits: Map<String, Long> = emptyMap(),
+    val booleanLimits: Map<String, Boolean> = emptyMap(),
+    val completeCoverage: Boolean = false
 )
 
+private val PROFILE_INSTANCE_EXTENSIONS = setOf(
+    "VK_KHR_surface", "VK_KHR_android_surface", "VK_KHR_get_physical_device_properties2",
+    "VK_KHR_get_surface_capabilities2", "VK_EXT_debug_utils", "VK_EXT_surface_maintenance1",
+    "VK_GOOGLE_surfaceless_query", "VK_KHR_device_group_creation"
+)
+
+private fun profileRequirement(
+    name: String,
+    revision: String,
+    api: String,
+    extensions: List<String> = emptyList(),
+    features: List<String> = emptyList(),
+    minimumLimits: Map<String, Long> = emptyMap(),
+    maximumLimits: Map<String, Long> = emptyMap(),
+    booleanLimits: Map<String, Boolean> = emptyMap()
+) = ProfileRequirements(name, revision, api, extensions, features, minimumLimits, maximumLimits, booleanLimits, false)
+
 private fun vulkanProfileRequirements(): List<ProfileRequirements> = listOf(
-    ProfileRequirements(
-        "VP_ANDROID_baseline_2022", "r.2", 1,
-        listOf("VK_KHR_android_surface", "VK_ANDROID_external_memory_android_hardware_buffer", "VK_KHR_swapchain", "VK_KHR_maintenance1", "VK_KHR_maintenance2", "VK_KHR_maintenance3", "VK_KHR_dedicated_allocation"),
-        emptyList(), emptyMap()
+    profileRequirement(
+        "VP_ANDROID_vulkan_profile_2025", "r.2", "1.1.128",
+        listOf("VK_KHR_android_surface", "VK_ANDROID_external_memory_android_hardware_buffer", "VK_KHR_swapchain", "VK_KHR_maintenance1", "VK_KHR_maintenance2", "VK_KHR_maintenance3", "VK_KHR_dedicated_allocation", "VK_KHR_create_renderpass2", "VK_KHR_image_format_list", "VK_KHR_sampler_ycbcr_conversion", "VK_KHR_shader_draw_parameters", "VK_KHR_variable_pointers", "VK_EXT_swapchain_colorspace"),
+        listOf("robustBufferAccess", "fullDrawIndexUint32", "imageCubeArray", "independentBlend", "sampleRateShading", "drawIndirectFirstInstance", "depthBiasClamp", "shaderInt16", "samplerYcbcrConversion", "shaderDrawParameters", "variablePointers", "variablePointersStorageBuffer"),
+        minimumLimits = mapOf("maxColorAttachments" to 8, "maxComputeWorkGroupInvocations" to 256, "maxUniformBufferRange" to 65536),
+        maximumLimits = mapOf("bufferImageGranularity" to 4096)
     ),
-    ProfileRequirements(
-        "VP_KHR_roadmap_2022", "r.1", 3,
-        listOf("VK_KHR_global_priority", "VK_KHR_sampler_ycbcr_conversion", "VK_KHR_timeline_semaphore", "VK_KHR_buffer_device_address", "VK_KHR_vulkan_memory_model", "VK_KHR_synchronization2", "VK_KHR_dynamic_rendering"),
-        listOf("robustBufferAccess", "fullDrawIndexUint32", "imageCubeArray", "independentBlend", "sampleRateShading", "drawIndirectFirstInstance", "depthClamp", "depthBiasClamp", "samplerAnisotropy", "occlusionQueryPrecise", "fragmentStoresAndAtomics", "shaderStorageImageExtendedFormats", "shaderUniformBufferArrayDynamicIndexing", "shaderSampledImageArrayDynamicIndexing", "shaderStorageBufferArrayDynamicIndexing", "shaderStorageImageArrayDynamicIndexing", "samplerYcbcrConversion", "subgroupSize", "timelineSemaphore", "bufferDeviceAddress", "vulkanMemoryModel", "vulkanMemoryModelDeviceScope", "synchronization2", "dynamicRendering"),
-        mapOf("maxImageDimension1D" to 8192, "maxImageDimension2D" to 8192, "maxImageDimensionCube" to 8192, "maxImageArrayLayers" to 2048, "maxUniformBufferRange" to 65536, "bufferImageGranularity" to 4096, "maxPerStageDescriptorSamplers" to 64, "maxPerStageDescriptorUniformBuffers" to 15, "maxPerStageDescriptorStorageBuffers" to 30, "maxPerStageDescriptorSampledImages" to 200, "maxPerStageDescriptorStorageImages" to 16, "maxPerStageResources" to 200, "maxDescriptorSetSamplers" to 576, "maxDescriptorSetUniformBuffers" to 90, "maxDescriptorSetStorageBuffers" to 96, "maxDescriptorSetSampledImages" to 1800, "maxDescriptorSetStorageImages" to 144, "maxFragmentCombinedOutputResources" to 16, "maxComputeWorkGroupInvocations" to 256, "subTexelPrecisionBits" to 8, "mipmapPrecisionBits" to 6),
-        mapOf("standardSampleLocations" to true, "timestampComputeAndGraphics" to true)
+    profileRequirement(
+        "VP_ANDROID_17_requirements", "r.4", "1.4.335",
+        listOf("VK_KHR_maintenance7", "VK_KHR_maintenance8", "VK_KHR_maintenance9", "VK_KHR_pipeline_binary", "VK_KHR_pipeline_library", "VK_KHR_present_id2", "VK_KHR_present_wait2", "VK_KHR_shader_maximal_reconvergence", "VK_KHR_shader_quad_control", "VK_KHR_shader_subgroup_uniform_control_flow", "VK_KHR_swapchain_mutable_format", "VK_KHR_workgroup_memory_explicit_layout", "VK_EXT_calibrated_timestamps", "VK_EXT_custom_border_color", "VK_EXT_debug_utils", "VK_EXT_descriptor_indexing", "VK_EXT_device_address_binding_report", "VK_EXT_device_memory_report", "VK_EXT_external_memory_acquire_unmodified", "VK_EXT_graphics_pipeline_library", "VK_EXT_hdr_metadata", "VK_EXT_image_2d_view_of_3d", "VK_EXT_image_compression_control", "VK_EXT_image_compression_control_swapchain", "VK_EXT_present_mode_fifo_latest_ready", "VK_EXT_present_timing", "VK_EXT_primitive_topology_list_restart", "VK_EXT_provoking_vertex", "VK_EXT_surface_maintenance1", "VK_EXT_swapchain_maintenance1", "VK_EXT_transform_feedback", "VK_ANDROID_external_format_resolve", "VK_GOOGLE_surfaceless_query"),
+        listOf("storageInputOutput16", "uniformAndStorageBuffer16BitAccess", "customBorderColors", "descriptorBindingVariableDescriptorCount", "dualSrcBlend", "multiDrawIndirect", "shaderInt64", "shaderStorageImageWriteWithoutFormat", "protectedMemory", "shaderBufferInt64Atomics", "shaderFloat16", "hostImageCopy"),
+        minimumLimits = mapOf("maxDescriptorSetStorageImages" to 144)
     ),
-    ProfileRequirements(
-        "VP_KHR_roadmap_2024", "r.1", 3,
-        listOf("VK_KHR_dynamic_rendering_local_read", "VK_KHR_load_store_op_none", "VK_KHR_shader_quad_control", "VK_KHR_shader_maximal_reconvergence", "VK_KHR_shader_subgroup_uniform_control_flow", "VK_KHR_shader_subgroup_rotate", "VK_KHR_shader_float_controls2", "VK_KHR_shader_expect_assume", "VK_KHR_line_rasterization", "VK_KHR_vertex_attribute_divisor", "VK_KHR_index_type_uint8", "VK_KHR_map_memory2", "VK_KHR_maintenance5", "VK_KHR_push_descriptor"),
-        listOf("multiDrawIndirect", "shaderInt16", "shaderImageGatherExtended", "shaderDrawParameters", "storageBuffer16BitAccess", "shaderInt8", "shaderFloat16", "storageBuffer8BitAccess", "dynamicRenderingLocalRead", "shaderQuadControl", "shaderMaximalReconvergence", "shaderSubgroupUniformControlFlow", "shaderSubgroupRotate", "shaderFloatControls2", "shaderExpectAssume", "rectangularLines", "bresenhamLines", "smoothLines", "stippledRectangularLines", "stippledBresenhamLines", "stippledSmoothLines", "vertexAttributeInstanceRateDivisor", "indexTypeUint8", "maintenance5", "pushDescriptor"),
-        mapOf("maxColorAttachments" to 8, "maxBoundDescriptorSets" to 7),
-        mapOf("timestampComputeAndGraphics" to true)
+    profileRequirement(
+        "VP_ANDROID_16_requirements", "r.7", "1.3.276",
+        listOf("VK_KHR_8bit_storage", "VK_KHR_load_store_op_none", "VK_KHR_maintenance6", "VK_KHR_map_memory2", "VK_KHR_shader_expect_assume", "VK_KHR_shader_float_controls2", "VK_KHR_shader_maximal_reconvergence", "VK_KHR_shader_subgroup_rotate", "VK_KHR_shader_subgroup_uniform_control_flow", "VK_KHR_swapchain_mutable_format", "VK_EXT_host_image_copy", "VK_EXT_image_2d_view_of_3d", "VK_EXT_pipeline_protected_access", "VK_EXT_pipeline_robustness", "VK_EXT_transform_feedback")
     ),
-    ProfileRequirements(
-        "VP_KHR_roadmap_2026", "r.1", 4,
-        listOf("VK_KHR_robustness2", "VK_KHR_pipeline_binary", "VK_KHR_fragment_shading_rate", "VK_KHR_shader_clock", "VK_KHR_workgroup_memory_explicit_layout", "VK_KHR_compute_shader_derivatives", "VK_KHR_maintenance7", "VK_KHR_maintenance8", "VK_KHR_maintenance9", "VK_KHR_depth_clamp_zero_one", "VK_KHR_copy_memory_indirect", "VK_KHR_shader_untyped_pointers", "VK_KHR_surface", "VK_KHR_swapchain", "VK_KHR_get_surface_capabilities2", "VK_KHR_present_mode_fifo_latest_ready", "VK_KHR_present_id2", "VK_KHR_present_wait2", "VK_KHR_surface_maintenance1", "VK_KHR_swapchain_maintenance1", "VK_KHR_cooperative_matrix"),
-        listOf("hostImageCopy", "pushDescriptor", "robustBufferAccess2", "robustImageAccess2", "nullDescriptor", "pipelineBinaries", "pipelineFragmentShadingRate", "shaderSubgroupClock", "workgroupMemoryExplicitLayout", "computeDerivativeGroupLinear", "maintenance7", "maintenance8", "maintenance9", "depthClampZeroOne", "indirectMemoryCopy", "shaderUntypedPointers", "presentModeFifoLatestReady", "presentId2", "presentWait2", "swapchainMaintenance1", "cooperativeMatrix"),
-        mapOf("maxPerStageDescriptorUniformBuffers" to 200, "maxPerStageDescriptorStorageBuffers" to 200, "maxPerStageDescriptorInputAttachments" to 8, "maxDescriptorSetStorageBuffers" to 1800, "maxDescriptorSetUniformBuffers" to 1800, "maxDescriptorSetInputAttachments" to 8, "maxVertexOutputComponents" to 124, "maxTessellationControlPerVertexInputComponents" to 128, "maxTessellationControlPerVertexOutputComponents" to 128, "maxTessellationControlTotalOutputComponents" to 4096, "maxTessellationEvaluationInputComponents" to 128, "maxTessellationEvaluationOutputComponents" to 128, "maxGeometryOutputComponents" to 128, "maxFragmentInputComponents" to 112, "maxFragmentOutputAttachments" to 8, "maxComputeSharedMemorySize" to 32768, "subPixelPrecisionBits" to 8, "maxFramebufferWidth" to 8192, "maxFramebufferHeight" to 8192)
-    )
+    profileRequirement(
+        "VP_ANDROID_15_requirements", "r.2", "1.3.273",
+        listOf("VK_KHR_maintenance5", "VK_KHR_shader_float16_int8", "VK_KHR_16bit_storage", "VK_KHR_vertex_attribute_divisor", "VK_EXT_custom_border_color", "VK_EXT_device_memory_report", "VK_EXT_external_memory_acquire_unmodified", "VK_EXT_index_type_uint8", "VK_EXT_load_store_op_none", "VK_EXT_primitive_topology_list_restart", "VK_EXT_provoking_vertex", "VK_EXT_scalar_block_layout", "VK_EXT_surface_maintenance1", "VK_EXT_swapchain_maintenance1", "VK_EXT_4444_formats", "VK_ANDROID_external_format_resolve", "VK_GOOGLE_surfaceless_query"),
+        listOf("drawIndirectFirstInstance", "shaderImageGatherExtended", "shaderStorageImageExtendedFormats", "shaderStorageImageReadWithoutFormat", "shaderStorageImageWriteWithoutFormat", "samplerAnisotropy", "shaderFloat16", "shaderInt8", "customBorderColors", "primitiveTopologyListRestart", "provokingVertexLast", "indexTypeUint8", "vertexAttributeInstanceRateDivisor", "samplerYcbcrConversion", "shaderSubgroupExtendedTypes", "storageBuffer8BitAccess", "storageBuffer16BitAccess")
+    ),
+    profileRequirement("VP_KHR_roadmap_2026", "r.2", "1.4.328"),
+    profileRequirement("VP_KHR_roadmap_2024", "r.2", "1.3.276"),
+    profileRequirement("VP_KHR_roadmap_2022", "r.1", "1.3.204"),
+    profileRequirement("VP_LUNARG_minimum_requirements_1_4", "r.1", "1.4.0"),
+    profileRequirement("VP_LUNARG_minimum_requirements_1_3", "r.1", "1.3.0"),
+    profileRequirement("VP_LUNARG_minimum_requirements_1_2", "r.1", "1.2.0"),
+    profileRequirement("VP_LUNARG_minimum_requirements_1_1", "r.1", "1.1.0"),
+    profileRequirement("VP_LUNARG_minimum_requirements_1_0", "r.1", "1.0.0")
 )
 
 private fun vulkanProfileCatalog(): List<Pair<String, String>> = listOf(
-    "VP_LUNARG_minimum_requirements_1_3" to "r.1",
-    "VP_LUNARG_minimum_requirements_1_2" to "r.1",
-    "VP_LUNARG_minimum_requirements_1_1" to "r.1",
-    "VP_LUNARG_minimum_requirements_1_0" to "r.1",
-    "VP_LUNARG_desktop_baseline_2024" to "r.1",
-    "VP_LUNARG_desktop_baseline_2023" to "r.2",
-    "VP_LUNARG_desktop_baseline_2022" to "r.2",
-    "VP_KHR_roadmap_2026" to "r.1",
-    "VP_KHR_roadmap_2024" to "r.1",
+    "VP_ANDROID_17_requirements" to "r.4",
+    "VP_ANDROID_16_requirements" to "r.7",
+    "VP_ANDROID_15_requirements" to "r.2",
+    "VP_ANDROID_vulkan_profile_2025" to "r.2",
+    "VP_ANDROID_vulkan_profile_2022" to "current canonical Android profile",
+    "VP_ANDROID_vulkan_profile_2021" to "current canonical Android profile",
+    "VP_KHR_roadmap_2026" to "r.2",
+    "VP_KHR_roadmap_2024" to "r.2",
     "VP_KHR_roadmap_2022" to "r.1",
-    "VP_ANDROID_baseline_2022" to "r.2",
-    "VP_ANDROID_baseline_2021" to "r.3",
-    "VP_ANDROID_16_minimums" to "r.1",
-    "VP_ANDROID_15_minimums" to "r.1"
+    "VP_LUNARG_minimum_requirements_1_4" to "current",
+    "VP_LUNARG_minimum_requirements_1_3" to "current",
+    "VP_LUNARG_minimum_requirements_1_2" to "current",
+    "VP_LUNARG_minimum_requirements_1_1" to "current",
+    "VP_LUNARG_minimum_requirements_1_0" to "current"
 )
 
 private fun normalizedFeatureName(name: String): String = name.substringAfter("·").trim()
@@ -3702,54 +3874,75 @@ private fun numericLimit(limits: List<Pair<String, String>>, key: String): Long?
     return Regex("-?\\d+").find(value)?.value?.toLongOrNull()
 }
 
+private fun extensionPromotedToSatisfied(name: String, deviceApiVersion: String): Boolean {
+    val promoted = vulkanExtensionReference(name).promotedTo
+    val match = Regex("Vulkan\\s+(\\d+)\\.(\\d+)", RegexOption.IGNORE_CASE).find(promoted) ?: return false
+    return apiAtLeast(deviceApiVersion, match.groupValues[1].toInt(), match.groupValues[2].toInt())
+}
+
 private fun evaluateProfile(report: VulkanReport?, device: DeviceReport?, requirements: ProfileRequirements): ProfileResult {
-    if (device == null) return ProfileResult(requirements.name, requirements.revision, "UNKNOWN", emptyList(), emptyList(), requirements.features, emptyList(), requirements.limits.keys.toList(), emptyList(), requirements.booleanLimits.keys.toList())
-    val extensions = buildSet {
-        addAll(report?.instanceExtensions?.map { it.name } ?: emptyList())
-        addAll(device.extensions.map { it.name })
+    val coverageNote = "Lightweight subset only; full Khronos/Android profile coverage is not proven by this evaluator"
+    if (device == null) return ProfileResult(requirements.name, requirements.revision, "UNKNOWN", emptyList(), requirements.extensions, emptyList(), requirements.features, emptyList(), (requirements.minimumLimits.keys + requirements.maximumLimits.keys).toList(), emptyList(), requirements.booleanLimits.keys.toList(), coverageNote)
+    val instanceExtensions = report?.instanceExtensions?.map { it.name }?.toSet().orEmpty()
+    val deviceExtensions = device.extensions.map { it.name }.toSet()
+    val missingExtensions = mutableListOf<String>()
+    val unknownExtensions = mutableListOf<String>()
+    requirements.extensions.forEach { extension ->
+        if (extension in instanceExtensions || extension in deviceExtensions || extensionPromotedToSatisfied(extension, device.apiVersion)) return@forEach
+        if (extension in PROFILE_INSTANCE_EXTENSIONS || device.deviceExtensionStatus != "available") unknownExtensions += extension else missingExtensions += extension
     }
-    val missingExtensions = requirements.extensions.filterNot { it in extensions }
     val supportedFeatures = device.features.filter { it.supported }.map { normalizedFeatureName(it.name) }.toSet()
     val knownFeatures = device.features.map { normalizedFeatureName(it.name) }.toSet()
     val missingFeatures = requirements.features.filter { it in knownFeatures && it !in supportedFeatures }
     val unknownFeatures = requirements.features.filterNot { it in knownFeatures }
     val failingLimits = mutableListOf<String>()
     val unknownLimits = mutableListOf<String>()
-    for ((name, required) in requirements.limits) {
+    requirements.minimumLimits.forEach { (name, required) ->
         val actual = numericLimit(device.limits, name)
         when {
             actual == null -> unknownLimits += "$name >= $required"
             actual < required -> failingLimits += "$name=$actual < $required"
         }
     }
+    requirements.maximumLimits.forEach { (name, required) ->
+        val actual = numericLimit(device.limits, name)
+        when {
+            actual == null -> unknownLimits += "$name <= $required"
+            actual > required -> failingLimits += "$name=$actual > $required"
+        }
+    }
     val failingBooleanLimits = mutableListOf<String>()
     val unknownBooleanLimits = mutableListOf<String>()
-    for ((name, required) in requirements.booleanLimits) {
+    requirements.booleanLimits.forEach { (name, required) ->
         val value = device.limits.firstOrNull { it.first == name }?.second
-        val actual = value?.trim()?.equals("true", true)
+        val actual = when (value?.trim()?.lowercase()) { "true" -> true; "false" -> false; else -> null }
         when {
             actual == null -> unknownBooleanLimits += "$name = $required"
             actual != required -> failingBooleanLimits += "$name=$actual != $required"
         }
     }
-    val apiOk = apiAtLeast(device.apiVersion, 1, requirements.minApiMinor)
+    val apiOk = apiVersionAtLeast(device.apiVersion, requirements.minApiVersion)
+    val verifiedFailure = !apiOk || missingExtensions.isNotEmpty() || missingFeatures.isNotEmpty() || failingLimits.isNotEmpty() || failingBooleanLimits.isNotEmpty()
+    val hasUnknown = unknownExtensions.isNotEmpty() || unknownFeatures.isNotEmpty() || unknownLimits.isNotEmpty() || unknownBooleanLimits.isNotEmpty()
     val status = when {
-        !apiOk || missingExtensions.isNotEmpty() || missingFeatures.isNotEmpty() || failingLimits.isNotEmpty() || failingBooleanLimits.isNotEmpty() -> "FAIL"
-        unknownFeatures.isNotEmpty() || unknownLimits.isNotEmpty() || unknownBooleanLimits.isNotEmpty() -> "UNKNOWN"
+        verifiedFailure -> "FAIL"
+        hasUnknown || !requirements.completeCoverage -> "UNKNOWN"
         else -> "PASS"
     }
-    return ProfileResult(requirements.name, requirements.revision, status, missingExtensions, missingFeatures, unknownFeatures, failingLimits, unknownLimits, failingBooleanLimits, unknownBooleanLimits)
+    return ProfileResult(requirements.name, requirements.revision, status, missingExtensions, unknownExtensions, missingFeatures, unknownFeatures, failingLimits, unknownLimits, failingBooleanLimits, unknownBooleanLimits, coverageNote)
 }
 
 private fun profileSummary(result: ProfileResult): String = buildString {
     append(result.status)
-    if (result.missingExtensions.isNotEmpty()) append(" · ${result.missingExtensions.size} missing extension(s)")
+    if (result.missingExtensions.isNotEmpty()) append(" · ${result.missingExtensions.size} verified missing extension(s)")
+    if (result.unknownExtensions.isNotEmpty()) append(" · ${result.unknownExtensions.size} extension requirement(s) unknown")
     if (result.missingFeatures.isNotEmpty()) append(" · ${result.missingFeatures.size} unsupported feature(s)")
     if (result.failingLimits.isNotEmpty()) append(" · ${result.failingLimits.size} failing limit(s)")
     if (result.unknownFeatures.isNotEmpty()) append(" · ${result.unknownFeatures.size} feature query(ies) unavailable")
     if (result.unknownLimits.isNotEmpty()) append(" · ${result.unknownLimits.size} limit(s) unavailable")
     if (result.failingBooleanLimits.isNotEmpty()) append(" · ${result.failingBooleanLimits.size} boolean limit failure(s)")
     if (result.unknownBooleanLimits.isNotEmpty()) append(" · ${result.unknownBooleanLimits.size} boolean limit(s) unavailable")
+    if (result.coverageNote.isNotBlank()) append(" · partial evaluator")
 }
 
 @Composable
@@ -3761,7 +3954,7 @@ private fun ProfilesPage(report: VulkanReport, device: DeviceReport?) {
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
             CapabilitySectionCard("Profile explorer") {
-            Text("Profile support is evaluated only from runtime Vulkan values. Missing query data is UNKNOWN, never inferred as unsupported.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
+            Text("Profile requirements are evaluated only from mapped runtime evidence. Missing evidence is UNKNOWN; partial evaluator coverage never claims full profile PASS.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
             ExpressiveSearchField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), placeholderText = "Search profiles…")
             }
         }
@@ -3773,15 +3966,17 @@ private fun ProfilesPage(report: VulkanReport, device: DeviceReport?) {
                         Text(result.name, modifier = Modifier.weight(1f), fontWeight = FontWeight.Medium)
                         CapabilityStatusBadge(result.status, when (result.status) { "PASS" -> true; "FAIL" -> false; else -> null })
                     }
-                    Text("${req.revision} · Vulkan ${req.minApiMinor}.0 minimum", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium)
+                    Text("${req.revision} · Vulkan ${req.minApiVersion} minimum", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium)
                     Text(profileSummary(result), style = MaterialTheme.typography.bodySmall)
-                    if (result.missingExtensions.isNotEmpty()) CapabilityKeyValue("Missing extensions", result.missingExtensions.joinToString(", "))
+                    if (result.missingExtensions.isNotEmpty()) CapabilityKeyValue("Verified missing extensions", result.missingExtensions.joinToString(", "))
+                    if (result.unknownExtensions.isNotEmpty()) CapabilityKeyValue("Unknown extension requirements", result.unknownExtensions.joinToString(", "))
                     if (result.missingFeatures.isNotEmpty()) CapabilityKeyValue("Unsupported features", result.missingFeatures.joinToString(", "))
                     if (result.unknownFeatures.isNotEmpty()) CapabilityKeyValue("Unavailable feature queries", result.unknownFeatures.joinToString(", "))
                     if (result.failingLimits.isNotEmpty()) CapabilityKeyValue("Failing limits", result.failingLimits.joinToString("; "))
                     if (result.unknownLimits.isNotEmpty()) CapabilityKeyValue("Unavailable limits", result.unknownLimits.joinToString(", "))
                     if (result.failingBooleanLimits.isNotEmpty()) CapabilityKeyValue("Failing boolean limits", result.failingBooleanLimits.joinToString("; "))
                     if (result.unknownBooleanLimits.isNotEmpty()) CapabilityKeyValue("Unavailable boolean limits", result.unknownBooleanLimits.joinToString(", "))
+                    if (result.coverageNote.isNotBlank()) CapabilityKeyValue("Evaluator coverage", result.coverageNote)
                 }
             }
         }
@@ -4166,7 +4361,7 @@ private fun technicalReportJson(context: Context, report: VulkanReport, display:
             put("memoryHeaps", JSONArray().apply { d.heaps.forEach { heap -> put(JSONObject().apply { put("index", heap.index); put("size", heap.size); put("sizeU64", heap.size.toULong().toString()); put("flags", heap.flags); put("flagsU64", heap.flags.toULong().toString()); put("flagsCanonical", memoryHeapFlags(heap.flags)) }) } })
             put("memoryTypes", JSONArray().apply { d.memoryTypes.forEach { type -> put(JSONObject().apply { put("index", type.index); put("heap", type.heap); put("flags", type.flags); put("flagsU64", type.flags.toULong().toString()); put("flagsCanonical", memoryTypeFlags(type.flags)) }) } })
             put("queues", JSONArray().apply { d.queues.forEach { q -> put(JSONObject().apply {
-                put("index", q.index); put("count", q.count); put("timestampBits", q.timestampBits); put("flags", q.flags); put("flagsU64", q.flags.toULong().toString()); put("flagsCanonical", queueCapabilityFlags(q.flags)); put("graphics", q.graphics); put("compute", q.compute); put("transfer", q.transfer); put("sparse", q.sparse); put("protected", q.protected); put("videoDecode", q.videoDecode); put("videoEncode", q.videoEncode); put("opticalFlow", q.opticalFlow); put("dataGraph", q.dataGraph); put("unknownFlags", q.unknownFlags); put("granularity", q.granularity); put("videoCodecOperations", q.videoCodecOperations); put("videoCodecOperationsU64", q.videoCodecOperations.toULong().toString()); put("videoCodecOperationsCanonical", if (q.videoCodecQueryStatus == "available") videoCodecOperationFlags(q.videoCodecOperations) else "Unknown"); put("videoCodecQueryStatus", q.videoCodecQueryStatus); put("videoCodecQueryReason", q.videoCodecQueryReason)
+                put("index", q.index); put("count", q.count); put("timestampBits", q.timestampBits); put("flags", q.flags); put("flagsU64", q.flags.toULong().toString()); put("flagsCanonical", queueCapabilityFlags(q.flags)); put("graphics", q.graphics); put("compute", q.compute); put("transfer", q.transfer); put("sparse", q.sparse); put("protected", q.protected); put("videoDecode", q.videoDecode); put("videoEncode", q.videoEncode); put("opticalFlow", q.opticalFlow); put("dataGraph", q.dataGraph); put("unknownFlags", q.unknownFlags); put("granularity", q.granularity); put("videoCodecOperations", if (q.videoCodecQueryStatus == "available") q.videoCodecOperations else JSONObject.NULL); put("videoCodecOperationsU64", if (q.videoCodecQueryStatus == "available") q.videoCodecOperations.toULong().toString() else JSONObject.NULL); put("videoCodecOperationsCanonical", if (q.videoCodecQueryStatus == "available") videoCodecOperationFlags(q.videoCodecOperations) else "Unknown"); put("videoCodecQueryStatus", q.videoCodecQueryStatus); put("videoCodecQueryReason", q.videoCodecQueryReason)
             }) } })
             put("formats", JSONArray().apply { d.formats.forEach { f -> put(JSONObject().apply { put("name", f.name); put("supported", f.supported); put("linear", f.linear); put("linearU64", f.linear.toULong().toString()); put("linearCanonical", formatFeatureFlags(f.linear)); put("optimal", f.optimal); put("optimalU64", f.optimal.toULong().toString()); put("optimalCanonical", formatFeatureFlags(f.optimal)); put("buffer", f.buffer); put("bufferU64", f.buffer.toULong().toString()); put("bufferCanonical", formatFeatureFlags(f.buffer)) }) } })
             put("surface", JSONObject().apply {
@@ -4252,7 +4447,7 @@ private suspend fun submitDatabaseReport(context: Context, report: VulkanReport,
             .header("Accept", "application/json")
             .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
             .build()
-        ipv6PreferredHttpClient.newCall(request).execute().use { response ->
+        databaseHttpClient.newCall(request).execute().use { response ->
             val body = readResponseTextLimited(response.body, 64 * 1024)
             if (response.isSuccessful) {
                 val id = runCatching { JSONObject(body).optString("id") }.getOrDefault("")

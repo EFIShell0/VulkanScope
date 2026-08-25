@@ -1,0 +1,1 @@
+Added registry dependency analysis, advanced search, richer extension details, diagnostic evidence scoring, local QR/permalink sharing, and matching Database trend/permalink support while preserving Vulkan 1.4.360 and report semantics.

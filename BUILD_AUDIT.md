@@ -1,14 +1,28 @@
-# VulkanScope 0.41.3 Build Audit
+# VulkanScope 0.41.6 Build / Release Audit
 
-## Completed static/release checks
-- `tools/verify_release.py`: PASS.
-- Vulkan 1.4.360 queue flag set rechecked against current Khronos specification.
-- Known queue mask corrected to `0x57F`, including `VK_QUEUE_SPARSE_BINDING_BIT`.
-- Queue capability support and Vulkan Video codec-operation query availability are separated.
-- UI, TXT, HTML and technicalReport queue fields are kept in parity.
-- Schema 2 / technicalReport 3 remain unchanged.
+## Release identity
 
-## Gradle release build attempt
-`./gradlew :app:assembleRelease --no-daemon` was attempted in this environment.
+- VulkanScope: `0.41.6`
+- versionCode: `416`
+- Published/query Vulkan baseline: `1.4.360`
+- Android compile/target SDK: `37`
+- Minimum Android API: `24`
+- Submission schema: `2`
+- `technicalReport` schema: `3`
 
-The build stopped before project compilation because Gradle 9.7.0 was not cached and `services.gradle.org` could not be resolved (`java.net.UnknownHostException`). No APK build success is claimed from this environment.
+## Confirmed 0.41.5 failure and correction
+
+The supplied Windows `assembleRelease` build completed native compilation for all three configured ABIs and failed in `:app:compileReleaseKotlin` at `MainActivity.kt` because `mutableIntStateOf` was unresolved. The source referenced `mutableIntStateOf(4)` but did not import `androidx.compose.runtime.mutableIntStateOf`. 0.41.6 restores that import and adds a verifier gate for primitive Compose state-factory imports.
+
+The libadrenotools diagnostics in the supplied log are warnings and are not the task that failed. This patch does not silence or locally fork those third-party warnings.
+
+## Scope and regression boundary
+
+The change is compile-only plus release-gate hardening. Vulkan collection, Analysis/Profile semantics, self-tests, Surface/WSI, reporting, Database payloads, updater behavior, Turnip/imported-driver handling, ABI coverage and Android API compatibility are unchanged from 0.41.5.
+
+## Verification
+
+- `tools/verify_release.py`: required to PASS.
+- Kotlin source import invariant: required to PASS.
+- XML/JSON/Python syntax and source-package hygiene: required to PASS.
+- A full Android Gradle build is only claimed if the execution environment has the required Gradle/Android dependency cache or network access.

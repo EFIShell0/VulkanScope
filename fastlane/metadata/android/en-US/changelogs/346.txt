@@ -1,0 +1,1 @@
+Added Obtainium-oriented update management, one-tap universal-APK configuration, and updated direct-update messaging. Built-in GitHub updates remain opt-in and disabled by default.

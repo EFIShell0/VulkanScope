@@ -1,0 +1,1 @@
+Hardened direct-update cancellation, APK signing-lineage verification and failed-download cleanup. Re-audited Vulkan 1.4.360 query/report completeness, lifecycle, security and native resource ownership.

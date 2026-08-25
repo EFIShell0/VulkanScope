@@ -1,0 +1,2 @@
+Fixed queue/video structured-report semantics, Database redirect hardening, Properties summary counts, partial extension evidence, and format-detail scrolling.
+- Hardened Host Image Copy source/destination layout-array collection and returned-count validation.
