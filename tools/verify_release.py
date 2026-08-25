@@ -6,10 +6,14 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 errors = []
 gradle = (root / 'app/build.gradle.kts').read_text(encoding='utf-8')
+root_gradle = (root / 'build.gradle.kts').read_text(encoding='utf-8')
+if 'id("com.android.application") version "9.3.2" apply false' not in root_gradle: errors.append('AGP 9.3.2 pin mismatch')
+wrapper_properties = (root / 'gradle/wrapper/gradle-wrapper.properties').read_text(encoding='utf-8')
+if 'gradle-9.7.1-bin.zip' not in wrapper_properties: errors.append('Gradle wrapper 9.7.1 pin mismatch')
 version = re.search(r'versionName\s*=\s*"([^"]+)"', gradle)
 code = re.search(r'versionCode\s*=\s*(\d+)', gradle)
-if not version or version.group(1) != '0.41.7': errors.append('versionName mismatch')
-if not code or code.group(1) != '417': errors.append('versionCode mismatch')
+if not version or version.group(1) != '0.41.10': errors.append('versionName mismatch')
+if not code or code.group(1) != '420': errors.append('versionCode mismatch')
 abi_line = re.search(r'abiFilters \+= listOf\(([^\n]+)\)', gradle)
 if not abi_line or any(x not in abi_line.group(1) for x in ['arm64-v8a', 'armeabi-v7a', 'x86_64']): errors.append('required ABI set is incomplete')
 if '"x86"' in gradle: errors.append('x86 ABI must remain excluded')
@@ -729,6 +733,51 @@ else:
             errors.append(f'missing 0.41.7 Image Format Properties2 diagnostic: {needle}')
     if image_format_block.find('for (uint32_t handleIndex = 0; handleIndex < 2; ++handleIndex)') < image_format_block.find('const VkResult baseResult'):
         errors.append('external image-format query ordering is invalid')
+
+if '## Release 0.41.8 Image Format Properties2 tuple-result and build baseline requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing historical 0.41.8 Image Format Properties2 contract')
+if not (root / 'rules/0.41.8_IMAGE_FORMAT_PROPERTIES2_TUPLE_RESULTS_AGP_9_3_2_AUDIT.md').is_file():
+    errors.append('0.41.8 Image Format Properties2 tuple-result audit record is missing')
+if not (root / 'fastlane/metadata/android/en-US/changelogs/418.txt').is_file():
+    errors.append('0.41.8 fastlane changelog is missing')
+
+if '## Release 0.41.9 Image Format Properties2 query-outcome separation requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing historical 0.41.9 Image Format Properties2 outcome-separation contract')
+if not (root / 'rules/0.41.9_IMAGE_FORMAT_QUERY_OUTCOME_SEPARATION_AUDIT.md').is_file():
+    errors.append('historical 0.41.9 Image Format Properties2 outcome-separation audit record is missing')
+if not (root / 'fastlane/metadata/android/en-US/changelogs/419.txt').is_file():
+    errors.append('historical 0.41.9 fastlane changelog is missing')
+
+if '## Release 0.41.10 Image Format Properties2 tuple-state completeness requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 0.41.10 Image Format Properties2 tuple-state completeness contract')
+if not (root / 'rules/0.41.10_IMAGE_FORMAT_QUERY_STATE_COMPLETENESS_AUDIT.md').is_file():
+    errors.append('0.41.10 Image Format Properties2 tuple-state completeness audit record is missing')
+if not (root / 'fastlane/metadata/android/en-US/changelogs/420.txt').is_file():
+    errors.append('0.41.10 fastlane changelog is missing')
+for needle in ['queryResults', '"imageFormatQueryResults"', 'ImageFormatQueryResultEntry', 'parseImageFormatQueryResults', 'exact tuple states; excluded from property/query totals', 'imageFormatQuery/${item.name}', '"not_applicable"', 'VK_KHR_external_memory_fd was not enumerated for this device.', 'VK_ANDROID_external_memory_android_hardware_buffer was not enumerated for this device.']:
+    if needle not in cpp + kt:
+        errors.append(f'missing 0.41.10 Image Format Properties2 tuple-state completeness evidence: {needle}')
+if 'nonSuccessQueryResults' in image_format_block:
+    errors.append('0.41.10 must use the complete tuple-state ledger rather than the historical non-success-only collection')
+if 'Unsupported: VK_ERROR_FORMAT_NOT_SUPPORTED' in image_format_block or 'Unavailable: VkResult=' in image_format_block:
+    errors.append('0.41.10 native Image Format Properties2 query outcomes must remain outside detailedProperties')
+for needle in ['queryResults.push_back({baseName, "available", 0, true, ""})', 'queryResults.push_back({externalName, "available", 0, true, ""})', 'queryResults.push_back({externalName, "not_applicable", 0, false, missingReasons[handleIndex]})', 'if (result.hasVkResult) out << result.vkResult; else out << "null"']:
+    if needle not in image_format_block:
+        errors.append(f'missing 0.41.10 exact tuple ledger native invariant: {needle}')
+if 'put("vkResult", result.vkResult ?: JSONObject.NULL)' not in kt or 'put("reason", result.reason)' not in kt:
+    errors.append('0.41.10 technicalReport must preserve nullable VkResult and tuple applicability reason')
+if '"available" -> vkResult == 0 && reason.isBlank()' not in kt or '"unsupported" -> vkResult == -11 && reason.isBlank()' not in kt or '"not_applicable" -> vkResult == null && reason.isNotBlank()' not in kt:
+    errors.append('0.41.10 Kotlin tuple-state parser is not fail-closed')
+if 'device.imageFormatQueryResults.forEach' not in kt or '|Reason=${item.reason}' not in kt:
+    errors.append('0.41.10 Analysis snapshot must preserve complete Image Format Properties2 tuple state and reason')
+
+fmt_match = re.search(r'static const int32_t values\[\] = \{([^}]*)\};', cpp)
+if not fmt_match:
+    errors.append('known VkFormat catalog is missing for Image Format Properties2 outcome bound verification')
+else:
+    fmt_values = [x.strip() for x in fmt_match.group(1).split(',') if x.strip()]
+    if len(fmt_values) * 6 > 4096:
+        errors.append(f'Image Format Properties2 tuple-outcome structural maximum exceeds Database bound: {len(fmt_values) * 6} > 4096')
 if 'mutableIntStateOf(' in kt and 'import androidx.compose.runtime.mutableIntStateOf' not in kt:
     errors.append('mutableIntStateOf is used without the required Compose runtime import')
 if 'mutableLongStateOf(' in kt and 'import androidx.compose.runtime.mutableLongStateOf' not in kt:
@@ -785,9 +834,14 @@ if 'groupName.rfind("selftest:", 0) == 0' not in cpp or 'properties.vendorID == 
     errors.append('0.41.5 self-test selected-device targeting is incomplete')
 if 'std::stoul' in cpp or 'catch (...)' in cpp[cpp.find('groupName.rfind("selftest:", 0)'):cpp.find('groupName == "metadata"')]:
     errors.append('0.41.5 self-test target parsing must not require C++ exception handling')
+if 'Query parameters' not in cpp or 'VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT' not in cpp:
+    errors.append('0.41.8 Image Format Properties2 fixed query recipe provenance is missing')
 if errors:
     for error in errors: print(f'FAIL: {error}')
     raise SystemExit(1)
 print('VulkanScope release verification: PASS')
 
 print(f'version={version.group(1)} code={code.group(1)} baseline=Vulkan 1.4.360 schema=6 compileHeaders=0b7f383797fa7be53ae28213e001ae60668ee511')
+
+if 'Image Format Properties2 Query Diagnostics\\",\\"name\\":\\"Query parameters' not in cpp or 'VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT' not in cpp:
+    errors.append('0.41.8 Image Format Properties2 fixed query recipe provenance is missing')

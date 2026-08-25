@@ -1,33 +1,49 @@
-# VulkanScope 0.41.7 Build / Release Audit
+# VulkanScope 0.41.10 Build / Release Audit
 
-## Release identity
+## Baseline
 
-- VulkanScope: `0.41.7`
-- versionCode: `417`
-- Published/query Vulkan baseline: `1.4.360`
-- Android compile/target SDK: `37`
-- Minimum Android API: `24`
+- VulkanScope: `0.41.10` / versionCode `420`
+- Vulkan-Headers/query baseline: `1.4.360`
+- Android Gradle Plugin: `9.3.2`
+- Gradle wrapper: `9.7.1`
+- Compile/target SDK: `37`
+- NDK: `29.0.14206865`
+- ABIs: `arm64-v8a`, `armeabi-v7a`, `x86_64`
 - Submission schema: `2`
-- `technicalReport` schema: `3`
+- technicalReport schema: `3`
 
-## Confirmed correctness issue
+## Image Format Properties2 contract
 
-The Image Format Properties2 collector gated every `VkPhysicalDeviceExternalImageFormatInfo` query behind success of the handle-less query for the same format/tiling/usage tuple. Vulkan defines the external-handle query as a distinct `vkGetPhysicalDeviceImageFormatProperties2` call. A base `VK_ERROR_FORMAT_NOT_SUPPORTED` therefore does not justify skipping OPAQUE_FD or Android Hardware Buffer queries. This could produce `Not reported` Database comparisons even when the external query would have returned evidence.
+- Successful query payloads remain in `detailedProperties`.
+- `imageFormatQueryResults` is a bounded exact tuple-state ledger and is excluded from Properties & Limits totals.
+- `available` requires `VkResult=0` and a corresponding successful detailed-property payload.
+- `unsupported` requires `VK_ERROR_FORMAT_NOT_SUPPORTED` (`-11`).
+- `unavailable` preserves another non-zero `VkResult`.
+- `not_applicable` is used only when the external-handle prerequisite extension is not enumerated; it carries no fabricated Vulkan result.
+- Base, OPAQUE_FD and Android Hardware Buffer queries remain independent.
+- The query recipe remains `VK_IMAGE_TYPE_2D`, transfer-source/transfer-destination/sampled usage and `flags=0`.
 
-0.41.7 removes that dependency. Base and enabled external-handle variants are attempted independently. Compact per-device diagnostic rows report attempt, success, `VK_ERROR_FORMAT_NOT_SUPPORTED` and other-error counts; only successful full capability payloads are expanded into the existing detailed-properties list, preserving report-size bounds.
+## Specification/toolchain audit
 
-## Regression boundary
+The release remains pinned to the current project Vulkan 1.4.360 header/query baseline. Android API 37 remains the maximum API supported by AGP 9.3. NDK r29 remains Android's current stable NDK. Gradle was advanced within the allowed 9.7.x family to 9.7.1, the current patch release.
 
-No submission schema migration, Database endpoint change, Turnip bundle/security change, permission change, ABI removal, automatic upload, analytics or Vulkan baseline change is introduced. 0.41.6 Compose compile-gate checks remain mandatory.
+## Release gates
 
-## Verification
+`tools/verify_release.py`, registry/parity verification, JSON/XML parsing, Python syntax and package-hygiene checks are required to pass. The verifier checks tuple-state completeness, exact state/VkResult semantics, prerequisite-derived Not applicable evidence, independent external-handle queries and the 4096-entry Database safety bound.
 
-- `tools/verify_release.py`: required to PASS.
-- Native source invariant: external image-format queries must not be nested under `baseResult == VK_SUCCESS`.
-- Query diagnostics and both OPAQUE_FD/AHB paths are release-gated.
-- XML/JSON/Python syntax and package hygiene: required to PASS.
-- Full Android compilation is claimed only when the build environment can actually execute the Gradle/Android toolchain.
+A full Android/NDK release build is a separate gate and must not be claimed as passed unless Gradle and the Android toolchain actually execute successfully in the audit environment.
 
-## Environment build attempt
+## Audit execution record — 2026-08-25
 
-`./gradlew :app:assembleRelease --offline --no-daemon` was attempted in the audit environment after the source verifier passed. The wrapper could not start the Android build because Gradle 9.7.0 was not cached and the environment could not resolve `services.gradle.org`. This is an environment/toolchain availability limit, not a claimed compile pass. The user-side Android Studio/Gradle build remains the authoritative full compilation gate.
+- `python3 tools/verify_release.py`: **PASS** after the final parity-source sanitization pass.
+- Checked-in Vulkan 1.4.360 registry/query/parity manifests and generated consumers were revalidated by the release verifier, including the CapsViewer parity contracts and current release tuple-state invariants.
+- Python tool source compilation: **PASS**.
+- Project JSON parsing: **PASS**.
+- Android/resource XML parsing: **PASS**.
+- Source-package symlink/generated-build-artifact hygiene scan: **PASS**.
+- Current upstream recheck: Khronos still publishes Vulkan 1.4.360 dated 2026-08-14; the current Vulkan reference pages preserve the separate external-handle Image Format Properties2 query semantics used by this release. Android documentation still lists API 37 as supported by AGP 9.3, AGP 9.3.2 is published with Android Studio Quail 2 Patch 1, NDK r29 `29.0.14206865` is the latest stable NDK, and Gradle recommends 9.7.1 over 9.7.0.
+- `./gradlew :app:assembleRelease --offline --no-daemon` was attempted. The wrapper could not obtain Gradle 9.7.1 because the isolated audit environment cannot resolve `services.gradle.org`; therefore **no Android APK/NDK compile pass is claimed from this environment**. A real Android SDK/NDK environment remains the authoritative compilation gate.
+
+## Candidate source-ZIP extraction gate
+
+A root-layout candidate source ZIP was created from the clean release tree, extracted into a new empty directory, and `python3 tools/verify_release.py` returned **PASS** from the extracted package. The archive also preserved executable mode on `gradlew`. The published ZIP is rebuilt from this same audited source after this record is added and is rechecked once more after creation.

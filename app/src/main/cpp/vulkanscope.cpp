@@ -3659,6 +3659,9 @@ std::string collectVulkanAdvancedGroup(const char* driverMode, const char* drive
             const bool hasAhb = hasExt("VK_ANDROID_external_memory_android_hardware_buffer");
             uint32_t baseAttempts = 0, baseSuccess = 0, baseFormatUnsupported = 0, baseOtherErrors = 0;
             uint32_t externalAttempts[2] = {0, 0}, externalSuccess[2] = {0, 0}, externalFormatUnsupported[2] = {0, 0}, externalOtherErrors[2] = {0, 0};
+            struct ImageFormatQueryResultEntry { std::string name; const char* status; int32_t vkResult; bool hasVkResult; std::string reason; };
+            std::vector<ImageFormatQueryResultEntry> queryResults;
+            queryResults.reserve(2048);
             int32_t firstBaseOtherResult = 0;
             int32_t firstExternalOtherResult[2] = {0, 0};
             for (VkFormat fmt : knownFormatValues()) {
@@ -3666,24 +3669,34 @@ std::string collectVulkanAdvancedGroup(const char* driverMode, const char* drive
                 for (uint32_t tiling : tilings) {
                     const VkExternalMemoryHandleTypeFlagBits handleTypes[2] = {VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT, VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID};
                     const bool handleEnabled[2] = {hasOpaqueFd, hasAhb};
+                    const char* handleNames[2] = {"OPAQUE_FD", "ANDROID_HARDWARE_BUFFER"};
+                    const char* missingReasons[2] = {"VK_KHR_external_memory_fd was not enumerated for this device.", "VK_ANDROID_external_memory_android_hardware_buffer was not enumerated for this device."};
                     VkPhysicalDeviceImageFormatInfo2 info{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2, nullptr, fmt, VK_IMAGE_TYPE_2D, static_cast<VkImageTiling>(tiling), VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0};
                     VkImageFormatProperties2 props{VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2, nullptr, {}};
                     ++baseAttempts;
                     const VkResult baseResult = api.getPhysicalDeviceImageFormatProperties2(devices[i], &info, &props);
+                    const std::string baseName = formatName(fmt) + " · " + (tiling == VK_IMAGE_TILING_LINEAR ? std::string("LINEAR") : std::string("OPTIMAL"));
                     if (baseResult == VK_SUCCESS) {
                         ++baseSuccess;
+                        queryResults.push_back({baseName, "available", 0, true, ""});
                         if (!firstProp) out << ','; firstProp = false;
                         std::ostringstream value; value << "tiling=" << (tiling == VK_IMAGE_TILING_LINEAR ? "LINEAR" : "OPTIMAL") << ", extent=" << props.imageFormatProperties.maxExtent.width << " × " << props.imageFormatProperties.maxExtent.height << " × " << props.imageFormatProperties.maxExtent.depth << ", mipLevels=" << props.imageFormatProperties.maxMipLevels << ", arrayLayers=" << props.imageFormatProperties.maxArrayLayers << ", sampleCounts=0x" << std::hex << props.imageFormatProperties.sampleCounts << ", maxResourceSize=" << std::dec << props.imageFormatProperties.maxResourceSize;
-                        out << "{\"section\":\"Image Format Properties2\",\"name\":" << jsonString(formatName(fmt) + " · " + (tiling == VK_IMAGE_TILING_LINEAR ? std::string("LINEAR") : std::string("OPTIMAL"))) << ",\"value\":" << jsonString(value.str()) << '}';
+                        out << "{\"section\":\"Image Format Properties2\",\"name\":" << jsonString(baseName) << ",\"value\":" << jsonString(value.str()) << '}';
                     } else if (baseResult == VK_ERROR_FORMAT_NOT_SUPPORTED) {
                         ++baseFormatUnsupported;
+                        queryResults.push_back({baseName, "unsupported", static_cast<int32_t>(baseResult), true, ""});
                     } else {
                         ++baseOtherErrors;
                         if (firstBaseOtherResult == 0) firstBaseOtherResult = static_cast<int32_t>(baseResult);
+                        queryResults.push_back({baseName, "unavailable", static_cast<int32_t>(baseResult), true, ""});
                     }
 
                     for (uint32_t handleIndex = 0; handleIndex < 2; ++handleIndex) {
-                        if (!handleEnabled[handleIndex]) continue;
+                        const std::string externalName = baseName + " · " + handleNames[handleIndex];
+                        if (!handleEnabled[handleIndex]) {
+                            queryResults.push_back({externalName, "not_applicable", 0, false, missingReasons[handleIndex]});
+                            continue;
+                        }
                         ++externalAttempts[handleIndex];
                         VkPhysicalDeviceExternalImageFormatInfo extImageInfo{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO, nullptr, handleTypes[handleIndex]};
                         VkExternalImageFormatProperties extImageProps{VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES, nullptr, {}};
@@ -3692,14 +3705,17 @@ std::string collectVulkanAdvancedGroup(const char* driverMode, const char* drive
                         const VkResult r = api.getPhysicalDeviceImageFormatProperties2(devices[i], &info, &props);
                         if (r == VK_SUCCESS) {
                             ++externalSuccess[handleIndex];
+                            queryResults.push_back({externalName, "available", 0, true, ""});
                             if (!firstProp) out << ','; firstProp = false;
-                            std::ostringstream value; value << "tiling=" << (tiling == VK_IMAGE_TILING_LINEAR ? "LINEAR" : "OPTIMAL") << ", extent=" << props.imageFormatProperties.maxExtent.width << " × " << props.imageFormatProperties.maxExtent.height << " × " << props.imageFormatProperties.maxExtent.depth << ", mipLevels=" << props.imageFormatProperties.maxMipLevels << ", arrayLayers=" << props.imageFormatProperties.maxArrayLayers << ", sampleCounts=0x" << std::hex << props.imageFormatProperties.sampleCounts << ", maxResourceSize=" << std::dec << props.imageFormatProperties.maxResourceSize << ", externalHandle=" << (handleIndex == 0 ? "OPAQUE_FD" : "ANDROID_HARDWARE_BUFFER") << ", externalMemoryFeatures=0x" << std::hex << extImageProps.externalMemoryProperties.externalMemoryFeatures << ", exportFromImported=0x" << extImageProps.externalMemoryProperties.exportFromImportedHandleTypes << ", compatibleHandles=0x" << extImageProps.externalMemoryProperties.compatibleHandleTypes;
-                            out << "{\"section\":\"Image Format Properties2\",\"name\":" << jsonString(formatName(fmt) + " · " + (tiling == VK_IMAGE_TILING_LINEAR ? std::string("LINEAR") : std::string("OPTIMAL")) + " · " + (handleIndex == 0 ? std::string("OPAQUE_FD") : std::string("ANDROID_HARDWARE_BUFFER"))) << ",\"value\":" << jsonString(value.str()) << '}';
+                            std::ostringstream value; value << "tiling=" << (tiling == VK_IMAGE_TILING_LINEAR ? "LINEAR" : "OPTIMAL") << ", extent=" << props.imageFormatProperties.maxExtent.width << " × " << props.imageFormatProperties.maxExtent.height << " × " << props.imageFormatProperties.maxExtent.depth << ", mipLevels=" << props.imageFormatProperties.maxMipLevels << ", arrayLayers=" << props.imageFormatProperties.maxArrayLayers << ", sampleCounts=0x" << std::hex << props.imageFormatProperties.sampleCounts << ", maxResourceSize=" << std::dec << props.imageFormatProperties.maxResourceSize << ", externalHandle=" << handleNames[handleIndex] << ", externalMemoryFeatures=0x" << std::hex << extImageProps.externalMemoryProperties.externalMemoryFeatures << ", exportFromImported=0x" << extImageProps.externalMemoryProperties.exportFromImportedHandleTypes << ", compatibleHandles=0x" << extImageProps.externalMemoryProperties.compatibleHandleTypes;
+                            out << "{\"section\":\"Image Format Properties2\",\"name\":" << jsonString(externalName) << ",\"value\":" << jsonString(value.str()) << '}';
                         } else if (r == VK_ERROR_FORMAT_NOT_SUPPORTED) {
                             ++externalFormatUnsupported[handleIndex];
+                            queryResults.push_back({externalName, "unsupported", static_cast<int32_t>(r), true, ""});
                         } else {
                             ++externalOtherErrors[handleIndex];
                             if (firstExternalOtherResult[handleIndex] == 0) firstExternalOtherResult[handleIndex] = static_cast<int32_t>(r);
+                            queryResults.push_back({externalName, "unavailable", static_cast<int32_t>(r), true, ""});
                         }
                     }
                 }
@@ -3711,9 +3727,19 @@ std::string collectVulkanAdvancedGroup(const char* driverMode, const char* drive
                 if (otherErrors) value << ", firstOtherVkResult=" << firstOtherResult;
                 out << "{\"section\":\"Image Format Properties2 Query Diagnostics\",\"name\":" << jsonString(name) << ",\"value\":" << jsonString(value.str()) << '}';
             };
+            if (!firstProp) out << ','; firstProp = false;
+            out << "{\"section\":\"Image Format Properties2 Query Diagnostics\",\"name\":\"Query parameters\",\"value\":\"imageType=VK_IMAGE_TYPE_2D, usage=VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, flags=0\"}";
             emitImageFormatSummary("Base image-format queries", baseAttempts, baseSuccess, baseFormatUnsupported, baseOtherErrors, firstBaseOtherResult);
             if (hasOpaqueFd) emitImageFormatSummary("OPAQUE_FD external image-format queries", externalAttempts[0], externalSuccess[0], externalFormatUnsupported[0], externalOtherErrors[0], firstExternalOtherResult[0]);
             if (hasAhb) emitImageFormatSummary("ANDROID_HARDWARE_BUFFER external image-format queries", externalAttempts[1], externalSuccess[1], externalFormatUnsupported[1], externalOtherErrors[1], firstExternalOtherResult[1]);
+            out << "],\"imageFormatQueryResults\":[";
+            for (size_t resultIndex = 0; resultIndex < queryResults.size(); ++resultIndex) {
+                if (resultIndex) out << ',';
+                const auto& result = queryResults[resultIndex];
+                out << "{\"name\":" << jsonString(result.name) << ",\"status\":" << jsonString(result.status) << ",\"vkResult\":";
+                if (result.hasVkResult) out << result.vkResult; else out << "null";
+                out << ",\"reason\":" << jsonString(result.reason) << '}';
+            }
             out << "]}";
         } else if (group && std::strcmp(group, "external") == 0) {
             addDevicePrefix(i);

@@ -86,7 +86,7 @@
 - Release builds must enable shrinking and resource optimization.
 
 ## Build compatibility
-- AGP 9.3.1 is required for the supplied project configuration.
+- AGP 9.3.2 is required for the supplied project configuration.
 - Gradle 9.7.x is the intended build family.
 - AGP 9 built-in Kotlin is used; the deprecated/redundant `org.jetbrains.kotlin.android` plugin is not applied.
 - The Compose compiler Gradle plugin remains applied for Compose compilation.
@@ -579,3 +579,44 @@
 - Missing detailed Image Format Properties2 evidence must remain Unknown/not reported unless a concrete returned query result proves a stronger state; absence alone is never converted to Unsupported.
 - Image-format diagnostics flow through the existing detailed-property -> UI/TXT/HTML/technicalReport -> Database path and must not bypass report-size, field-count or privacy bounds.
 - No 0.41.7 change may weaken Turnip bundle containment/metadata validation, probe isolation/timeouts, updater security, Surface/WSI safety, Profile semantics, selected-device self-tests, ABI policy, database endpoint policy or capability-state distinctions.
+
+
+## Release 0.41.8 Image Format Properties2 tuple-result and build baseline requirements
+- Application version is 0.41.8 with versionCode 418.
+- Vulkan published/query baseline remains Vulkan 1.4.360 dated 2026-08-14; schema 2 / technicalReport 3, Android API 24 minimum and arm64-v8a/armeabi-v7a/x86_64 coverage remain unchanged.
+- Every attempted `vkGetPhysicalDeviceImageFormatProperties2` tuple must preserve its strongest direct result. A returned `VK_ERROR_FORMAT_NOT_SUPPORTED` is explicit Unsupported evidence for that exact format/type/tiling/usage/flags/external-handle query, never Unknown or Not reported.
+- Any other failed Image Format Properties2 query remains Unavailable and carries the returned `VkResult` evidence; it must not be converted to Unsupported merely because the query failed.
+- A tuple is Unknown/Not reported only when no concrete tuple result was preserved. Missing data is never inferred from GPU identity, driver identity or another related tuple.
+- Base, OPAQUE_FD and Android Hardware Buffer queries remain independent. A failed base tuple must not suppress an enabled external-handle query.
+- Tuple-level negative evidence and the compact aggregate diagnostics must both flow through detailedProperties -> UI/TXT/HTML -> technicalReport -> Database without schema migration or selective omission.
+- Complete-report bounds remain fail-closed. The existing 32768 detailed-property server bound and transport/report bounds must accommodate the exhaustive tuple evidence; the collector must not silently truncate negative rows to satisfy a size target.
+- Android Gradle Plugin 9.3.2 is pinned exactly. Gradle 9.7.0, built-in Kotlin, the Compose compiler plugin, JDK 17+ compatibility and existing dependency/ABI policy remain in force.
+- No 0.41.8 change may weaken Turnip bundle containment, probe isolation/timeouts, Surface/WSI safety, updater security, Profile semantics, selected-device self-tests, runtime privacy, Database endpoint restrictions or capability-state distinctions.
+- The fixed Image Format Properties2 query recipe (2D image type, transfer-source/transfer-destination/sampled usage, flags=0) must be explicit in diagnostics/UI guidance so tuple-level Unsupported evidence is not generalized beyond the actual Vulkan query.
+
+
+## Release 0.41.9 Image Format Properties2 query-outcome separation requirements
+- Application version is 0.41.9 with versionCode 419.
+- Successful Image Format Properties2 queries may expose their returned property payloads through normal detailed-property evidence.
+- Non-success Image Format Properties2 tuple results must not be inserted into normal `detailedProperties` or counted as Vulkan property/query rows.
+- Exact non-success tuple identity must remain losslessly preserved in a bounded dedicated dataset: `VK_ERROR_FORMAT_NOT_SUPPORTED` is Unsupported; every other non-zero returned `VkResult` is Unavailable; an unexecuted query remains Unknown only by absence.
+- The dedicated tuple-result dataset must propagate through format-detail UI, complete TXT/HTML reports, Analysis snapshots and the schema-3 Database technicalReport without changing schemaVersion.
+- Properties & Limits totals, unique property names and safety-diagnostic totals exclude the dedicated tuple-result dataset. Query-outcome counts must be labeled separately and must never be described as Vulkan properties.
+- Historical 0.41.8 reports with tuple negatives embedded in detailedProperties remain readable by compatible consumers, but 0.41.9 producers must use the separated representation.
+- Image Format Properties2 base, OPAQUE_FD and ANDROID_HARDWARE_BUFFER queries remain independent and use the fixed documented query recipe.
+- AGP 9.3.2, Gradle 9.7.0, API 37, Vulkan 1.4.360, schema 2 / technicalReport 3 and existing privacy/security/Turnip/query-safety invariants remain mandatory.
+
+## Release 0.41.10 Image Format Properties2 tuple-state completeness requirements
+- Application version is 0.41.10 with versionCode 420.
+- Successful Image Format Properties2 payloads remain normal `detailedProperties` evidence and must never be removed merely to avoid duplicate query-state representation.
+- `technicalReport.devices[].imageFormatQueryResults` is a bounded exact tuple-state ledger for every scheduled Image Format Properties2 base/external-handle tuple. It remains separate from Properties & Limits totals.
+- Ledger `available` requires exact `VkResult=0`; `unsupported` requires exact `VK_ERROR_FORMAT_NOT_SUPPORTED` (-11); `unavailable` requires another non-zero VkResult; `not_applicable` carries null VkResult and a bounded prerequisite reason.
+- Base format/tiling tuples must never be `not_applicable`. OPAQUE_FD may be `not_applicable` only when `VK_KHR_external_memory_fd` was not enumerated. Android Hardware Buffer may be `not_applicable` only when `VK_ANDROID_external_memory_android_hardware_buffer` was not enumerated.
+- Missing prerequisite extensions are query-applicability evidence only and must never be converted into format Unsupported capability.
+- Every ledger `available` tuple must have the corresponding successful `Image Format Properties2` detailed-property payload under the same canonical tuple name, and every successful detailed-property tuple must have a matching available ledger entry.
+- Base, OPAQUE_FD and Android Hardware Buffer queries remain independent; base failure must never gate either external-handle query.
+- The fixed Image Format Properties2 recipe remains `VK_IMAGE_TYPE_2D`, transfer-source/transfer-destination/sampled usage and `flags=0`; tuple results must never be generalized beyond that recipe.
+- UI, TXT, HTML, Analysis snapshots and Database technicalReport preserve exact tuple states and reasons without adding ledger rows to Properties & Limits totals.
+- Historical 0.41.9 non-success-only query-result arrays and 0.41.8 embedded negative tuple rows remain consumer-compatible under their historical producer contracts.
+- AGP 9.3.2, Android API 37, NDK 29.0.14206865, Vulkan-Headers/query baseline 1.4.360, schema 2 / technicalReport 3 and all existing privacy/security/query-safety invariants remain mandatory.
+- Gradle wrapper is 9.7.1, the current verified patch release within the required Gradle 9.7.x build family.

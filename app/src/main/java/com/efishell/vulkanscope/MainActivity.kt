@@ -198,6 +198,24 @@ private data class FeatureEntry(val name: String, val supported: Boolean)
 private data class SurfaceFormatEntry(val format: String, val colorSpace: String, val classification: String, val description: String, val supported: Boolean = true)
 private data class FormatEntry(val name: String, val supported: Boolean, val linear: Long, val optimal: Long, val buffer: Long)
 private data class PropertyEntry(val section: String, val name: String, val value: String)
+private data class ImageFormatQueryResultEntry(val name: String, val status: String, val vkResult: Int?, val reason: String = "")
+
+private fun parseImageFormatQueryResults(array: JSONArray): List<ImageFormatQueryResultEntry> = (0 until array.length()).mapNotNull { index ->
+    val result = array.optJSONObject(index) ?: return@mapNotNull null
+    val name = sanitizeReportLabel(result.optString("name"))
+    val status = result.optString("status").lowercase()
+    val hasVkResult = result.has("vkResult") && !result.isNull("vkResult")
+    val vkResult = if (hasVkResult) result.optInt("vkResult", Int.MIN_VALUE).takeUnless { it == Int.MIN_VALUE } else null
+    val reason = result.optString("reason").take(1024)
+    val valid = name.isNotBlank() && when (status) {
+        "available" -> vkResult == 0 && reason.isBlank()
+        "unsupported" -> vkResult == -11 && reason.isBlank()
+        "unavailable" -> vkResult != null && vkResult != 0 && vkResult != -11
+        "not_applicable" -> vkResult == null && reason.isNotBlank()
+        else -> false
+    }
+    if (valid) ImageFormatQueryResultEntry(name, status, vkResult, reason) else null
+}
 private data class QueueEntry(val index: Int, val count: Int, val timestampBits: Int, val flags: Long, val graphics: Boolean, val compute: Boolean, val transfer: Boolean, val sparse: Boolean, val protected: Boolean, val videoDecode: Boolean, val videoEncode: Boolean, val opticalFlow: Boolean, val dataGraph: Boolean, val unknownFlags: Long, val granularity: String, val videoCodecOperations: Long = 0L, val videoCodecQueryStatus: String = "unknown", val videoCodecQueryReason: String = "")
 private data class MemoryHeapEntry(val index: Int, val size: Long, val flags: Long)
 private data class MemoryTypeEntry(val index: Int, val heap: Int, val flags: Long)
@@ -332,6 +350,7 @@ private data class DeviceReport(
     val formats: List<FormatEntry>,
     val limits: List<Pair<String, String>>,
     val detailedProperties: List<PropertyEntry>,
+    val imageFormatQueryResults: List<ImageFormatQueryResultEntry> = emptyList(),
     val extendedQueryStatus: String,
     val extendedQueryReason: String,
     val surfaceAvailable: Boolean,
@@ -1751,6 +1770,19 @@ private fun mergeAdvancedQueryReport(base: VulkanReport, raw: String, group: Str
             core14Status[vendor to deviceId] = item.optString("status", "available") to item.optString("reason", "")
         }
     }
+    val imageFormatQueryResultsByDevice: Map<Pair<Long, Long>, List<ImageFormatQueryResultEntry>> = if (group == "imageFormat2") {
+        val valuesByDevice = mutableMapOf<Pair<Long, Long>, List<ImageFormatQueryResultEntry>>()
+        for (i in 0 until resultDevices.length()) {
+            val item = resultDevices.optJSONObject(i) ?: continue
+            val vendor = item.optLong("vendorId", -1L)
+            val deviceId = item.optLong("deviceId", -1L)
+            val results = item.optJSONArray("imageFormatQueryResults") ?: JSONArray()
+            valuesByDevice[vendor to deviceId] = parseImageFormatQueryResults(results)
+        }
+        valuesByDevice
+    } else {
+        emptyMap()
+    }
     val formatEntriesByDevice: Map<Pair<Long, Long>, List<FormatEntry>> = if (group == "format2") {
         val valuesByDevice = mutableMapOf<Pair<Long, Long>, List<FormatEntry>>()
         for (i in 0 until resultDevices.length()) {
@@ -1803,6 +1835,7 @@ private fun mergeAdvancedQueryReport(base: VulkanReport, raw: String, group: Str
         val match = parsed.firstOrNull { it.first == device.vendorIdRaw && it.second == deviceId }
         val videoMatch = videoQueuesByDevice.firstOrNull { it.first == device.vendorIdRaw && it.second == deviceId }
         val formatMatch = formatEntriesByDevice[device.vendorIdRaw to (deviceId ?: -1L)]
+        val imageFormatQueryResultMatch = imageFormatQueryResultsByDevice[device.vendorIdRaw to (deviceId ?: -1L)]
         val hasVideoQueueExtension = device.extensions.any { it.name == "VK_KHR_video_queue" }
         val mergedQueues = device.queues.map { q ->
             when {
@@ -1829,7 +1862,13 @@ private fun mergeAdvancedQueryReport(base: VulkanReport, raw: String, group: Str
         } else {
             PropertyEntry("Vulkan Query Status", "$label query", "Unavailable: ${reason.ifBlank { "the isolated query did not complete." }}")
         }
-        var merged = device.copy(features = mergedFeatures, detailedProperties = replaceQueryStatus(mergedProperties, "$label query", statusProperty.value), queues = mergedQueues, formats = mergedFormats)
+        var merged = device.copy(
+            features = mergedFeatures,
+            detailedProperties = replaceQueryStatus(mergedProperties, "$label query", statusProperty.value),
+            imageFormatQueryResults = if (group == "imageFormat2" && status == "available" && imageFormatQueryResultMatch != null) imageFormatQueryResultMatch else device.imageFormatQueryResults,
+            queues = mergedQueues,
+            formats = mergedFormats
+        )
         if (group == "core14") {
             val coreStatus = core14Status[device.vendorIdRaw to (deviceId ?: -1L)]
             if (coreStatus != null) {
@@ -1973,6 +2012,7 @@ private fun parseReport(raw: String): VulkanReport {
             val prop = detailedPropertyArray.optJSONObject(j) ?: continue
             detailedProperties += PropertyEntry(sanitizeReportSection(prop.optString("section")), prop.optString("name"), prop.optString("value"))
         }
+        val imageFormatQueryResults = parseImageFormatQueryResults(item.optJSONArray("imageFormatQueryResults") ?: JSONArray())
         val queueQuerySafetyRejected = item.optBoolean("queueQuerySafetyRejected", false)
         val memoryHeapSafetyRejected = item.optBoolean("memoryHeapSafetyRejected", false)
         val memoryTypeSafetyRejected = item.optBoolean("memoryTypeSafetyRejected", false)
@@ -2029,6 +2069,7 @@ private fun parseReport(raw: String): VulkanReport {
             formats,
             limits,
             detailedProperties,
+            imageFormatQueryResults,
             item.optString("extendedQueryStatus", "unknown"),
             item.optString("extendedQueryReason", "Extended physical-device query status was not reported by the native collector."),
             surfaceAvailable,
@@ -3009,6 +3050,7 @@ private fun vulkanAnalysisEntries(report: VulkanReport, device: DeviceReport?, d
         }
         device.formats.forEachIndexed { index, item -> putCompatible("format/${item.name}", "supported=${item.supported};linear=${java.lang.Long.toUnsignedString(item.linear)};optimal=${java.lang.Long.toUnsignedString(item.optimal)};buffer=${java.lang.Long.toUnsignedString(item.buffer)}", index) }
         device.detailedProperties.forEachIndexed { index, item -> put("property/${item.section}/${item.name}/$index", item.value) }
+        device.imageFormatQueryResults.forEach { item -> put("imageFormatQuery/${item.name}", "${item.status}|VkResult=${item.vkResult ?: "null"}|Reason=${item.reason}") }
         put("surface/available", device.surfaceAvailable.toString())
         put("surface/presentationSupported", device.surfacePresentationSupported.toString())
         put("surface/colorSpaceExtensionAvailable", device.surfaceColorSpaceExtensionAvailable.toString())
@@ -3515,6 +3557,9 @@ private fun FormatsPage(device: DeviceReport?) {
         val imageProperties = remember(device?.detailedProperties, format.name) {
             device?.detailedProperties.orEmpty().filter { it.section == "Image Format Properties2" && (it.name == format.name || it.name.startsWith(format.name + " · ")) }
         }
+        val imageQueryOutcomes = remember(device?.imageFormatQueryResults, format.name) {
+            device?.imageFormatQueryResults.orEmpty().filter { it.name == format.name || it.name.startsWith(format.name + " · ") }
+        }
         AlertDialog(
             onDismissRequest = { selected = null },
             title = { Text(format.name, style = MaterialTheme.typography.titleMedium) },
@@ -3527,8 +3572,20 @@ private fun FormatsPage(device: DeviceReport?) {
                 CapabilityKeyValue("Buffer decoded", formatFeatureFlags(format.buffer))
                 CapabilityKeyValue("Buffer raw", "${java.lang.Long.toUnsignedString(format.buffer)} · 0x${java.lang.Long.toUnsignedString(format.buffer, 16).uppercase()}")
                 imageProperties.forEach { CapabilityKeyValue(it.name.removePrefix(format.name).removePrefix(" · ").ifBlank { "Image properties" }, it.value) }
-                if (imageProperties.isEmpty()) CapabilityKeyValue("Image Format Properties2", "Unavailable or not yet queried")
-                Text("VkFormatProperties3 64-bit Flags2 evidence is authoritative when available; legacy 32-bit values are fallback-only. Image Format Properties2 entries show only runtime query evidence for this exact VkFormat.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                if (imageProperties.isEmpty() && imageQueryOutcomes.isEmpty()) CapabilityKeyValue("Image Format Properties2", "Unavailable or not yet queried")
+                imageQueryOutcomes.forEach { outcome ->
+                    CapabilityKeyValue(
+                        outcome.name.removePrefix(format.name).removePrefix(" · ").ifBlank { "Base query" },
+                        when (outcome.status) {
+                            "available" -> "Available · VkResult=0"
+                            "unsupported" -> "Unsupported · VK_ERROR_FORMAT_NOT_SUPPORTED"
+                            "unavailable" -> "Unavailable · VkResult=${outcome.vkResult}"
+                            "not_applicable" -> "Not applicable · ${outcome.reason}"
+                            else -> "Unknown"
+                        }
+                    )
+                }
+                Text("VkFormatProperties3 64-bit Flags2 evidence is authoritative when available; legacy 32-bit values are fallback-only. Image Format Properties2 uses a fixed VulkanScope query recipe: VK_IMAGE_TYPE_2D, TRANSFER_SRC | TRANSFER_DST | SAMPLED usage and flags=0. Successful property payloads remain in normal detailed-property evidence. A separate exact tuple-state ledger records Available, Unsupported, Unavailable and Not applicable query outcomes without inflating the Properties & Limits totals. Missing prerequisite external-memory extensions are represented as Not applicable rather than ambiguous Not reported evidence.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
             } },
             confirmButton = { ExpressiveTextButton("Close") { selected = null } }
         )
@@ -4357,6 +4414,7 @@ private fun technicalReportJson(context: Context, report: VulkanReport, display:
             put("extensions", JSONArray().apply { d.extensions.forEach { ext -> put(JSONObject().apply { put("name", ext.name); put("scope", ext.scope); put("specVersion", ext.specVersion); put("supported", ext.supported) }) } })
             put("features", JSONArray().apply { d.features.forEach { feature -> put(JSONObject().apply { put("name", feature.name); put("supported", feature.supported) }) } })
             put("detailedProperties", JSONArray().apply { d.detailedProperties.forEach { prop -> put(JSONObject().apply { put("section", prop.section); put("name", prop.name); put("value", prop.value) }) } })
+            put("imageFormatQueryResults", JSONArray().apply { d.imageFormatQueryResults.forEach { result -> put(JSONObject().apply { put("name", result.name); put("status", result.status); put("vkResult", result.vkResult ?: JSONObject.NULL); put("reason", result.reason) }) } })
             put("limits", JSONArray().apply { d.limits.forEach { value -> put(JSONObject().apply { put("name", value.first); put("value", value.second) }) } })
             put("memoryHeaps", JSONArray().apply { d.heaps.forEach { heap -> put(JSONObject().apply { put("index", heap.index); put("size", heap.size); put("sizeU64", heap.size.toULong().toString()); put("flags", heap.flags); put("flagsU64", heap.flags.toULong().toString()); put("flagsCanonical", memoryHeapFlags(heap.flags)) }) } })
             put("memoryTypes", JSONArray().apply { d.memoryTypes.forEach { type -> put(JSONObject().apply { put("index", type.index); put("heap", type.heap); put("flags", type.flags); put("flagsU64", type.flags.toULong().toString()); put("flagsCanonical", memoryTypeFlags(type.flags)) }) } })
@@ -4626,6 +4684,11 @@ private fun reportToText(context: Context, report: VulkanReport, display: Displa
         val detailedSafetyCount = d.detailedProperties.count { it.section == "Vulkan Query Safety" }
         val detailedPropertyCount = d.detailedProperties.size - detailedSafetyCount
         appendLine(); appendLine("DETAILED QUERY RESULTS (${d.detailedProperties.size} evidence rows; $detailedPropertyCount property/query rows; $detailedSafetyCount safety diagnostics; ${d.detailedProperties.map { "${it.section} / ${it.name}" }.distinct().size} unique report fields)"); d.detailedProperties.forEach { appendLine("[${it.section}] ${it.name} = ${it.value}") }
+        appendLine(); appendLine("IMAGE FORMAT PROPERTIES2 QUERY OUTCOMES (${d.imageFormatQueryResults.size} exact tuple states; excluded from property/query totals)")
+        d.imageFormatQueryResults.forEach { result ->
+            val reasonSuffix = if (result.reason.isBlank()) "" else " | Reason=${result.reason}"
+            appendLine("${result.name} | ${result.status.uppercase()} | VkResult=${result.vkResult ?: "null"}$reasonSuffix")
+        }
         appendLine(); appendLine("LIMITS"); d.limits.forEach { appendLine("${it.first} = ${it.second}") }
         appendLine(); appendLine("QUERY SAFETY"); appendLine("Queue-family enumeration safety rejected = ${d.queueQuerySafetyRejected}"); appendLine("Memory-heap count safety rejected = ${d.memoryHeapSafetyRejected}"); appendLine("Memory-type count safety rejected = ${d.memoryTypeSafetyRejected}"); appendLine("Surface queue-family enumeration safety rejected = ${d.surfaceQueueQuerySafetyRejected}")
         appendLine(); appendLine("MEMORY HEAPS"); d.heaps.forEach { appendLine("Heap ${it.index}: ${formatBytes(it.size)} | flags=${memoryHeapFlags(it.flags)} | raw=${it.flags.toULong()} (0x${it.flags.toULong().toString(16).uppercase()})") }
@@ -4765,6 +4828,16 @@ private fun reportToHtml(context: Context, report: VulkanReport, display: Displa
         val htmlDetailedSafetyCount = d.detailedProperties.count { it.section == "Vulkan Query Safety" }
         val htmlDetailedPropertyCount = d.detailedProperties.size - htmlDetailedSafetyCount
         table("Detailed query results (${d.detailedProperties.size} evidence rows; $htmlDetailedPropertyCount property/query rows; $htmlDetailedSafetyCount safety diagnostics; ${d.detailedProperties.map { "${it.section} / ${it.name}" }.distinct().size} unique report fields)", "<th>Section / property</th><th>Value</th>", d.detailedProperties.map { "${it.section} / ${it.name}" to htmlEscape(it.value) })
+        table("Image Format Properties2 query outcomes (${d.imageFormatQueryResults.size} exact tuple states; excluded from property/query totals)", "<th>Format / tiling / external handle</th><th>Query result</th>", d.imageFormatQueryResults.map { result ->
+            val value = when (result.status) {
+                "available" -> statusBadge("AVAILABLE") + " VkResult=0"
+                "unsupported" -> statusBadge("UNSUPPORTED") + " VK_ERROR_FORMAT_NOT_SUPPORTED"
+                "unavailable" -> statusBadge("UNAVAILABLE") + " ${htmlEscape("VkResult=${result.vkResult}")}"
+                "not_applicable" -> statusBadge("NOT APPLICABLE") + " ${htmlEscape(result.reason)}"
+                else -> statusBadge("UNKNOWN")
+            }
+            result.name to value
+        })
         table("Limits", "<th>Limit</th><th>Value</th>", d.limits.map { it.first to htmlEscape(it.second) })
         table("Memory", "<th>Entry</th><th>Value</th>", d.heaps.map { "Heap ${it.index}" to htmlEscape("${formatBytes(it.size)} | flags=${memoryHeapFlags(it.flags)} | raw=${it.flags.toULong()} (0x${it.flags.toULong().toString(16).uppercase()})") } + d.memoryTypes.map { "Type ${it.index}" to htmlEscape("heap ${it.heap} | flags=${memoryTypeFlags(it.flags)} | raw=${it.flags.toULong()} (0x${it.flags.toULong().toString(16).uppercase()})") })
         table("Queues", "<th>Family</th><th>Details</th>", d.queues.map { "${it.index}" to htmlEscape("count=${it.count}, timestampBits=${it.timestampBits}, flags=${queueCapabilityFlags(it.flags)}, rawFlags=${it.flags.toULong()} (0x${it.flags.toULong().toString(16).uppercase()}), graphics=${it.graphics}, compute=${it.compute}, transfer=${it.transfer}, sparse=${it.sparse}, protected=${it.protected}, videoDecode=${it.videoDecode}, videoEncode=${it.videoEncode}, opticalFlow=${it.opticalFlow}, dataGraph=${it.dataGraph}, unknownFlags=0x${it.unknownFlags.toULong().toString(16).uppercase()}, granularity=${it.granularity}, videoCodecQueryStatus=${it.videoCodecQueryStatus}, videoCodecQueryReason=${it.videoCodecQueryReason.ifBlank { "None" }}, videoCodecOperations=${if (it.videoCodecQueryStatus == "available") videoCodecOperationFlags(it.videoCodecOperations) else "Unknown"}, rawVideoCodecOperations=${if (it.videoCodecQueryStatus == "available") "${it.videoCodecOperations.toULong()} (0x${it.videoCodecOperations.toULong().toString(16).uppercase()})" else "Unknown"}") })

@@ -100,6 +100,7 @@ fastlane/metadata/android/en-US/changelogs/414.txt
 fastlane/metadata/android/en-US/changelogs/415.txt
 fastlane/metadata/android/en-US/changelogs/416.txt
 fastlane/metadata/android/en-US/changelogs/417.txt
+fastlane/metadata/android/en-US/changelogs/418.txt
 fastlane/metadata/android/en-US/full_description.txt
 fastlane/metadata/android/en-US/images/icon.png
 fastlane/metadata/android/en-US/images/phoneScreenshots/1.jpg
@@ -163,6 +164,7 @@ rules/0.41.4_FULL_APPLICATION_AUDIT.md
 rules/0.41.5_ANALYSIS_PROFILE_DATABASE_AUDIT.md
 rules/0.41.6_KOTLIN_COMPILE_FIX_AUDIT.md
 rules/0.41.7_IMAGE_FORMAT_PROPERTIES2_AUDIT.md
+rules/0.41.8_IMAGE_FORMAT_PROPERTIES2_TUPLE_RESULTS_AGP_9_3_2_AUDIT.md
 rules/CAPSVIEWER_4_12_AUDIT.md
 rules/CAPSVIEWER_PARITY.md
 rules/IZZYONDROID.md
@@ -188,3 +190,5 @@ tools/verify_canonical_vulkan_headers.py
 tools/verify_extension_field_coverage.py
 tools/verify_registry_catalog.py
 tools/verify_release.py
+rules/0.41.9_IMAGE_FORMAT_QUERY_OUTCOME_SEPARATION_AUDIT.md
+fastlane/metadata/android/en-US/changelogs/419.txt

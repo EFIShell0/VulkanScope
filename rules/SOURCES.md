@@ -86,3 +86,13 @@ The runtime never downloads or parses these sources; the checked-in query catalo
 - Android Vulkan Profile 2025: https://github.com/KhronosGroup/Vulkan-Profiles/blob/main/profiles/Android/VP_ANDROID_vulkan_profile_2025.json
 - Khronos Roadmap profiles: https://github.com/KhronosGroup/Vulkan-Headers/tree/main/registry/profiles
 
+
+## 0.41.10 Image Format Properties2 / build recheck
+- Khronos Vulkan 1.4.360 specification, dated 2026-08-14: https://registry.khronos.org/vulkan/specs/latest/html/vkspec.html
+- `vkGetPhysicalDeviceImageFormatProperties2`: https://docs.vulkan.org/refpages/latest/refpages/source/vkGetPhysicalDeviceImageFormatProperties2.html
+- `VkPhysicalDeviceExternalImageFormatInfo`: https://docs.vulkan.org/refpages/latest/refpages/source/VkPhysicalDeviceExternalImageFormatInfo.html
+- `VkExternalImageFormatProperties`: https://docs.vulkan.org/refpages/latest/refpages/source/VkExternalImageFormatProperties.html
+- Android Gradle Plugin 9.3 compatibility: https://developer.android.com/build/releases/agp-9-3-0-release-notes
+- Android Studio Quail 2 fixed issues / AGP 9.3.2 publication: https://developer.android.com/studio/releases/fixed-bugs/studio/2026.1.2
+- Android NDK downloads, stable r29 `29.0.14206865`: https://developer.android.com/ndk/downloads
+- Gradle 9.7.1 release notes: https://docs.gradle.org/9.7.1/release-notes.html
