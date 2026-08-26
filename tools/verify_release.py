@@ -12,8 +12,8 @@ wrapper_properties = (root / 'gradle/wrapper/gradle-wrapper.properties').read_te
 if 'gradle-9.7.1-bin.zip' not in wrapper_properties: errors.append('Gradle wrapper 9.7.1 pin mismatch')
 version = re.search(r'versionName\s*=\s*"([^"]+)"', gradle)
 code = re.search(r'versionCode\s*=\s*(\d+)', gradle)
-if not version or version.group(1) != '0.41.10': errors.append('versionName mismatch')
-if not code or code.group(1) != '420': errors.append('versionCode mismatch')
+if not version or version.group(1) != '0.41.14': errors.append('versionName mismatch')
+if not code or code.group(1) != '424': errors.append('versionCode mismatch')
 abi_line = re.search(r'abiFilters \+= listOf\(([^\n]+)\)', gradle)
 if not abi_line or any(x not in abi_line.group(1) for x in ['arm64-v8a', 'armeabi-v7a', 'x86_64']): errors.append('required ABI set is incomplete')
 if '"x86"' in gradle: errors.append('x86 ABI must remain excluded')
@@ -440,8 +440,6 @@ if '## Release 0.40.0 local analysis and optional tests' not in (root / 'rules/P
     errors.append('PROJECT_RULES is missing the 0.40.0 analysis/test contract')
 if not (root / 'rules/0.40.0_ANALYSIS_COMPARE_TESTS_AUDIT.md').is_file():
     errors.append('0.40.0 analysis/test audit is missing')
-if not (root / 'fastlane/metadata/android/en-US/changelogs/400.txt').is_file():
-    errors.append('0.40.0 fastlane changelog is missing')
 if 'BuildConfig.VERSION_NAME' in kt:
     errors.append('0.40.1 Analysis must not depend on BuildConfig.VERSION_NAME')
 if '@OptIn(ExperimentalMaterial3ExpressiveApi::class)\n@Composable\nprivate fun AnalysisPage' not in kt:
@@ -452,8 +450,6 @@ if '## Release 0.40.1 analysis build-fix requirements' not in (root / 'rules/PRO
     errors.append('PROJECT_RULES is missing the 0.40.1 build-fix contract')
 if not (root / 'rules/0.40.1_ANALYSIS_BUILD_FIX_AUDIT.md').is_file():
     errors.append('0.40.1 build-fix audit is missing')
-if not (root / 'fastlane/metadata/android/en-US/changelogs/401.txt').is_file():
-    errors.append('0.40.1 fastlane changelog is missing')
 
 for needle in ['validateAnalysisSnapshot', 'ANALYSIS_MAX_ENTRIES = 32768', 'ANALYSIS_MAX_WATCHED = 256', 'readFileTextLimited(resultFile, maxProbeResultBytes.toInt())', 'items(diffRows, key = { it.key })', 'Image Format Properties2', 'Safe shader create/destroy path unavailable', 'completed_with_unavailable', 'stopVulkanProbeProcess()']:
     if needle not in kt + cpp:
@@ -464,8 +460,6 @@ if '## Release 0.40.2 full application audit requirements' not in (root / 'rules
     errors.append('PROJECT_RULES is missing the 0.40.2 full-audit contract')
 if not (root / 'rules/0.40.2_FULL_APPLICATION_AUDIT.md').is_file():
     errors.append('0.40.2 full-audit record is missing')
-if not (root / 'fastlane/metadata/android/en-US/changelogs/402.txt').is_file():
-    errors.append('0.40.2 fastlane changelog is missing')
 
 ext_ref = json.loads((root / 'registry/generated/extension_reference.json').read_text(encoding='utf-8'))
 if ext_ref.get('baseline') != 'Vulkan 1.4.360': errors.append('0.41.0 extension-reference baseline mismatch')
@@ -522,14 +516,11 @@ if 'com.google.zxing:core:3.5.4' not in gradle: errors.append('0.41.2 local QR d
 if not (root / 'tools/generate_extension_reference.py').is_file(): errors.append('0.41.0 vk.xml extension-reference generator missing')
 if '## Release 0.41.0 advanced analysis, registry reference and sharing requirements' not in (root / 'rules/PROJECT_RULES.md').read_text(encoding='utf-8'): errors.append('PROJECT_RULES is missing 0.41.0 contract')
 if not (root / 'rules/0.41.0_ADVANCED_ANALYSIS_DATABASE_AUDIT.md').is_file(): errors.append('0.41.0 audit record missing')
-if not (root / 'fastlane/metadata/android/en-US/changelogs/410.txt').is_file(): errors.append('0.41.0 fastlane changelog missing')
 
 if '## Release 0.41.1 Analysis Compose build-fix requirements' not in (root / 'rules/PROJECT_RULES.md').read_text(encoding='utf-8'):
     errors.append('PROJECT_RULES is missing 0.41.1 contract')
 if not (root / 'rules/0.41.1_ANALYSIS_COMPOSE_BUILD_FIX_AUDIT.md').is_file():
     errors.append('0.41.1 audit record missing')
-if not (root / 'fastlane/metadata/android/en-US/changelogs/411.txt').is_file():
-    errors.append('0.41.1 fastlane changelog missing')
 for forbidden in [
     'val rows = remember(baseline, current, includeUnchanged, diffQuery)',
     'val rootRef = remember(rootToken)',
@@ -557,12 +548,58 @@ if 'val visualGraphNodes = remember(graphEntries, report, device)' not in kt:
 
 
 rules_text = (root / 'rules/PROJECT_RULES.md').read_text(encoding='utf-8')
+
+for forbidden_path in ['README.md', 'release.md', 'fastlane']:
+    if (root / forbidden_path).exists(): errors.append(f'forbidden source-release artifact remains: {forbidden_path}')
+if '## Release 0.41.11 reporting-state and canonical-mask requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 0.41.11 reporting-state/canonical-mask contract')
+if not (root / 'rules/0.41.11_REPORT_STATE_CANONICAL_MASK_AUDIT.md').is_file():
+    errors.append('0.41.11 reporting-state/canonical-mask audit record is missing')
+if '## Release 0.41.12 Database submission reliability requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 0.41.12 Database submission reliability contract')
+if not (root / 'rules/0.41.12_DATABASE_SUBMISSION_RELIABILITY_AUDIT.md').is_file():
+    errors.append('0.41.12 Database submission reliability audit record is missing')
+if '## Release 0.41.13 Database query-group state requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 0.41.13 Database query-group state contract')
+if not (root / 'rules/0.41.13_DATABASE_QUERY_GROUP_STATE_AUDIT.md').is_file():
+    errors.append('0.41.13 Database query-group state audit record is missing')
+for needle in [
+    'imageFormatQueryResults = if (group == "imageFormat2") { if (status == "available" && imageFormatQueryResultMatch != null) imageFormatQueryResultMatch else emptyList() } else device.imageFormatQueryResults',
+    'private fun imageFormatQueryGroupState(device: DeviceReport): Pair<String, String>',
+    'put("imageFormatQueryStatus", imageFormatGroupState.first)',
+    'put("imageFormatQueryReason", imageFormatGroupState.second)'
+]:
+    if needle not in kt:
+        errors.append(f'missing 0.41.13 Database query-group invariant: {needle}')
+for needle in [
+    'private fun isCompleteReportReady(report: VulkanReport, collectionStatus: CollectionStatus): Boolean =',
+    'report.devices.isNotEmpty() && report.error == null && collectionStatus != CollectionStatus.COLLECTING',
+    'val completeReportReady = isCompleteReportReady(report, collectionStatus)',
+    'if (report.devices.isEmpty()) return@withContext "Submission blocked: the complete report contains no Vulkan physical device."',
+    'if (report.error != null) return@withContext "Submission blocked: the Vulkan collection is incomplete. Re-run collection before submitting."',
+    'val payload = runCatching { databaseSubmissionJson(context, report, display, mode).toByteArray(Charsets.UTF_8) }',
+    'Submission failed: the complete report could not be serialized locally.',
+    'Submission failed (HTTP ${response.code}): $message',
+    'finally {\n                                submissionInFlight = false'
+]:
+    if needle not in kt:
+        errors.append(f'missing 0.41.12 Database submission reliability invariant: {needle}')
+if kt.count('val completeReportReady = isCompleteReportReady(report, collectionStatus)') != 2:
+    errors.append('0.41.12 complete-report gate must be shared by Info and Settings')
+if 'val payload = databaseSubmissionJson(context, report, display, mode).toByteArray(Charsets.UTF_8)' in kt:
+    errors.append('Database payload serialization remains outside the guarded 0.41.12 submission path')
+if 'if (bits == 0L) return "0"' not in kt or 'if (bits == 0L) return "NONE"' in kt:
+    errors.append('generic zero Vulkan masks must render as numeric 0, not a synthetic NONE token')
+for needle in ['VK_TOOL_PURPOSE_VALIDATION_BIT', 'VK_TOOL_PURPOSE_PROFILING_BIT', 'VK_TOOL_PURPOSE_TRACING_BIT', 'VK_TOOL_PURPOSE_ADDITIONAL_FEATURES_BIT', 'VK_TOOL_PURPOSE_MODIFYING_FEATURES_BIT', 'VK_TOOL_PURPOSE_DEBUG_REPORTING_BIT_EXT', 'VK_TOOL_PURPOSE_DEBUG_MARKERS_BIT_EXT', 'UNKNOWN_BITS=0x']:
+    if needle not in cpp + kt: errors.append(f'missing canonical flag/tool-purpose evidence: {needle}')
+if '{0x1u, "WARNING"}' in cpp:
+    errors.append('fabricated/shifted VkToolPurposeFlags decoder remains')
+if 'vulkanProfileEvaluations(report, d)' not in kt or 'Cataloged profile; requirement mapping is not implemented by the lightweight evaluator' not in kt:
+    errors.append('catalog-only profile entries are still silently omitted instead of explicit UNKNOWN evidence')
 if '## Release 0.41.2 full correctness, compatibility and reporting audit requirements' not in rules_text:
     errors.append('PROJECT_RULES is missing 0.41.2 full-audit contract')
 if not (root / 'rules/0.41.2_FULL_APPLICATION_AUDIT.md').is_file():
     errors.append('0.41.2 full-audit record is missing')
-if not (root / 'fastlane/metadata/android/en-US/changelogs/412.txt').is_file():
-    errors.append('0.41.2 fastlane changelog is missing')
 for needle in [
     'val evidenceResultCount = filtered.size',
     'val safetyEvidenceCount = filtered.count { it.section == "Vulkan Query Safety" }',
@@ -644,8 +681,6 @@ if '## Release 0.41.3 queue and Vulkan Video evidence semantics' not in rules_te
     errors.append('PROJECT_RULES is missing 0.41.3 queue/video semantics contract')
 if not (root / 'rules/0.41.3_QUEUE_VIDEO_SEMANTICS_AUDIT.md').is_file():
     errors.append('0.41.3 queue/video audit record is missing')
-if not (root / 'fastlane/metadata/android/en-US/changelogs/413.txt').is_file():
-    errors.append('0.41.3 fastlane changelog is missing')
 for needle in [
     'val videoCodecQueryStatus: String = "unknown"',
     'val videoCodecQueryReason: String = ""',
@@ -675,8 +710,6 @@ if '## Release 0.41.4 full application hardening and reporting audit' not in rul
     errors.append('PROJECT_RULES is missing 0.41.4 full-audit contract')
 if not (root / 'rules/0.41.4_FULL_APPLICATION_AUDIT.md').is_file():
     errors.append('0.41.4 full application audit record is missing')
-if not (root / 'fastlane/metadata/android/en-US/changelogs/414.txt').is_file():
-    errors.append('0.41.4 fastlane changelog is missing')
 for needle in [
     'private val databaseHttpClient = ipv6PreferredHttpClient.newBuilder()',
     '.followRedirects(false)',
@@ -705,21 +738,15 @@ if '## Release 0.41.5 Analysis, Profiles and Database compatibility requirements
     errors.append('PROJECT_RULES is missing 0.41.5 Analysis/Profile/Database contract')
 if not (root / 'rules/0.41.5_ANALYSIS_PROFILE_DATABASE_AUDIT.md').is_file():
     errors.append('0.41.5 Analysis/Profile/Database audit record is missing')
-if not (root / 'fastlane/metadata/android/en-US/changelogs/415.txt').is_file():
-    errors.append('0.41.5 fastlane changelog is missing')
 if '## Release 0.41.6 Kotlin compile-gate requirements' not in rules_text:
     errors.append('PROJECT_RULES is missing 0.41.6 Kotlin compile-gate contract')
 if not (root / 'rules/0.41.6_KOTLIN_COMPILE_FIX_AUDIT.md').is_file():
     errors.append('0.41.6 Kotlin compile-fix audit record is missing')
-if not (root / 'fastlane/metadata/android/en-US/changelogs/416.txt').is_file():
-    errors.append('0.41.6 fastlane changelog is missing')
 
 if '## Release 0.41.7 Image Format Properties2 correctness requirements' not in rules_text:
     errors.append('PROJECT_RULES is missing 0.41.7 Image Format Properties2 contract')
 if not (root / 'rules/0.41.7_IMAGE_FORMAT_PROPERTIES2_AUDIT.md').is_file():
     errors.append('0.41.7 Image Format Properties2 audit record is missing')
-if not (root / 'fastlane/metadata/android/en-US/changelogs/417.txt').is_file():
-    errors.append('0.41.7 fastlane changelog is missing')
 image_format_start = cpp.find('} else if (group && std::strcmp(group, "imageFormat2") == 0) {')
 image_format_end = cpp.find('} else if (group && std::strcmp(group, "external") == 0) {', image_format_start)
 image_format_block = cpp[image_format_start:image_format_end] if image_format_start >= 0 and image_format_end > image_format_start else ''
@@ -738,22 +765,16 @@ if '## Release 0.41.8 Image Format Properties2 tuple-result and build baseline r
     errors.append('PROJECT_RULES is missing historical 0.41.8 Image Format Properties2 contract')
 if not (root / 'rules/0.41.8_IMAGE_FORMAT_PROPERTIES2_TUPLE_RESULTS_AGP_9_3_2_AUDIT.md').is_file():
     errors.append('0.41.8 Image Format Properties2 tuple-result audit record is missing')
-if not (root / 'fastlane/metadata/android/en-US/changelogs/418.txt').is_file():
-    errors.append('0.41.8 fastlane changelog is missing')
 
 if '## Release 0.41.9 Image Format Properties2 query-outcome separation requirements' not in rules_text:
     errors.append('PROJECT_RULES is missing historical 0.41.9 Image Format Properties2 outcome-separation contract')
 if not (root / 'rules/0.41.9_IMAGE_FORMAT_QUERY_OUTCOME_SEPARATION_AUDIT.md').is_file():
     errors.append('historical 0.41.9 Image Format Properties2 outcome-separation audit record is missing')
-if not (root / 'fastlane/metadata/android/en-US/changelogs/419.txt').is_file():
-    errors.append('historical 0.41.9 fastlane changelog is missing')
 
 if '## Release 0.41.10 Image Format Properties2 tuple-state completeness requirements' not in rules_text:
     errors.append('PROJECT_RULES is missing 0.41.10 Image Format Properties2 tuple-state completeness contract')
 if not (root / 'rules/0.41.10_IMAGE_FORMAT_QUERY_STATE_COMPLETENESS_AUDIT.md').is_file():
     errors.append('0.41.10 Image Format Properties2 tuple-state completeness audit record is missing')
-if not (root / 'fastlane/metadata/android/en-US/changelogs/420.txt').is_file():
-    errors.append('0.41.10 fastlane changelog is missing')
 for needle in ['queryResults', '"imageFormatQueryResults"', 'ImageFormatQueryResultEntry', 'parseImageFormatQueryResults', 'exact tuple states; excluded from property/query totals', 'imageFormatQuery/${item.name}', '"not_applicable"', 'VK_KHR_external_memory_fd was not enumerated for this device.', 'VK_ANDROID_external_memory_android_hardware_buffer was not enumerated for this device.']:
     if needle not in cpp + kt:
         errors.append(f'missing 0.41.10 Image Format Properties2 tuple-state completeness evidence: {needle}')
@@ -836,6 +857,17 @@ if 'std::stoul' in cpp or 'catch (...)' in cpp[cpp.find('groupName.rfind("selfte
     errors.append('0.41.5 self-test target parsing must not require C++ exception handling')
 if 'Query parameters' not in cpp or 'VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT' not in cpp:
     errors.append('0.41.8 Image Format Properties2 fixed query recipe provenance is missing')
+
+if '## Release 0.41.14 Kotlin compile-correctness requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 0.41.14 Kotlin compile-correctness contract')
+if not (root / 'rules/0.41.14_KOTLIN_COMPILE_CORRECTNESS_AUDIT.md').is_file():
+    errors.append('0.41.14 Kotlin compile-correctness audit record is missing')
+main_source = (root / 'app/src/main/java/com/efishell/vulkanscope/MainActivity.kt').read_text(encoding='utf-8', errors='ignore')
+if 'private fun imageFormatQueryGroupState(device: DeviceReport): Pair<String, String>' not in main_source:
+    errors.append('imageFormatQueryGroupState must use the actual DeviceReport model type')
+if 'imageFormatQueryGroupState(device: GpuInfo)' in main_source:
+    errors.append('stale nonexistent GpuInfo type remains in imageFormatQueryGroupState')
+
 if errors:
     for error in errors: print(f'FAIL: {error}')
     raise SystemExit(1)

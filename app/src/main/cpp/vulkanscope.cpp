@@ -3562,9 +3562,12 @@ std::string collectVulkanAdvancedGroup(const char* driverMode, const char* drive
                         if (t) out << ',';
                         auto toolPurposes = [](uint32_t purposes) {
                             std::string value;
-                            const std::pair<uint32_t, const char*> names[] = {{0x1u, "WARNING"}, {0x2u, "VALIDATION"}, {0x4u, "PROFILING"}, {0x8u, "TRACING"}, {0x10u, "ADDITIONAL_FEATURES"}, {0x20u, "MODIFYING_FEATURES"}};
-                            for (const auto& entry : names) { if ((purposes & entry.first) != 0) { if (!value.empty()) value += ", "; value += entry.second; } }
-                            if (value.empty()) value = "NONE";
+                            uint32_t knownMask = 0;
+                            const std::pair<uint32_t, const char*> names[] = {{0x1u, "VK_TOOL_PURPOSE_VALIDATION_BIT"}, {0x2u, "VK_TOOL_PURPOSE_PROFILING_BIT"}, {0x4u, "VK_TOOL_PURPOSE_TRACING_BIT"}, {0x8u, "VK_TOOL_PURPOSE_ADDITIONAL_FEATURES_BIT"}, {0x10u, "VK_TOOL_PURPOSE_MODIFYING_FEATURES_BIT"}, {0x20u, "VK_TOOL_PURPOSE_DEBUG_REPORTING_BIT_EXT"}, {0x40u, "VK_TOOL_PURPOSE_DEBUG_MARKERS_BIT_EXT"}};
+                            for (const auto& entry : names) { knownMask |= entry.first; if ((purposes & entry.first) != 0) { if (!value.empty()) value += " | "; value += entry.second; } }
+                            const uint32_t unknownBits = purposes & ~knownMask;
+                            if (value.empty()) value = "0";
+                            if (unknownBits != 0) { std::ostringstream raw; raw << std::uppercase << std::hex << unknownBits; value += " | UNKNOWN_BITS=0x" + raw.str(); }
                             return value;
                         };
                         const std::string completeness = toolResult == VK_INCOMPLETE ? " | enumeration=PARTIAL_VK_INCOMPLETE" : " | enumeration=COMPLETE";

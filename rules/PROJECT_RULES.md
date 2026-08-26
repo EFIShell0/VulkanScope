@@ -340,7 +340,7 @@
 - Disabling direct updates must immediately stop future automatic checks and hide pending update UI. Existing package/signing/version/ABI validation remains mandatory whenever direct updates are enabled.
 - Info may expose manual update checking only while direct updates are enabled. Settings is the single owner of the direct-update opt-in state.
 - IzzyOnDroid repository identity must not be inferred from Android installer package identity because repository clients can install packages from multiple repositories. The policy is implemented safely by keeping the self-updater disabled by default independent of installer identity.
-- Fastlane metadata for IzzyOnDroid must be versioned with the release source and must use the same tagged revision as the APK release.
+- Release source archives must not contain a packaged Fastlane/app-store metadata directory; store-listing metadata is maintained outside the source ZIP.
 - No capability collection, TXT/HTML/Database reporting, Turnip/SAF behavior, Vulkan 1.4.360 coverage, or CapsViewer parity may regress because of this release.
 
 ## Release 0.34.4 IzzyOnDroid first-install notice
@@ -620,3 +620,46 @@
 - Historical 0.41.9 non-success-only query-result arrays and 0.41.8 embedded negative tuple rows remain consumer-compatible under their historical producer contracts.
 - AGP 9.3.2, Android API 37, NDK 29.0.14206865, Vulkan-Headers/query baseline 1.4.360, schema 2 / technicalReport 3 and all existing privacy/security/query-safety invariants remain mandatory.
 - Gradle wrapper is 9.7.1, the current verified patch release within the required Gradle 9.7.x build family.
+
+## Release 0.41.11 reporting-state and canonical-mask requirements
+
+- Generic Vulkan flag/mask values with no bits set are represented as numeric `0`; an unqualified synthetic `VK_NONE` or `NONE` token must never be invented.
+- A zero member mask such as `VkFormatProperties3::bufferFeatures == 0` is a queried value, not proof that the entire `VkFormat` is unsupported. Whole-format support remains derived only from the combined linear, optimal and buffer feature evidence.
+- Canonical Vulkan bit displays use registered `VK_*` names for known bits and preserve unrecognized future bits as `UNKNOWN_BITS=0x...`.
+- `VkToolPurposeFlags` decoding follows the current Vulkan registry bit assignments exactly and must not invent non-registry purpose names.
+- Profile catalog entries that are known to the application but not mapped by the lightweight evaluator are emitted explicitly as `UNKNOWN` with a coverage reason; they are not silently omitted and are never presented as unsupported.
+- `Available`, `Unsupported`, `Unavailable`, `Not applicable`, and `Unknown` remain distinct query/evidence states. `Unsupported` is used only when direct evidence proves lack of support under the exact query contract.
+- Image Format Properties2 preserves the complete tuple-state rules from 0.41.10: `VK_SUCCESS` is Available, `VK_ERROR_FORMAT_NOT_SUPPORTED` is Unsupported for that exact tuple, other non-zero `VkResult` values are Unavailable, and absent external-memory prerequisites are Not applicable.
+- Source release ZIPs must omit root `README.md`, root `release.md`, packaged Fastlane/app-store metadata directories, caches, build outputs, and transient dependency directories.
+
+## Release 0.41.12 Database submission reliability requirements
+
+- Application version is 0.41.12 with versionCode 422.
+- A report is eligible for complete TXT/HTML export and VulkanScope Database submission only when at least one Vulkan physical-device report exists, the top-level Vulkan report error is null, and no collection task is currently active. An error-bearing or device-empty report must never be represented as complete or submittable.
+- Database payload construction is part of the guarded submission operation. JSON/report serialization failures must be converted into an explicit local failure result and must never escape the submission coroutine or leave the UI permanently in an in-flight state.
+- The Database submission UI must clear its in-flight state in a `finally` path for success, HTTP rejection, serialization failure, cancellation, and unexpected local/network failure.
+- Worker HTTP failures remain bounded and visible with their HTTP status and bounded server error text. The client must not retry through another endpoint, follow redirects, truncate the report, omit capability evidence, or reclassify query state to obtain acceptance.
+- The fixed official HTTPS Database endpoint, redirect prohibition, 2 MiB complete-payload limit, schema 2 envelope, technicalReport schema 3, lowercase 64-hex accepted report-id handling, and explicit user initiation remain unchanged.
+- VulkanScope Database 0.39.9 compatibility must be verified for the current/future schema-compatible producer contract without requiring a D1 migration or a Database schema change.
+- All 0.41.11 canonical-mask, profile UNKNOWN, VkToolPurposeFlags, format-mask and Image Format Properties2 tuple-state semantics remain unchanged.
+
+
+## Release 0.41.13 Database query-group state requirements
+
+- Application version is 0.41.13 with versionCode 423.
+- Image Format Properties2 query-group completion remains governed by the project-wide complete-report rule: an explicitly `Unavailable` or `Not applicable` isolated query is complete query evidence and must not be replaced with fabricated tuple results.
+- When the `imageFormat2` isolated group is not Available, any previous/inherited `imageFormatQueryResults` dataset must be cleared before the completed report is published. Stale tuple evidence must never survive across a failed or non-applicable collection cycle.
+- technicalReport schema 3 adds `imageFormatQueryStatus` and `imageFormatQueryReason` per device as redundant structured provenance derived from the existing exact `Vulkan Query Status / Image Format Properties 2 query` evidence. These fields do not replace, hide or reclassify the canonical query-status row.
+- `imageFormatQueryStatus` is `available`, `unavailable`, `not_applicable`, or `unknown`; the reason remains bounded source evidence and is empty for Available.
+- Database submission remains schema 2 / technicalReport 3, fixed official HTTPS endpoint, no redirects, explicit opt-in and a 2 MiB fail-closed complete-payload bound. No report evidence may be truncated or omitted to obtain server acceptance.
+- Vulkan 1.4.360, API 37, NDK r29, AGP 9.3.2, Gradle 9.7.1, three release ABIs and all 0.41.12 submission reliability invariants remain unchanged.
+
+
+## Release 0.41.14 Kotlin compile-correctness requirements
+
+- Application version is 0.41.14 with versionCode 424.
+- The 0.41.13 Image Format Properties2 query-group state and Database submission contract remains functionally unchanged.
+- Helper functions consuming the collected physical-device model must use the actual `DeviceReport` type declared by the application. Referencing nonexistent or stale model names such as `GpuInfo` is forbidden.
+- The compile fix must not alter `detailedProperties`, Image Format Properties2 query-state derivation, technicalReport schema 3 fields, Database payload contents, submission endpoint, redirect policy, size limits, capability-state semantics, Vulkan query coverage, Turnip behavior, or ABI support.
+- Release verification must fail if the stale `GpuInfo` helper signature reappears or if `imageFormatQueryGroupState` no longer accepts `DeviceReport`.
+- Vulkan 1.4.360, API 37, NDK r29, AGP 9.3.2, Gradle 9.7.1, schema 2 / technicalReport 3, and the three release ABIs remain unchanged.

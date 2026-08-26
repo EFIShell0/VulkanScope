@@ -400,6 +400,9 @@ private enum class DriverMode(val label: String) {
 
 private enum class TurnipSupport { UNKNOWN, SUPPORTED, UNSUPPORTED }
 private enum class CollectionStatus { IDLE, COLLECTING, COMPLETED }
+
+private fun isCompleteReportReady(report: VulkanReport, collectionStatus: CollectionStatus): Boolean =
+    report.devices.isNotEmpty() && report.error == null && collectionStatus != CollectionStatus.COLLECTING
 private data class AppUpdate(
     val version: String,
     val assetName: String,
@@ -1865,7 +1868,7 @@ private fun mergeAdvancedQueryReport(base: VulkanReport, raw: String, group: Str
         var merged = device.copy(
             features = mergedFeatures,
             detailedProperties = replaceQueryStatus(mergedProperties, "$label query", statusProperty.value),
-            imageFormatQueryResults = if (group == "imageFormat2" && status == "available" && imageFormatQueryResultMatch != null) imageFormatQueryResultMatch else device.imageFormatQueryResults,
+            imageFormatQueryResults = if (group == "imageFormat2") { if (status == "available" && imageFormatQueryResultMatch != null) imageFormatQueryResultMatch else emptyList() } else device.imageFormatQueryResults,
             queues = mergedQueues,
             formats = mergedFormats
         )
@@ -3067,9 +3070,11 @@ private fun vulkanAnalysisEntries(report: VulkanReport, device: DeviceReport?, d
         put("safety/memoryTypeRejected", device.memoryTypeSafetyRejected.toString())
         put("safety/surfaceQueueRejected", device.surfaceQueueQuerySafetyRejected.toString())
         put("safety/surfaceFormatRejected", device.surfaceFormatQuerySafetyRejected.toString())
-        vulkanProfileRequirements().forEach { profile ->
-            val result = evaluateProfile(report, device, profile)
-            put("profile/${profile.name}", "${result.status};revision=${profile.revision};minimum=${profile.minApiVersion};coverage=${result.coverageNote}")
+        val profileRequirementsByName = vulkanProfileRequirements().associateBy { it.name }
+        vulkanProfileEvaluations(report, device).forEach { result ->
+            val requirement = profileRequirementsByName[result.name]
+            val minimum = requirement?.minApiVersion?.let { ";minimum=$it" }.orEmpty()
+            put("profile/${result.name}", "${result.status};revision=${result.revision}$minimum;coverage=${result.coverageNote}")
         }
     }
     put("display/resolution", display.resolution)
@@ -3752,9 +3757,9 @@ private fun queueVideoCodecQueryState(queue: QueueEntry): String = when (queue.v
 private fun parseUnsignedHexLong(value: String?): Long? = value?.let { runCatching { java.lang.Long.parseUnsignedLong(it, 16) }.getOrNull() }
 
 private fun canonicalFlagNames(bits: Long, names: List<Pair<Long, String>>): String {
-    if (bits == 0L) return "NONE"
+    if (bits == 0L) return "0"
     val known = names.filter { (bit, _) -> (bits and bit) != 0L }.map { it.second }
-    return known.joinToString(" | ").ifBlank { "NONE" } + rawBitsSuffix(bits, names.map { it.first }.toSet())
+    return known.joinToString(" | ").ifBlank { "0" } + rawBitsSuffix(bits, names.map { it.first }.toSet())
 }
 
 
@@ -3924,6 +3929,15 @@ private fun vulkanProfileCatalog(): List<Pair<String, String>> = listOf(
     "VP_LUNARG_minimum_requirements_1_0" to "current"
 )
 
+private fun vulkanProfileEvaluations(report: VulkanReport?, device: DeviceReport?): List<ProfileResult> {
+    val evaluated = vulkanProfileRequirements().map { evaluateProfile(report, device, it) }
+    val evaluatedNames = evaluated.map { it.name }.toSet()
+    val catalogOnly = vulkanProfileCatalog().filterNot { it.first in evaluatedNames }.map { (name, revision) ->
+        ProfileResult(name, revision, "UNKNOWN", emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), coverageNote = "Cataloged profile; requirement mapping is not implemented by the lightweight evaluator")
+    }
+    return evaluated + catalogOnly
+}
+
 private fun normalizedFeatureName(name: String): String = name.substringAfter("·").trim()
 
 private fun numericLimit(limits: List<Pair<String, String>>, key: String): Long? {
@@ -4052,7 +4066,7 @@ private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverM
         @Suppress("DEPRECATION")
         packageInfo?.versionCode?.toString() ?: "Unknown"
     }
-    val completeReportReady = report.devices.isNotEmpty() && collectionStatus != CollectionStatus.COLLECTING
+    val completeReportReady = isCompleteReportReady(report, collectionStatus)
     var submissionState by remember { mutableStateOf("Ready") }
     var submissionInFlight by remember { mutableStateOf(false) }
     val exportStem = remember(report) { exportFileStem(report) }
@@ -4163,8 +4177,11 @@ private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverM
                         submissionInFlight = true
                         submissionState = "Submitting complete technical report…"
                         scope.launch {
-                            submissionState = submitDatabaseReport(context, report, display, mode)
-                            submissionInFlight = false
+                            try {
+                                submissionState = submitDatabaseReport(context, report, display, mode)
+                            } finally {
+                                submissionInFlight = false
+                            }
                         }
                     }
                 }
@@ -4196,7 +4213,7 @@ private fun turnipSupportDescription(support: TurnipSupport): String = when (sup
 @Composable
 private fun SettingsPage(report: VulkanReport, mode: DriverMode, turnipSupport: TurnipSupport, onModeChanged: (DriverMode) -> Unit, onInstallDriverBundle: () -> Unit, collectionStatus: CollectionStatus, directUpdatesEnabled: Boolean, onDirectUpdatesChanged: (Boolean) -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val completeReportReady = report.devices.isNotEmpty() && collectionStatus != CollectionStatus.COLLECTING
+    val completeReportReady = isCompleteReportReady(report, collectionStatus)
     val bundleInstalled = remember(mode, turnipSupport, collectionStatus) { resolveInstalledTurnipLibrary(context.filesDir) != null }
     LazyColumn(contentPadding = WindowInsets.navigationBars.asPaddingValues(), modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
@@ -4358,6 +4375,16 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
 }
 
 
+private fun imageFormatQueryGroupState(device: DeviceReport): Pair<String, String> {
+    val raw = device.detailedProperties.lastOrNull { it.section == "Vulkan Query Status" && it.name == "Image Format Properties 2 query" }?.value.orEmpty()
+    return when {
+        raw == "Available" -> "available" to ""
+        raw.startsWith("Unavailable: ") -> "unavailable" to raw.removePrefix("Unavailable: ").trim()
+        raw.startsWith("Not applicable: ") -> "not_applicable" to raw.removePrefix("Not applicable: ").trim()
+        else -> "unknown" to raw.trim()
+    }
+}
+
 private fun technicalReportJson(context: Context, report: VulkanReport, display: DisplayReport, mode: DriverMode): JSONObject = JSONObject().apply {
     put("schemaVersion", 3)
     put("loaderInstanceApiVersion", report.loaderVersion)
@@ -4407,6 +4434,8 @@ private fun technicalReportJson(context: Context, report: VulkanReport, display:
             put("deviceExtensionStatus", d.deviceExtensionStatus); put("deviceExtensionReason", d.deviceExtensionReason)
             put("extendedQueryStatus", d.extendedQueryStatus); put("extendedQueryReason", d.extendedQueryReason)
             put("vulkan14Status", d.vulkan14Status); put("vulkan14Reason", d.vulkan14Reason)
+            val imageFormatGroupState = imageFormatQueryGroupState(d)
+            put("imageFormatQueryStatus", imageFormatGroupState.first); put("imageFormatQueryReason", imageFormatGroupState.second)
             put("deviceLayers", JSONArray().apply { d.deviceLayers.forEach { layer -> put(JSONObject().apply {
                 put("name", layer.name); put("description", layer.description); put("specVersion", layer.specVersion); put("implementationVersion", layer.implementationVersion)
                 put("extensions", JSONArray().apply { layer.extensions.forEach { ext -> put(JSONObject().apply { put("name", ext.name); put("scope", ext.scope); put("specVersion", ext.specVersion); put("supported", ext.supported) }) } })
@@ -4430,7 +4459,7 @@ private fun technicalReportJson(context: Context, report: VulkanReport, display:
                 put("presentModes", JSONArray(d.presentModes))
                 put("presentationQueues", JSONArray().apply { d.presentationQueues.forEach { q -> put(JSONObject().apply { put("queue", q.first); put("supported", q.second) }) } })
             })
-            put("profileEvaluation", JSONArray().apply { vulkanProfileRequirements().map { evaluateProfile(report, d, it) }.forEach { profile -> put(JSONObject().apply { put("name", profile.name); put("revision", profile.revision); put("status", profile.status); put("summary", profileSummary(profile)) }) } })
+            put("profileEvaluation", JSONArray().apply { vulkanProfileEvaluations(report, d).forEach { profile -> put(JSONObject().apply { put("name", profile.name); put("revision", profile.revision); put("status", profile.status); put("summary", profileSummary(profile)) }) } })
         }) }
     })
     put("profileCatalog", JSONArray().apply { vulkanProfileCatalog().forEach { value -> put(JSONObject().apply { put("name", value.first); put("revision", value.second) }) } })
@@ -4494,10 +4523,13 @@ private fun databaseSubmissionJson(context: Context, report: VulkanReport, displ
 }
 
 private suspend fun submitDatabaseReport(context: Context, report: VulkanReport, display: DisplayReport, mode: DriverMode): String = withContext(Dispatchers.IO) {
+    if (report.devices.isEmpty()) return@withContext "Submission blocked: the complete report contains no Vulkan physical device."
+    if (report.error != null) return@withContext "Submission blocked: the Vulkan collection is incomplete. Re-run collection before submitting."
     val baseUrl = OFFICIAL_DATABASE_API_ENDPOINT.toHttpUrlOrNull() ?: return@withContext "The official VulkanScope Database endpoint is invalid."
     if (baseUrl.scheme != "https" || baseUrl.host != "vulkanscope-database-api.vulkanscope.workers.dev" || baseUrl.username.isNotEmpty() || baseUrl.password.isNotEmpty() || baseUrl.query != null || baseUrl.fragment != null || baseUrl.encodedPath != "/") return@withContext "The official VulkanScope Database endpoint is invalid."
     val submissionUrl = baseUrl.newBuilder().addPathSegments("v1/reports").build()
-    val payload = databaseSubmissionJson(context, report, display, mode).toByteArray(Charsets.UTF_8)
+    val payload = runCatching { databaseSubmissionJson(context, report, display, mode).toByteArray(Charsets.UTF_8) }
+        .getOrElse { return@withContext "Submission failed: the complete report could not be serialized locally." }
     if (payload.size > 2 * 1024 * 1024) return@withContext "Submission rejected locally: the complete report exceeds the current VulkanScope Database 2 MiB transport limit. No data was truncated."
     runCatching {
         val request = Request.Builder()
@@ -4512,11 +4544,11 @@ private suspend fun submitDatabaseReport(context: Context, report: VulkanReport,
                 if (id.matches(Regex("[a-f0-9]{64}"))) context.getSharedPreferences("database_share", Context.MODE_PRIVATE).edit().putString("last_report_id", id).apply()
                 if (id.isBlank()) "Report submitted successfully." else "Report submitted successfully · ${id.take(12)}"
             } else {
-                val message = runCatching { JSONObject(body).optString("error") }.getOrDefault("").ifBlank { "HTTP ${response.code}" }
-                "Submission failed: $message"
+                val message = runCatching { JSONObject(body).optString("error") }.getOrDefault("").ifBlank { "Request was rejected" }
+                "Submission failed (HTTP ${response.code}): $message"
             }
         }
-    }.getOrElse { "Submission failed: ${it.message ?: "network error"}" }
+    }.getOrElse { "Submission failed: ${it.message?.take(240) ?: "network error"}" }
 }
 
 private fun safeFilePart(value: String): String = value.replace(Regex("[^A-Za-z0-9._-]+"), "_").trim('_').ifBlank { "Unknown-GPU" }
@@ -4672,7 +4704,7 @@ private fun reportToText(context: Context, report: VulkanReport, display: Displa
     appendLine(); appendLine("VULKAN PROFILE EVALUATION")
     report.devices.forEachIndexed { index, d ->
         appendLine("Device #${index + 1}: ${d.name}")
-        vulkanProfileRequirements().map { evaluateProfile(report, d, it) }.forEach { p -> appendLine("${p.name} | ${p.revision} | ${p.status} | ${profileSummary(p)}") }
+        vulkanProfileEvaluations(report, d).forEach { p -> appendLine("${p.name} | ${p.revision} | ${p.status} | ${profileSummary(p)}") }
     }
         appendLine(); appendLine("VULKAN PROFILES CATALOG")
     vulkanProfileCatalog().forEach { appendLine("${it.first} | ${it.second}") }
@@ -4804,8 +4836,7 @@ private fun reportToHtml(context: Context, report: VulkanReport, display: Displa
         layer.name to htmlEscape("spec ${layer.specVersion}, implementation ${layer.implementationVersion}; ${layer.description}; extensions=${layer.extensions.joinToString(", ") { "${it.name}(${it.specVersion})" }.ifBlank { "none" }}")
     })
 
-    val profileRows = report.devices.flatMap { device -> vulkanProfileRequirements().map { requirement ->
-        val evaluation = evaluateProfile(report, device, requirement)
+    val profileRows = report.devices.flatMap { device -> vulkanProfileEvaluations(report, device).map { evaluation ->
         "${device.name} / ${evaluation.name}" to "${statusBadge(evaluation.status)} ${htmlEscape("${evaluation.revision}; ${profileSummary(evaluation)}")}" 
     } }
     table("Vulkan Profile evaluation", "<th>Device / profile</th><th>Status / details</th>", profileRows)
