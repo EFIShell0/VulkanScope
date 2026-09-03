@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 2,
+  "apiBaseline": "Vulkan 1.4.361",
+  "publishedDate": "2026-08-28",
+  "registryRepository": "KhronosGroup/Vulkan-Docs",
+  "registryRef": "1.4.361",
+  "registryPath": "xml/vk.xml",
+  "registrySha256": "3ff4984b841932e04eebeb4ce2a6613ebd37c00ffb2e96549785b2c5d7da9e1d",
+  "bundledRegistryPath": "registry/upstream/vk.xml",
+  "headerRepository": "KhronosGroup/Vulkan-Headers",
+  "headerCommit": "31386378257ac8653ce5b32c93baec385259ebbe",
+  "headerTag": "v1.4.361",
+  "headerPath": "include/vulkan/vulkan_core.h",
+  "headerVersion": 361
+}

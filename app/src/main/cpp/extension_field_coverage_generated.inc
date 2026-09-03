@@ -56,7 +56,7 @@ static void appendGeneratedStructFields(std::vector<GeneratedField>& dst, uint32
     generatedEmitNumeric(dst, section, "driverID", value.driverID);
     generatedEmitString(dst, section, "driverName", value.driverName, sizeof(value.driverName));
     generatedEmitString(dst, section, "driverInfo", value.driverInfo, sizeof(value.driverInfo));
-    generatedEmitHexTyped(dst, section, "conformanceVersion", reinterpret_cast<const uint8_t*>(&value.conformanceVersion), sizeof(value.conformanceVersion));
+    generatedEmitString(dst, section, "conformanceVersion", (std::to_string(value.conformanceVersion.major) + "." + std::to_string(value.conformanceVersion.minor) + "." + std::to_string(value.conformanceVersion.subminor) + "." + std::to_string(value.conformanceVersion.patch)));
     generatedEmitNumeric(dst, section, "denormBehaviorIndependence", value.denormBehaviorIndependence);
     generatedEmitNumeric(dst, section, "roundingModeIndependence", value.roundingModeIndependence);
     generatedEmitBool(dst, section, "shaderSignedZeroInfNanPreserveFloat16", value.shaderSignedZeroInfNanPreserveFloat16);
@@ -781,7 +781,7 @@ static void appendGeneratedStructFields(std::vector<GeneratedField>& dst, uint32
     generatedEmitNumeric(dst, section, "driverID", value.driverID);
     generatedEmitString(dst, section, "driverName", value.driverName, sizeof(value.driverName));
     generatedEmitString(dst, section, "driverInfo", value.driverInfo, sizeof(value.driverInfo));
-    generatedEmitHexTyped(dst, section, "conformanceVersion", reinterpret_cast<const uint8_t*>(&value.conformanceVersion), sizeof(value.conformanceVersion));
+    generatedEmitString(dst, section, "conformanceVersion", (std::to_string(value.conformanceVersion.major) + "." + std::to_string(value.conformanceVersion.minor) + "." + std::to_string(value.conformanceVersion.subminor) + "." + std::to_string(value.conformanceVersion.patch)));
             break;
         }
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_PROPERTIES: {
@@ -988,7 +988,13 @@ static void appendGeneratedStructFields(std::vector<GeneratedField>& dst, uint32
             generatedEmitBool(dst, section, "cooperativeMatrixGetCoordinate", value.cooperativeMatrixGetCoordinate);
             break;
         }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRIVATE_DATA_BASE_HANDLE_FEATURES_NV: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDevicePrivateDataBaseHandleFeaturesNV*>(ptr);
+            const char* section = "Generated · VkPhysicalDevicePrivateDataBaseHandleFeaturesNV";
+            generatedEmitBool(dst, section, "privateDataBaseHandle", value.privateDataBaseHandle);
+            break;
+        }
         default: break;
     }
 }
-static constexpr uint32_t kGeneratedPhysicalDeviceStructSerializerCount = 115;
+static constexpr uint32_t kGeneratedPhysicalDeviceStructSerializerCount = 116;

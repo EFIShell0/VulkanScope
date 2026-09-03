@@ -11,8 +11,8 @@ android {
         applicationId = "com.efishell.vulkanscope"
         minSdk = 24
         targetSdk = 37
-        versionCode = 424
-        versionName = "0.41.14"
+        versionCode = 803
+        versionName = "0.80.3"
         
         
         ndkVersion = "29.0.14206865"
@@ -61,8 +61,8 @@ dependencies {
     implementation("androidx.compose.ui:ui:1.12.0")
     implementation("androidx.compose.foundation:foundation:1.12.0")
     implementation("androidx.compose.animation:animation:1.12.0")
-    implementation("androidx.compose.material3:material3:1.5.0-alpha26")
+    implementation("androidx.compose.material3:material3:1.5.0-alpha27")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
-    implementation("com.squareup.okhttp3:okhttp:5.2.0")
+    implementation("com.squareup.okhttp3:okhttp:5.5.0")
     implementation("com.google.zxing:core:3.5.4")
 }

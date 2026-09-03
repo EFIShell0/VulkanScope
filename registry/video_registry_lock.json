@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "sourceRepository": "KhronosGroup/Vulkan-Docs",
+  "sourceRef": "content-sha256:d018b914014c06605e367a3b929670511e6f6de2f225c405a8b5e2d912408b76",
+  "sourcePath": "xml/video.xml",
+  "bundledPath": "registry/upstream/video.xml",
+  "sha256": "d018b914014c06605e367a3b929670511e6f6de2f225c405a8b5e2d912408b76",
+  "vulkanRegistryPath": "registry/upstream/vk.xml",
+  "vulkanRegistrySha256": "3ff4984b841932e04eebeb4ce2a6613ebd37c00ffb2e96549785b2c5d7da9e1d",
+  "vulkanBaseline": "Vulkan 1.4.361",
+  "purpose": "Locked StdVideo profile/level metadata and cross-registry Vulkan Video profile-member census generation"
+}

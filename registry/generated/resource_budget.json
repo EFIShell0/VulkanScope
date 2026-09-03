@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "probePublicationLimitBytes": 67108864,
+  "databaseTransportLimitBytes": 2097152,
+  "analysisSnapshotLimitBytes": 8388608,
+  "registeredVulkanExtensionCensus": 474,
+  "nativeExtensionEnumerationEntryLimit": 4096,
+  "baseProbeTimeoutMs": 20000,
+  "surfaceProbeTimeoutMs": 25000,
+  "selfTestTimeoutMs": 30000,
+  "advancedProbeTimeoutMs": 30000,
+  "simpleProbeTimeoutMs": 12000,
+  "backgroundCollectionBudgetMs": 60000,
+  "publicationPolicy": "fail-closed without truncation",
+  "memoryEvidence": "Native success results are published directly to the bounded checkpoint file and no longer copied into a JNI jstring; the main process reads an atomically published inode into one exact-size byte array before UTF-8 decoding.",
+  "absoluteCompletenessQualification": "The 64 MiB per-probe publication ceiling is a safety ceiling, not a proof that every theoretically possible driver output fits. Oversize evidence fails explicitly and is never promoted as a complete report."
+}

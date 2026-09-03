@@ -3,6 +3,7 @@
 #define VK_ENABLE_BETA_EXTENSIONS 1
 #include <vulkan/vulkan.h>
 #include "registry_query_catalog.h"
+#include "video_registry_generated.h"
 #include <jni.h>
 #include <android/native_window_jni.h>
 #include <dlfcn.h>
@@ -32,6 +33,9 @@ int g_probeCrashFd = -1;
 volatile sig_atomic_t g_probeStage = 0;
 volatile sig_atomic_t g_probePartialPublished = 0;
 int g_probeCrashMarkerFd = -1;
+constexpr std::array<int, 7> kProbeSignals{SIGSEGV, SIGABRT, SIGBUS, SIGILL, SIGFPE, SIGSYS, SIGTRAP};
+std::array<struct sigaction, kProbeSignals.size()> g_previousProbeSignalActions{};
+std::array<bool, kProbeSignals.size()> g_previousProbeSignalActionValid{};
 
 void probeSignalHandler(int signalNumber) {
     if (g_probeCrashFd >= 0 && !g_probePartialPublished) {
@@ -84,16 +88,22 @@ void installProbeCrashGuard(const char* resultPath) {
     struct sigaction action{};
     action.sa_handler = probeSignalHandler;
     sigemptyset(&action.sa_mask);
-    sigaction(SIGSEGV, &action, nullptr);
-    sigaction(SIGABRT, &action, nullptr);
-    sigaction(SIGBUS, &action, nullptr);
-    sigaction(SIGILL, &action, nullptr);
-    sigaction(SIGFPE, &action, nullptr);
-    sigaction(SIGSYS, &action, nullptr);
-    sigaction(SIGTRAP, &action, nullptr);
+    action.sa_flags = 0;
+    for (size_t i = 0; i < kProbeSignals.size(); ++i) {
+        struct sigaction previous{};
+        const int result = sigaction(kProbeSignals[i], &action, &previous);
+        g_previousProbeSignalActionValid[i] = result == 0;
+        if (result == 0) g_previousProbeSignalActions[i] = previous;
+    }
 }
 
 void clearProbeCrashGuard(const char* resultPath) {
+    for (size_t i = 0; i < kProbeSignals.size(); ++i) {
+        if (g_previousProbeSignalActionValid[i]) {
+            (void)sigaction(kProbeSignals[i], &g_previousProbeSignalActions[i], nullptr);
+            g_previousProbeSignalActionValid[i] = false;
+        }
+    }
     if (g_probeCrashFd >= 0) {
         close(g_probeCrashFd);
         g_probeCrashFd = -1;
@@ -117,6 +127,9 @@ struct GeneratedField {
 };
 
 static void appendGeneratedStructFields(std::vector<GeneratedField>& dst, uint32_t sType, void* ptr);
+
+VKAPI_ATTR void VKAPI_CALL probeNoopDestroyInstance(VkInstance, const VkAllocationCallbacks*) {}
+VKAPI_ATTR void VKAPI_CALL probeNoopDestroySurface(VkInstance, VkSurfaceKHR, const VkAllocationCallbacks*) {}
 
 struct VulkanApi {
     void* library = nullptr;
@@ -160,11 +173,12 @@ struct VulkanApi {
     std::string openError;
     std::vector<GeneratedField> generatedFields;
     bool captureGeneratedFields = false;
+    bool customDriverProcess = false;
 
     void queryProperties2(VkPhysicalDevice device, VkPhysicalDeviceProperties2* properties);
     void queryFeatures2(VkPhysicalDevice device, VkPhysicalDeviceFeatures2* features);
 
-    ~VulkanApi() { if (library) dlclose(library); }
+    ~VulkanApi() = default;
 
     template <typename T>
     T load(const char* name) const { return reinterpret_cast<T>(dlsym(library, name)); }
@@ -181,6 +195,7 @@ struct VulkanApi {
         (void)hookLibDir;
 
         const bool wantTurnip = driverMode && std::strcmp(driverMode, "TURNIP") == 0;
+        customDriverProcess = wantTurnip;
 
         if (wantTurnip) {
 #if !defined(VULKANSCOPE_HAS_ADRENOTOOLS)
@@ -303,7 +318,9 @@ struct VulkanApi {
     }
 
     bool loadInstanceFunctions(VkInstance instance) {
-        destroyInstance = loadInstance<PFN_vkDestroyInstance>(instance, "vkDestroyInstance");
+        const PFN_vkDestroyInstance driverDestroyInstance = loadInstance<PFN_vkDestroyInstance>(instance, "vkDestroyInstance");
+        (void)driverDestroyInstance;
+        destroyInstance = probeNoopDestroyInstance;
         enumeratePhysicalDevices = loadInstance<PFN_vkEnumeratePhysicalDevices>(instance, "vkEnumeratePhysicalDevices");
         getPhysicalDeviceProperties = loadInstance<PFN_vkGetPhysicalDeviceProperties>(instance, "vkGetPhysicalDeviceProperties");
         getPhysicalDeviceProperties2 = loadInstance<PFN_vkGetPhysicalDeviceProperties2>(instance, "vkGetPhysicalDeviceProperties2");
@@ -335,11 +352,14 @@ struct VulkanApi {
         getPhysicalDeviceSparseImageFormatProperties2 = loadInstance<PFN_vkGetPhysicalDeviceSparseImageFormatProperties2>(instance, "vkGetPhysicalDeviceSparseImageFormatProperties2");
         if (!getPhysicalDeviceSparseImageFormatProperties2) getPhysicalDeviceSparseImageFormatProperties2 = loadInstance<PFN_vkGetPhysicalDeviceSparseImageFormatProperties2>(instance, "vkGetPhysicalDeviceSparseImageFormatProperties2KHR");
         enumeratePhysicalDeviceGroups = loadInstance<PFN_vkEnumeratePhysicalDeviceGroups>(instance, "vkEnumeratePhysicalDeviceGroups");
+        if (!enumeratePhysicalDeviceGroups) enumeratePhysicalDeviceGroups = loadInstance<PFN_vkEnumeratePhysicalDeviceGroups>(instance, "vkEnumeratePhysicalDeviceGroupsKHR");
         enumerateDeviceExtensionProperties = loadInstance<PFN_vkEnumerateDeviceExtensionProperties>(instance, "vkEnumerateDeviceExtensionProperties");
         enumerateDeviceLayerProperties = loadInstance<PFN_vkEnumerateDeviceLayerProperties>(instance, "vkEnumerateDeviceLayerProperties");
         getPhysicalDeviceFormatProperties = loadInstance<PFN_vkGetPhysicalDeviceFormatProperties>(instance, "vkGetPhysicalDeviceFormatProperties");
         createAndroidSurfaceKHR = loadInstance<PFN_vkCreateAndroidSurfaceKHR>(instance, "vkCreateAndroidSurfaceKHR");
-        destroySurfaceKHR = loadInstance<PFN_vkDestroySurfaceKHR>(instance, "vkDestroySurfaceKHR");
+        const PFN_vkDestroySurfaceKHR driverDestroySurfaceKHR = loadInstance<PFN_vkDestroySurfaceKHR>(instance, "vkDestroySurfaceKHR");
+        (void)driverDestroySurfaceKHR;
+        destroySurfaceKHR = probeNoopDestroySurface;
         getPhysicalDeviceSurfaceCapabilitiesKHR = loadInstance<PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR>(instance, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
         getPhysicalDeviceSurfaceFormatsKHR = loadInstance<PFN_vkGetPhysicalDeviceSurfaceFormatsKHR>(instance, "vkGetPhysicalDeviceSurfaceFormatsKHR");
         getPhysicalDeviceSurfacePresentModesKHR = loadInstance<PFN_vkGetPhysicalDeviceSurfacePresentModesKHR>(instance, "vkGetPhysicalDeviceSurfacePresentModesKHR");
@@ -373,8 +393,47 @@ std::string versionString(uint32_t value) {
     return out.str();
 }
 
+bool apiVersionAtLeast(uint32_t value, uint32_t major, uint32_t minor) {
+    const uint32_t valueMajor = VK_API_VERSION_MAJOR(value);
+    const uint32_t valueMinor = VK_API_VERSION_MINOR(value);
+    return valueMajor > major || (valueMajor == major && valueMinor >= minor);
+}
+
 std::string jsonString(const std::string& value) { return "\"" + escapeJson(value) + "\""; }
 std::string jsonBool(bool value) { return value ? "true" : "false"; }
+bool jsonContainersBalanced(const std::string& value) {
+    if (value.size() < 2 || value.front() != '{' || value.back() != '}') return false;
+    std::vector<char> stack;
+    bool inString = false;
+    bool escaped = false;
+    for (char c : value) {
+        if (inString) {
+            if (escaped) {
+                escaped = false;
+            } else if (c == '\\') {
+                escaped = true;
+            } else if (c == '"') {
+                inString = false;
+            }
+            continue;
+        }
+        if (c == '"') {
+            inString = true;
+            continue;
+        }
+        if (c == '{' || c == '[') {
+            stack.push_back(c);
+            continue;
+        }
+        if (c == '}' || c == ']') {
+            if (stack.empty()) return false;
+            const char open = stack.back();
+            if ((c == '}' && open != '{') || (c == ']' && open != '[')) return false;
+            stack.pop_back();
+        }
+    }
+    return !inString && !escaped && stack.empty();
+}
 constexpr uint32_t kMaxExtensionEntries = 4096;
 constexpr uint32_t kMaxLayerEntries = 1024;
 constexpr uint32_t kMaxPhysicalDeviceEntries = 256;
@@ -389,52 +448,71 @@ constexpr uint32_t kMaxSurfaceFormatEntries = 4096;
 constexpr uint32_t kMaxPresentModeEntries = 256;
 
 struct SurfaceFormatEnumeration {
-    VkResult countResult = VK_ERROR_EXTENSION_NOT_PRESENT;
-    VkResult dataResult = VK_ERROR_EXTENSION_NOT_PRESENT;
+    VkResult countResult = VK_SUCCESS;
+    VkResult dataResult = VK_SUCCESS;
+    bool countAttempted = false;
     bool dataAttempted = false;
     bool safetyRejected = false;
+    bool specAnomaly = false;
     bool complete = false;
+    uint32_t attemptCount = 0;
+    std::string reason;
     std::vector<VkSurfaceFormatKHR> values;
 };
 
 struct SurfacePresentModeEnumeration {
-    VkResult countResult = VK_ERROR_EXTENSION_NOT_PRESENT;
-    VkResult dataResult = VK_ERROR_EXTENSION_NOT_PRESENT;
+    VkResult countResult = VK_SUCCESS;
+    VkResult dataResult = VK_SUCCESS;
+    bool countAttempted = false;
     bool dataAttempted = false;
     bool safetyRejected = false;
+    bool specAnomaly = false;
     bool complete = false;
+    uint32_t attemptCount = 0;
+    std::string reason;
     std::vector<VkPresentModeKHR> values;
 };
 
 SurfaceFormatEnumeration enumerateSurfaceFormatsRobust(VulkanApi& api, VkPhysicalDevice device, VkSurfaceKHR surface, bool useFormats2) {
     SurfaceFormatEnumeration result;
+    std::vector<VkSurfaceFormatKHR> partialValues;
     for (uint32_t attempt = 0; attempt < 4; ++attempt) {
+        result.attemptCount = attempt + 1;
         uint32_t count = 0;
-        VkResult countResult = VK_ERROR_EXTENSION_NOT_PRESENT;
+        VkResult countResult = VK_SUCCESS;
         if (useFormats2) {
-            if (!api.getPhysicalDeviceSurfaceFormats2KHR) return result;
+            if (!api.getPhysicalDeviceSurfaceFormats2KHR) {
+                result.reason = "vkGetPhysicalDeviceSurfaceFormats2KHR entry point is unavailable.";
+                return result;
+            }
             VkPhysicalDeviceSurfaceInfo2KHR info{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR, nullptr, surface};
+            result.countAttempted = true;
             countResult = api.getPhysicalDeviceSurfaceFormats2KHR(device, &info, &count, nullptr);
         } else {
-            if (!api.getPhysicalDeviceSurfaceFormatsKHR) return result;
+            if (!api.getPhysicalDeviceSurfaceFormatsKHR) {
+                result.reason = "vkGetPhysicalDeviceSurfaceFormatsKHR entry point is unavailable.";
+                return result;
+            }
+            result.countAttempted = true;
             countResult = api.getPhysicalDeviceSurfaceFormatsKHR(device, surface, &count, nullptr);
         }
-        if (attempt == 0) result.countResult = countResult;
+        result.countResult = countResult;
         if (countResult != VK_SUCCESS && countResult != VK_INCOMPLETE) {
-            result.values.clear();
+            result.values = partialValues;
+            result.reason = partialValues.empty() ? "Surface-format count query failed." : "A later Surface-format count retry failed; earlier bounded partial format evidence was retained.";
             return result;
         }
         if (count > kMaxSurfaceFormatEntries) {
             result.safetyRejected = true;
-            result.values.clear();
+            result.values = partialValues;
+            result.reason = "Surface-format count exceeded the local bounded-allocation safety limit; earlier bounded partial format evidence was retained when available.";
             return result;
         }
         if (count == 0) {
             if (countResult == VK_SUCCESS) {
-                result.dataAttempted = true;
-                result.dataResult = VK_SUCCESS;
-                result.complete = true;
+                result.specAnomaly = true;
                 result.values.clear();
+                result.reason = "The Surface-format query completed with zero entries even though Vulkan requires at least one supported surface format for a supported surface.";
                 return result;
             }
             continue;
@@ -449,7 +527,8 @@ SurfaceFormatEnumeration enumerateSurfaceFormatsRobust(VulkanApi& api, VkPhysica
             result.dataResult = api.getPhysicalDeviceSurfaceFormats2KHR(device, &info, &returnedCount, values.data());
             if (returnedCount > capacity) {
                 result.safetyRejected = true;
-                result.values.clear();
+                result.values = partialValues;
+                result.reason = "Surface-format data query returned a count larger than the bounded allocation capacity; earlier bounded partial format evidence was retained when available.";
                 return result;
             }
             values.resize(returnedCount);
@@ -461,46 +540,64 @@ SurfaceFormatEnumeration enumerateSurfaceFormatsRobust(VulkanApi& api, VkPhysica
             result.dataResult = api.getPhysicalDeviceSurfaceFormatsKHR(device, surface, &returnedCount, values.data());
             if (returnedCount > capacity) {
                 result.safetyRejected = true;
-                result.values.clear();
+                result.values = partialValues;
+                result.reason = "Surface-format data query returned a count larger than the bounded allocation capacity; earlier bounded partial format evidence was retained when available.";
                 return result;
             }
             values.resize(returnedCount);
             result.values = std::move(values);
         }
         if (result.dataResult == VK_SUCCESS) {
+            if (result.values.empty()) {
+                result.specAnomaly = true;
+                result.reason = "The Surface-format data query completed with zero entries even though Vulkan requires at least one supported surface format for a supported surface.";
+                return result;
+            }
             result.complete = true;
+            result.reason.clear();
             return result;
         }
         if (result.dataResult != VK_INCOMPLETE) {
-            result.values.clear();
+            result.values = partialValues;
+            result.reason = partialValues.empty() ? "Surface-format data query failed." : "A later Surface-format data retry failed; earlier bounded partial format evidence was retained.";
             return result;
         }
+        if (!result.values.empty()) partialValues = result.values;
     }
+    result.values = partialValues;
+    result.reason = "Surface-format enumeration remained VK_INCOMPLETE after four bounded attempts; returned entries are retained as partial positive evidence.";
     return result;
 }
 
 SurfacePresentModeEnumeration enumerateSurfacePresentModesRobust(VulkanApi& api, VkPhysicalDevice device, VkSurfaceKHR surface) {
     SurfacePresentModeEnumeration result;
-    if (!api.getPhysicalDeviceSurfacePresentModesKHR) return result;
+    std::vector<VkPresentModeKHR> partialValues;
+    if (!api.getPhysicalDeviceSurfacePresentModesKHR) {
+        result.reason = "vkGetPhysicalDeviceSurfacePresentModesKHR entry point is unavailable.";
+        return result;
+    }
     for (uint32_t attempt = 0; attempt < 4; ++attempt) {
+        result.attemptCount = attempt + 1;
         uint32_t count = 0;
+        result.countAttempted = true;
         const VkResult countResult = api.getPhysicalDeviceSurfacePresentModesKHR(device, surface, &count, nullptr);
-        if (attempt == 0) result.countResult = countResult;
+        result.countResult = countResult;
         if (countResult != VK_SUCCESS && countResult != VK_INCOMPLETE) {
-            result.values.clear();
+            result.values = partialValues;
+            result.reason = partialValues.empty() ? "Present-mode count query failed." : "A later present-mode count retry failed; earlier bounded partial mode evidence was retained.";
             return result;
         }
         if (count > kMaxPresentModeEntries) {
             result.safetyRejected = true;
-            result.values.clear();
+            result.values = partialValues;
+            result.reason = "Present-mode count exceeded the local bounded-allocation safety limit; earlier bounded partial mode evidence was retained when available.";
             return result;
         }
         if (count == 0) {
             if (countResult == VK_SUCCESS) {
-                result.dataAttempted = true;
-                result.dataResult = VK_SUCCESS;
-                result.complete = true;
+                result.specAnomaly = true;
                 result.values.clear();
+                result.reason = "The present-mode query completed with zero entries even though VK_PRESENT_MODE_FIFO_KHR is required to be supported.";
                 return result;
             }
             continue;
@@ -512,20 +609,32 @@ SurfacePresentModeEnumeration enumerateSurfacePresentModesRobust(VulkanApi& api,
         result.dataResult = api.getPhysicalDeviceSurfacePresentModesKHR(device, surface, &returnedCount, values.data());
         if (returnedCount > capacity) {
             result.safetyRejected = true;
-            result.values.clear();
+            result.values = partialValues;
+            result.reason = "Present-mode data query returned a count larger than the bounded allocation capacity; earlier bounded partial mode evidence was retained when available.";
             return result;
         }
         values.resize(returnedCount);
         result.values = std::move(values);
         if (result.dataResult == VK_SUCCESS) {
+            const bool fifoPresent = std::find(result.values.begin(), result.values.end(), VK_PRESENT_MODE_FIFO_KHR) != result.values.end();
+            if (!fifoPresent) {
+                result.specAnomaly = true;
+                result.reason = "The completed present-mode enumeration omitted VK_PRESENT_MODE_FIFO_KHR, which Vulkan requires to be supported.";
+                return result;
+            }
             result.complete = true;
+            result.reason.clear();
             return result;
         }
         if (result.dataResult != VK_INCOMPLETE) {
-            result.values.clear();
+            result.values = partialValues;
+            result.reason = partialValues.empty() ? "Present-mode data query failed." : "A later present-mode data retry failed; earlier bounded partial mode evidence was retained.";
             return result;
         }
+        if (!result.values.empty()) partialValues = result.values;
     }
+    result.values = partialValues;
+    result.reason = "Present-mode enumeration remained VK_INCOMPLETE after four bounded attempts; returned entries are retained as partial positive evidence.";
     return result;
 }
 
@@ -831,7 +940,7 @@ std::string formatName(int32_t value) {
         {1000609013, "VK_FORMAT_G14X2_B14X2R14X2_2PLANE_422_UNORM_3PACK16_ARM"},
     };
     for (const auto& item : names) if (item.first == value) return item.second;
-    return "VK_FORMAT_" + std::to_string(value);
+    return "UNKNOWN(" + std::to_string(value) + ")";
 }
 
 std::vector<VkFormat> knownFormatValues() {
@@ -849,7 +958,7 @@ static bool shouldQueryFormat(VkFormat format, uint32_t apiVersion, const std::v
     auto has = [&](const char* name) { return hasExtension(devExts, name); };
     if (value >= 1000054000 && value <= 1000054007) return has("VK_IMG_format_pvrtc");
     if (value >= 1000066000 && value <= 1000066013) return has("VK_EXT_texture_compression_astc_hdr");
-    if (value >= 1000156000 && value <= 1000156033) return VK_API_VERSION_MINOR(apiVersion) >= 1 || has("VK_KHR_sampler_ycbcr_conversion");
+    if (value >= 1000156000 && value <= 1000156033) return apiVersionAtLeast(apiVersion, 1, 1) || has("VK_KHR_sampler_ycbcr_conversion");
     if (value >= 1000288000 && value <= 1000288029) return has("VK_EXT_texture_compression_astc_3d");
     if (value >= 1000330000 && value <= 1000330003) return has("VK_EXT_ycbcr_2plane_444_formats");
     if (value >= 1000340000 && value <= 1000340001) return has("VK_EXT_4444_formats");
@@ -858,7 +967,7 @@ static bool shouldQueryFormat(VkFormat format, uint32_t apiVersion, const std::v
     if (value == 1000460002 || value == 1000460003) return has("VK_ARM_tensors") && has("VK_EXT_shader_float8");
     if (value == 1000464000) return has("VK_NV_optical_flow");
     if (value >= 1000609000 && value <= 1000609013) return has("VK_ARM_format_pack");
-    if (value >= 1000470000 && value <= 1000470001) return VK_API_VERSION_MINOR(apiVersion) >= 4;
+    if (value >= 1000470000 && value <= 1000470001) return apiVersionAtLeast(apiVersion, 1, 4) || has("VK_KHR_maintenance5");
     return true;
 }
 
@@ -868,7 +977,10 @@ std::string presentModeName(VkPresentModeKHR value) {
         case VK_PRESENT_MODE_MAILBOX_KHR: return "VK_PRESENT_MODE_MAILBOX_KHR";
         case VK_PRESENT_MODE_FIFO_KHR: return "VK_PRESENT_MODE_FIFO_KHR";
         case VK_PRESENT_MODE_FIFO_RELAXED_KHR: return "VK_PRESENT_MODE_FIFO_RELAXED_KHR";
-        default: return "VK_PRESENT_MODE_" + std::to_string(static_cast<int32_t>(value));
+        case VK_PRESENT_MODE_SHARED_DEMAND_REFRESH_KHR: return "VK_PRESENT_MODE_SHARED_DEMAND_REFRESH_KHR";
+        case VK_PRESENT_MODE_SHARED_CONTINUOUS_REFRESH_KHR: return "VK_PRESENT_MODE_SHARED_CONTINUOUS_REFRESH_KHR";
+        case VK_PRESENT_MODE_FIFO_LATEST_READY_KHR: return "VK_PRESENT_MODE_FIFO_LATEST_READY_KHR";
+        default: return "UNKNOWN(" + std::to_string(static_cast<int32_t>(value)) + ")";
     }
 }
 
@@ -890,7 +1002,7 @@ std::string colorSpaceName(int32_t value) {
         case VK_COLOR_SPACE_PASS_THROUGH_EXT: return "VK_COLOR_SPACE_PASS_THROUGH_EXT";
         case VK_COLOR_SPACE_EXTENDED_SRGB_NONLINEAR_EXT: return "VK_COLOR_SPACE_EXTENDED_SRGB_NONLINEAR_EXT";
         case VK_COLOR_SPACE_DISPLAY_NATIVE_AMD: return "VK_COLOR_SPACE_DISPLAY_NATIVE_AMD";
-        default: return "VK_COLOR_SPACE_" + std::to_string(value);
+        default: return "UNKNOWN(" + std::to_string(value) + ")";
     }
 }
 
@@ -901,12 +1013,12 @@ std::string colorSpaceDescription(int32_t value) {
         case VK_COLOR_SPACE_DISPLAY_P3_NONLINEAR_EXT: return "Display-P3 primaries · D65 · Display-P3 transfer";
         case VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT: return "sRGB primaries · D65 · linear transfer";
         case VK_COLOR_SPACE_DISPLAY_P3_LINEAR_EXT: return "Display-P3 primaries · D65 · linear transfer";
-        case VK_COLOR_SPACE_DCI_P3_NONLINEAR_EXT: return "DCI-P3 primaries · DCI white point · DCI-P3 transfer";
+        case VK_COLOR_SPACE_DCI_P3_NONLINEAR_EXT: return "DCI-P3 color space · DCI white point · DCI-P3 transfer · presentation engine interprets components as XYZ";
         case VK_COLOR_SPACE_BT709_LINEAR_EXT: return "BT.709 primaries · D65 · linear transfer";
         case VK_COLOR_SPACE_BT709_NONLINEAR_EXT: return "BT.709 primaries · D65 · BT.709 transfer";
         case VK_COLOR_SPACE_BT2020_LINEAR_EXT: return "BT.2020 primaries · D65 · linear transfer";
         case VK_COLOR_SPACE_HDR10_ST2084_EXT: return "BT.2020 primaries · D65 · ST2084 PQ";
-        case VK_COLOR_SPACE_DOLBYVISION_EXT: return "Dolby Vision presentation color space";
+        case VK_COLOR_SPACE_DOLBYVISION_EXT: return "Legacy Vulkan Dolby Vision color-space enum · does not signal Dolby Vision metadata";
         case VK_COLOR_SPACE_HDR10_HLG_EXT: return "BT.2020 primaries · D65 · HLG";
         case VK_COLOR_SPACE_ADOBERGB_LINEAR_EXT: return "Adobe RGB primaries · D65 · linear transfer";
         case VK_COLOR_SPACE_ADOBERGB_NONLINEAR_EXT: return "Adobe RGB primaries · D65 · Adobe RGB transfer";
@@ -921,7 +1033,7 @@ std::string colorSpaceClass(int32_t value) {
     switch (value) {
         case VK_COLOR_SPACE_HDR10_ST2084_EXT: return "HDR10 / PQ";
         case VK_COLOR_SPACE_HDR10_HLG_EXT: return "HDR10 / HLG";
-        case VK_COLOR_SPACE_DOLBYVISION_EXT: return "Dolby Vision";
+        case VK_COLOR_SPACE_DOLBYVISION_EXT: return "Legacy Dolby Vision enum";
         case VK_COLOR_SPACE_BT2020_LINEAR_EXT: return "BT.2020";
         case VK_COLOR_SPACE_DISPLAY_P3_NONLINEAR_EXT: return "Display-P3";
         case VK_COLOR_SPACE_DISPLAY_P3_LINEAR_EXT: return "Display-P3 / Linear";
@@ -964,66 +1076,161 @@ std::string featureName(size_t index) {
         "sparseResidencyImage2D", "sparseResidencyImage3D", "sparseResidency2Samples", "sparseResidency4Samples", "sparseResidency8Samples",
         "sparseResidency16Samples", "sparseResidencyAliased", "variableMultisampleRate", "inheritedQueries"
     };
-    return index < sizeof(names) / sizeof(names[0]) ? names[index] : "feature_" + std::to_string(index);
+    return index < sizeof(names) / sizeof(names[0]) ? names[index] : "UNKNOWN(raw-index=" + std::to_string(index) + ")";
 }
 
 bool hasExtension(const std::vector<VkExtensionProperties>& values, const char* name);
 
-std::vector<VkExtensionProperties> instanceExtensions(VulkanApi& api) {
-    if (!api.enumerateInstanceExtensionProperties) return {};
+struct InstanceExtensionEnumeration {
+    std::vector<VkExtensionProperties> values;
+    std::string status;
+    std::string reason;
+    bool complete;
+};
+
+struct InstanceLayerEnumeration {
+    std::vector<VkLayerProperties> values;
+    std::string status;
+    std::string reason;
+    bool complete;
+};
+
+struct LayerExtensionEnumeration {
+    std::vector<VkExtensionProperties> values;
+    std::string status;
+    std::string reason;
+    bool complete;
+};
+
+struct DeviceLayerEnumeration {
+    std::vector<VkLayerProperties> values;
+    std::string status;
+    std::string reason;
+    bool complete;
+};
+
+InstanceExtensionEnumeration enumerateInstanceExtensions(VulkanApi& api) {
+    if (!api.enumerateInstanceExtensionProperties) return {{}, "unavailable", "vkEnumerateInstanceExtensionProperties is unavailable.", false};
+    std::vector<VkExtensionProperties> partialValues;
     for (uint32_t attempt = 0; attempt < 4; ++attempt) {
         uint32_t count = 0;
         const VkResult countResult = api.enumerateInstanceExtensionProperties(nullptr, &count, nullptr);
-        if (countResult != VK_SUCCESS && countResult != VK_INCOMPLETE) return {};
-        if (count > kMaxExtensionEntries) return {};
+        if (countResult != VK_SUCCESS && countResult != VK_INCOMPLETE) return partialValues.empty() ? InstanceExtensionEnumeration{{}, "unavailable", std::string("Instance-extension count query failed. VkResult=") + std::to_string(countResult), false} : InstanceExtensionEnumeration{std::move(partialValues), "incomplete", std::string("A later instance-extension count retry failed; earlier bounded partial extension evidence was retained. VkResult=") + std::to_string(countResult), false};
+        if (count > kMaxExtensionEntries) return partialValues.empty() ? InstanceExtensionEnumeration{{}, "unavailable", "Instance-extension count exceeds the safety limit.", false} : InstanceExtensionEnumeration{std::move(partialValues), "incomplete", "A later instance-extension count retry exceeded the safety limit; earlier bounded partial extension evidence was retained.", false};
+        if (count == 0 && countResult == VK_SUCCESS) return {{}, "available", "", true};
         std::vector<VkExtensionProperties> values(count);
-        const VkResult dataResult = count ? api.enumerateInstanceExtensionProperties(nullptr, &count, values.data()) : VK_SUCCESS;
-        if (dataResult == VK_SUCCESS) {
-            if (count > values.size()) return {};
-            values.resize(count);
-            return values;
-        }
-        if (dataResult != VK_INCOMPLETE) return {};
+        const size_t capacity = values.size();
+        const VkResult dataResult = count ? api.enumerateInstanceExtensionProperties(nullptr, &count, values.data()) : VK_INCOMPLETE;
+        if (count > capacity) return partialValues.empty() ? InstanceExtensionEnumeration{{}, "unavailable", "Instance-extension enumeration returned a count larger than the allocated capacity.", false} : InstanceExtensionEnumeration{std::move(partialValues), "incomplete", "A later instance-extension data retry exceeded the bounded allocation capacity; earlier partial extension evidence was retained.", false};
+        values.resize(count);
+        if (dataResult == VK_SUCCESS) return {std::move(values), "available", "", true};
+        if (dataResult != VK_INCOMPLETE) return partialValues.empty() ? InstanceExtensionEnumeration{{}, "unavailable", std::string("Instance-extension data query failed. VkResult=") + std::to_string(dataResult), false} : InstanceExtensionEnumeration{std::move(partialValues), "incomplete", std::string("A later instance-extension data retry failed; earlier bounded partial extension evidence was retained. VkResult=") + std::to_string(dataResult), false};
+        if (!values.empty()) partialValues = std::move(values);
     }
-    return {};
+    return {std::move(partialValues), "incomplete", "Instance-extension enumeration remained VK_INCOMPLETE after four bounded attempts; returned entries are retained as partial positive evidence only.", false};
 }
 
-std::vector<VkLayerProperties> instanceLayers(VulkanApi& api) {
-    if (!api.enumerateInstanceLayerProperties) return {};
+InstanceLayerEnumeration enumerateInstanceLayers(VulkanApi& api) {
+    if (!api.enumerateInstanceLayerProperties) return {{}, "unavailable", "vkEnumerateInstanceLayerProperties is unavailable.", false};
+    std::vector<VkLayerProperties> partialValues;
     for (uint32_t attempt = 0; attempt < 4; ++attempt) {
         uint32_t count = 0;
         const VkResult countResult = api.enumerateInstanceLayerProperties(&count, nullptr);
-        if (countResult != VK_SUCCESS || count > kMaxLayerEntries) return {};
+        if (countResult != VK_SUCCESS && countResult != VK_INCOMPLETE) return partialValues.empty() ? InstanceLayerEnumeration{{}, "unavailable", std::string("Instance-layer count query failed. VkResult=") + std::to_string(countResult), false} : InstanceLayerEnumeration{std::move(partialValues), "incomplete", std::string("A later instance-layer count retry failed; earlier bounded partial layer evidence was retained. VkResult=") + std::to_string(countResult), false};
+        if (count > kMaxLayerEntries) return partialValues.empty() ? InstanceLayerEnumeration{{}, "unavailable", "Instance-layer count exceeds the safety limit.", false} : InstanceLayerEnumeration{std::move(partialValues), "incomplete", "A later instance-layer count retry exceeded the safety limit; earlier bounded partial layer evidence was retained.", false};
+        if (count == 0 && countResult == VK_SUCCESS) return {{}, "available", "", true};
         std::vector<VkLayerProperties> values(count);
-        const VkResult dataResult = count ? api.enumerateInstanceLayerProperties(&count, values.data()) : VK_SUCCESS;
-        if (dataResult == VK_SUCCESS) {
-            if (count > values.size()) return {};
-            values.resize(count);
-            return values;
-        }
-        if (dataResult != VK_INCOMPLETE) return {};
+        const size_t capacity = values.size();
+        const VkResult dataResult = count ? api.enumerateInstanceLayerProperties(&count, values.data()) : VK_INCOMPLETE;
+        if (count > capacity) return partialValues.empty() ? InstanceLayerEnumeration{{}, "unavailable", "Instance-layer enumeration returned a count larger than the allocated capacity.", false} : InstanceLayerEnumeration{std::move(partialValues), "incomplete", "A later instance-layer data retry exceeded the bounded allocation capacity; earlier partial layer evidence was retained.", false};
+        values.resize(count);
+        if (dataResult == VK_SUCCESS) return {std::move(values), "available", "", true};
+        if (dataResult != VK_INCOMPLETE) return partialValues.empty() ? InstanceLayerEnumeration{{}, "unavailable", std::string("Instance-layer data query failed. VkResult=") + std::to_string(dataResult), false} : InstanceLayerEnumeration{std::move(partialValues), "incomplete", std::string("A later instance-layer data retry failed; earlier bounded partial layer evidence was retained. VkResult=") + std::to_string(dataResult), false};
+        if (!values.empty()) partialValues = std::move(values);
     }
-    return {};
+    return {std::move(partialValues), "incomplete", "Instance-layer enumeration remained VK_INCOMPLETE after four bounded attempts; returned entries are retained as partial positive evidence only.", false};
 }
 
-std::vector<VkExtensionProperties> instanceLayerExtensions(VulkanApi& api, const char* layerName);
-std::vector<VkExtensionProperties> deviceLayerExtensions(VulkanApi& api, VkPhysicalDevice device, const char* layerName);
+LayerExtensionEnumeration enumerateInstanceLayerExtensions(VulkanApi& api, const char* layerName) {
+    if (!api.enumerateInstanceExtensionProperties) return {{}, "unavailable", "vkEnumerateInstanceExtensionProperties is unavailable for layer extension enumeration.", false};
+    std::vector<VkExtensionProperties> partialValues;
+    for (uint32_t attempt = 0; attempt < 4; ++attempt) {
+        uint32_t count = 0;
+        const VkResult countResult = api.enumerateInstanceExtensionProperties(layerName, &count, nullptr);
+        if (countResult != VK_SUCCESS && countResult != VK_INCOMPLETE) return partialValues.empty() ? LayerExtensionEnumeration{{}, "unavailable", std::string("Instance-layer extension count query failed. VkResult=") + std::to_string(countResult), false} : LayerExtensionEnumeration{std::move(partialValues), "incomplete", std::string("A later instance-layer extension count retry failed; earlier bounded partial extension evidence was retained. VkResult=") + std::to_string(countResult), false};
+        if (count > kMaxExtensionEntries) return partialValues.empty() ? LayerExtensionEnumeration{{}, "unavailable", "Instance-layer extension count exceeds the safety limit.", false} : LayerExtensionEnumeration{std::move(partialValues), "incomplete", "A later instance-layer extension count retry exceeded the safety limit; earlier bounded partial extension evidence was retained.", false};
+        if (count == 0 && countResult == VK_SUCCESS) return {{}, "available", "", true};
+        std::vector<VkExtensionProperties> values(count);
+        const size_t capacity = values.size();
+        const VkResult dataResult = count ? api.enumerateInstanceExtensionProperties(layerName, &count, values.data()) : VK_INCOMPLETE;
+        if (count > capacity) return partialValues.empty() ? LayerExtensionEnumeration{{}, "unavailable", "Instance-layer extension enumeration returned a count larger than the allocated capacity.", false} : LayerExtensionEnumeration{std::move(partialValues), "incomplete", "A later instance-layer extension data retry exceeded the bounded allocation capacity; earlier partial extension evidence was retained.", false};
+        values.resize(count);
+        if (dataResult == VK_SUCCESS) return {std::move(values), "available", "", true};
+        if (dataResult != VK_INCOMPLETE) return partialValues.empty() ? LayerExtensionEnumeration{{}, "unavailable", std::string("Instance-layer extension data query failed. VkResult=") + std::to_string(dataResult), false} : LayerExtensionEnumeration{std::move(partialValues), "incomplete", std::string("A later instance-layer extension data retry failed; earlier bounded partial extension evidence was retained. VkResult=") + std::to_string(dataResult), false};
+        if (!values.empty()) partialValues = std::move(values);
+    }
+    return {std::move(partialValues), "incomplete", "Instance-layer extension enumeration remained VK_INCOMPLETE after four bounded attempts; returned entries are retained as partial positive evidence only.", false};
+}
+
+DeviceLayerEnumeration enumerateDeviceLayers(VulkanApi& api, VkPhysicalDevice device) {
+    if (!api.enumerateDeviceLayerProperties) return {{}, "unavailable", "vkEnumerateDeviceLayerProperties is unavailable.", false};
+    std::vector<VkLayerProperties> partialValues;
+    for (uint32_t attempt = 0; attempt < 4; ++attempt) {
+        uint32_t count = 0;
+        const VkResult countResult = api.enumerateDeviceLayerProperties(device, &count, nullptr);
+        if (countResult != VK_SUCCESS && countResult != VK_INCOMPLETE) return partialValues.empty() ? DeviceLayerEnumeration{{}, "unavailable", std::string("Device-layer count query failed. VkResult=") + std::to_string(countResult), false} : DeviceLayerEnumeration{std::move(partialValues), "incomplete", std::string("A later device-layer count retry failed; earlier bounded partial layer evidence was retained. VkResult=") + std::to_string(countResult), false};
+        if (count > kMaxLayerEntries) return partialValues.empty() ? DeviceLayerEnumeration{{}, "unavailable", "Device-layer count exceeds the safety limit.", false} : DeviceLayerEnumeration{std::move(partialValues), "incomplete", "A later device-layer count retry exceeded the safety limit; earlier bounded partial layer evidence was retained.", false};
+        if (count == 0 && countResult == VK_SUCCESS) return {{}, "available", "", true};
+        std::vector<VkLayerProperties> values(count);
+        const size_t capacity = values.size();
+        const VkResult dataResult = count ? api.enumerateDeviceLayerProperties(device, &count, values.data()) : VK_INCOMPLETE;
+        if (count > capacity) return partialValues.empty() ? DeviceLayerEnumeration{{}, "unavailable", "Device-layer enumeration returned a count larger than the allocated capacity.", false} : DeviceLayerEnumeration{std::move(partialValues), "incomplete", "A later device-layer data retry exceeded the bounded allocation capacity; earlier partial layer evidence was retained.", false};
+        values.resize(count);
+        if (dataResult == VK_SUCCESS) return {std::move(values), "available", "", true};
+        if (dataResult != VK_INCOMPLETE) return partialValues.empty() ? DeviceLayerEnumeration{{}, "unavailable", std::string("Device-layer data query failed. VkResult=") + std::to_string(dataResult), false} : DeviceLayerEnumeration{std::move(partialValues), "incomplete", std::string("A later device-layer data retry failed; earlier bounded partial layer evidence was retained. VkResult=") + std::to_string(dataResult), false};
+        if (!values.empty()) partialValues = std::move(values);
+    }
+    return {std::move(partialValues), "incomplete", "Device-layer enumeration remained VK_INCOMPLETE after four bounded attempts; returned entries are retained as partial positive evidence only.", false};
+}
+
+LayerExtensionEnumeration enumerateDeviceLayerExtensions(VulkanApi& api, VkPhysicalDevice device, const char* layerName) {
+    if (!api.enumerateDeviceExtensionProperties) return {{}, "unavailable", "vkEnumerateDeviceExtensionProperties is unavailable for device-layer extension enumeration.", false};
+    std::vector<VkExtensionProperties> partialValues;
+    for (uint32_t attempt = 0; attempt < 4; ++attempt) {
+        uint32_t count = 0;
+        const VkResult countResult = api.enumerateDeviceExtensionProperties(device, layerName, &count, nullptr);
+        if (countResult != VK_SUCCESS && countResult != VK_INCOMPLETE) return partialValues.empty() ? LayerExtensionEnumeration{{}, "unavailable", std::string("Device-layer extension count query failed. VkResult=") + std::to_string(countResult), false} : LayerExtensionEnumeration{std::move(partialValues), "incomplete", std::string("A later device-layer extension count retry failed; earlier bounded partial extension evidence was retained. VkResult=") + std::to_string(countResult), false};
+        if (count > kMaxExtensionEntries) return partialValues.empty() ? LayerExtensionEnumeration{{}, "unavailable", "Device-layer extension count exceeds the safety limit.", false} : LayerExtensionEnumeration{std::move(partialValues), "incomplete", "A later device-layer extension count retry exceeded the safety limit; earlier bounded partial extension evidence was retained.", false};
+        if (count == 0 && countResult == VK_SUCCESS) return {{}, "available", "", true};
+        std::vector<VkExtensionProperties> values(count);
+        const size_t capacity = values.size();
+        const VkResult dataResult = count ? api.enumerateDeviceExtensionProperties(device, layerName, &count, values.data()) : VK_INCOMPLETE;
+        if (count > capacity) return partialValues.empty() ? LayerExtensionEnumeration{{}, "unavailable", "Device-layer extension enumeration returned a count larger than the allocated capacity.", false} : LayerExtensionEnumeration{std::move(partialValues), "incomplete", "A later device-layer extension data retry exceeded the bounded allocation capacity; earlier partial extension evidence was retained.", false};
+        values.resize(count);
+        if (dataResult == VK_SUCCESS) return {std::move(values), "available", "", true};
+        if (dataResult != VK_INCOMPLETE) return partialValues.empty() ? LayerExtensionEnumeration{{}, "unavailable", std::string("Device-layer extension data query failed. VkResult=") + std::to_string(dataResult), false} : LayerExtensionEnumeration{std::move(partialValues), "incomplete", std::string("A later device-layer extension data retry failed; earlier bounded partial extension evidence was retained. VkResult=") + std::to_string(dataResult), false};
+        if (!values.empty()) partialValues = std::move(values);
+    }
+    return {std::move(partialValues), "incomplete", "Device-layer extension enumeration remained VK_INCOMPLETE after four bounded attempts; returned entries are retained as partial positive evidence only.", false};
+}
 
 std::string layersJson(VulkanApi& api, const std::vector<VkLayerProperties>& values) {
     std::ostringstream out;
     out << '[';
     for (size_t i = 0; i < values.size(); ++i) {
         if (i) out << ',';
+        const auto extensionEnumeration = enumerateInstanceLayerExtensions(api, values[i].layerName);
         out << "{\"name\":" << jsonString(values[i].layerName)
             << ",\"description\":" << jsonString(values[i].description)
             << ",\"specVersion\":" << values[i].specVersion
             << ",\"implementationVersion\":" << values[i].implementationVersion
-            << ",\"extensions\":";
-        const auto extensions = instanceLayerExtensions(api, values[i].layerName);
-        out << '[';
-        for (size_t j = 0; j < extensions.size(); ++j) {
+            << ",\"extensionStatus\":" << jsonString(extensionEnumeration.status)
+            << ",\"extensionReason\":" << jsonString(extensionEnumeration.reason)
+            << ",\"extensionsComplete\":" << jsonBool(extensionEnumeration.complete)
+            << ",\"extensions\":[";
+        for (size_t j = 0; j < extensionEnumeration.values.size(); ++j) {
             if (j) out << ',';
-            out << "{\"name\":" << jsonString(extensions[j].extensionName) << ",\"specVersion\":" << extensions[j].specVersion << '}';
+            out << "{\"name\":" << jsonString(extensionEnumeration.values[j].extensionName) << ",\"specVersion\":" << extensionEnumeration.values[j].specVersion << '}';
         }
         out << "]}";
     }
@@ -1031,39 +1238,23 @@ std::string layersJson(VulkanApi& api, const std::vector<VkLayerProperties>& val
     return out.str();
 }
 
-std::string deviceLayersJson(VulkanApi& api, VkPhysicalDevice device) {
-    if (!api.enumerateDeviceLayerProperties) return "[]";
-    std::vector<VkLayerProperties> layers;
-    for (uint32_t attempt = 0; attempt < 4; ++attempt) {
-        uint32_t count = 0;
-        VkResult result = api.enumerateDeviceLayerProperties(device, &count, nullptr);
-        if (result != VK_SUCCESS && result != VK_INCOMPLETE) return "[]";
-        if (count > kMaxLayerEntries) return "[]";
-        if (count == 0) { layers.clear(); break; }
-        layers.resize(count);
-        result = api.enumerateDeviceLayerProperties(device, &count, layers.data());
-        if (result == VK_SUCCESS) {
-            if (count > layers.size()) return "[]";
-            layers.resize(count);
-            break;
-        }
-        if (result != VK_INCOMPLETE) return "[]";
-        layers.clear();
-    }
+std::string deviceLayersJson(VulkanApi& api, VkPhysicalDevice device, const std::vector<VkLayerProperties>& layers) {
     std::ostringstream out;
     out << '[';
     for (size_t i = 0; i < layers.size(); ++i) {
         if (i) out << ',';
+        const auto extensionEnumeration = enumerateDeviceLayerExtensions(api, device, layers[i].layerName);
         out << "{\"name\":" << jsonString(layers[i].layerName)
             << ",\"description\":" << jsonString(layers[i].description)
             << ",\"specVersion\":" << layers[i].specVersion
             << ",\"implementationVersion\":" << layers[i].implementationVersion
-            << ",\"extensions\":";
-        const auto extensions = deviceLayerExtensions(api, device, layers[i].layerName);
-        out << '[';
-        for (size_t j = 0; j < extensions.size(); ++j) {
+            << ",\"extensionStatus\":" << jsonString(extensionEnumeration.status)
+            << ",\"extensionReason\":" << jsonString(extensionEnumeration.reason)
+            << ",\"extensionsComplete\":" << jsonBool(extensionEnumeration.complete)
+            << ",\"extensions\":[";
+        for (size_t j = 0; j < extensionEnumeration.values.size(); ++j) {
             if (j) out << ',';
-            out << "{\"name\":" << jsonString(extensions[j].extensionName) << ",\"specVersion\":" << extensions[j].specVersion << '}';
+            out << "{\"name\":" << jsonString(extensionEnumeration.values[j].extensionName) << ",\"specVersion\":" << extensionEnumeration.values[j].specVersion << '}';
         }
         out << "]}";
     }
@@ -1086,9 +1277,11 @@ DeviceExtensionEnumeration enumerateDeviceExtensions(VulkanApi& api, VkPhysicalD
         uint32_t count = 0;
         const VkResult countResult = api.enumerateDeviceExtensionProperties(device, nullptr, &count, nullptr);
         if (countResult != VK_SUCCESS && countResult != VK_INCOMPLETE) {
+            if (!partialValues.empty()) return {std::move(partialValues), "incomplete", std::string("A later device-extension count retry failed; earlier bounded partial extension evidence was retained. VkResult=") + std::to_string(countResult)};
             return {{}, "unavailable", std::string("Count query failed. VkResult=") + std::to_string(countResult)};
         }
         if (count > kMaxExtensionEntries) {
+            if (!partialValues.empty()) return {std::move(partialValues), "incomplete", "A later device-extension count retry exceeded the safety limit; earlier bounded partial extension evidence was retained."};
             return {{}, "unavailable", "The reported device-extension count exceeds the safety limit."};
         }
         if (count == 0) {
@@ -1100,6 +1293,7 @@ DeviceExtensionEnumeration enumerateDeviceExtensions(VulkanApi& api, VkPhysicalD
         uint32_t returnedCount = capacity;
         const VkResult dataResult = api.enumerateDeviceExtensionProperties(device, nullptr, &returnedCount, values.data());
         if (returnedCount > capacity) {
+            if (!partialValues.empty()) return {std::move(partialValues), "incomplete", "A later device-extension data retry exceeded the bounded allocation capacity; earlier partial extension evidence was retained."};
             return {{}, "unavailable", "The device-extension data query returned a count larger than the bounded allocation."};
         }
         values.resize(returnedCount);
@@ -1107,6 +1301,7 @@ DeviceExtensionEnumeration enumerateDeviceExtensions(VulkanApi& api, VkPhysicalD
             return {std::move(values), "available", ""};
         }
         if (dataResult != VK_INCOMPLETE) {
+            if (!partialValues.empty()) return {std::move(partialValues), "incomplete", std::string("A later device-extension data retry failed; earlier bounded partial extension evidence was retained. VkResult=") + std::to_string(dataResult)};
             return {{}, "unavailable", std::string("Data query failed. VkResult=") + std::to_string(dataResult)};
         }
         if (!values.empty()) partialValues = std::move(values);
@@ -1122,77 +1317,95 @@ bool hasExtension(const std::vector<VkExtensionProperties>& values, const char* 
     return std::any_of(values.begin(), values.end(), [name](const VkExtensionProperties& value) { return std::strcmp(value.extensionName, name) == 0; });
 }
 
-std::pair<VkResult, std::vector<VkPhysicalDevice>> enumeratePhysicalDevicesRobust(VulkanApi& api, VkInstance instance) {
-    if (!api.enumeratePhysicalDevices) return {VK_ERROR_INITIALIZATION_FAILED, {}};
+struct PhysicalDeviceEnumeration {
+    VkResult result = VK_SUCCESS;
+    bool resultAvailable = false;
+    bool safetyRejected = false;
+    bool complete = false;
+    std::string localReason;
+    std::vector<VkPhysicalDevice> values;
+};
+
+PhysicalDeviceEnumeration enumeratePhysicalDevicesRobust(VulkanApi& api, VkInstance instance) {
+    PhysicalDeviceEnumeration result;
+    if (!api.enumeratePhysicalDevices) {
+        result.localReason = "vkEnumeratePhysicalDevices entry point is unavailable.";
+        return result;
+    }
+    std::vector<VkPhysicalDevice> partialDevices;
     for (uint32_t attempt = 0; attempt < 4; ++attempt) {
         uint32_t count = 0;
-        VkResult countResult = api.enumeratePhysicalDevices(instance, &count, nullptr);
-        if (countResult != VK_SUCCESS && countResult != VK_INCOMPLETE) return {countResult, {}};
-        if (count > kMaxPhysicalDeviceEntries) return {VK_ERROR_OUT_OF_HOST_MEMORY, {}};
-        if (count == 0) return {VK_SUCCESS, {}};
-        std::vector<VkPhysicalDevice> devices(count);
-        VkResult dataResult = api.enumeratePhysicalDevices(instance, &count, devices.data());
-        if (dataResult == VK_SUCCESS) {
-            if (count > devices.size()) return {VK_ERROR_OUT_OF_HOST_MEMORY, {}};
-            devices.resize(count);
-            return {VK_SUCCESS, std::move(devices)};
+        const VkResult countResult = api.enumeratePhysicalDevices(instance, &count, nullptr);
+        result.result = countResult;
+        result.resultAvailable = true;
+        if (countResult != VK_SUCCESS && countResult != VK_INCOMPLETE) {
+            result.values = partialDevices;
+            if (!partialDevices.empty()) result.localReason = "A later physical-device count retry failed; earlier bounded partial device evidence was retained.";
+            return result;
         }
-        if (dataResult != VK_INCOMPLETE) return {dataResult, {}};
-    }
-    return {VK_INCOMPLETE, {}};
-}
-
-std::vector<VkExtensionProperties> instanceLayerExtensions(VulkanApi& api, const char* layerName) {
-    if (!api.enumerateInstanceExtensionProperties) return {};
-    for (uint32_t attempt = 0; attempt < 4; ++attempt) {
-        uint32_t count = 0;
-        VkResult countResult = api.enumerateInstanceExtensionProperties(layerName, &count, nullptr);
-        if (countResult != VK_SUCCESS && countResult != VK_INCOMPLETE) return {};
-        if (count > kMaxExtensionEntries) return {};
-        if (count == 0) return {};
-        std::vector<VkExtensionProperties> values(count);
-        VkResult dataResult = api.enumerateInstanceExtensionProperties(layerName, &count, values.data());
-        if (dataResult == VK_SUCCESS) {
-            if (count > values.size()) return {};
-            values.resize(count);
-            return values;
+        if (count > kMaxPhysicalDeviceEntries) {
+            result.safetyRejected = true;
+            result.localReason = "Physical-device count exceeded the local bounded-allocation safety limit.";
+            result.values = partialDevices;
+            return result;
         }
-        if (dataResult != VK_INCOMPLETE) return {};
-    }
-    return {};
-}
-
-std::vector<VkExtensionProperties> deviceLayerExtensions(VulkanApi& api, VkPhysicalDevice device, const char* layerName) {
-    if (!api.enumerateDeviceExtensionProperties) return {};
-    for (uint32_t attempt = 0; attempt < 4; ++attempt) {
-        uint32_t count = 0;
-        VkResult countResult = api.enumerateDeviceExtensionProperties(device, layerName, &count, nullptr);
-        if (countResult != VK_SUCCESS && countResult != VK_INCOMPLETE) return {};
-        if (count > kMaxExtensionEntries) return {};
-        if (count == 0) return {};
-        std::vector<VkExtensionProperties> values(count);
-        VkResult dataResult = api.enumerateDeviceExtensionProperties(device, layerName, &count, values.data());
-        if (dataResult == VK_SUCCESS) {
-            if (count > values.size()) return {};
-            values.resize(count);
-            return values;
+        if (count == 0) {
+            if (countResult == VK_SUCCESS) {
+                result.complete = true;
+                result.values.clear();
+                return result;
+            }
+            continue;
         }
-        if (dataResult != VK_INCOMPLETE) return {};
+        const uint32_t capacity = count;
+        std::vector<VkPhysicalDevice> devices(capacity);
+        uint32_t returnedCount = capacity;
+        const VkResult dataResult = api.enumeratePhysicalDevices(instance, &returnedCount, devices.data());
+        result.result = dataResult;
+        result.resultAvailable = true;
+        if (returnedCount > capacity) {
+            result.safetyRejected = true;
+            result.localReason = "Physical-device data query returned a count larger than the bounded allocation capacity.";
+            result.values = partialDevices;
+            return result;
+        }
+        devices.resize(returnedCount);
+        if (dataResult == VK_SUCCESS) {
+            result.complete = true;
+            result.values = std::move(devices);
+            return result;
+        }
+        if (dataResult != VK_INCOMPLETE) {
+            result.values = partialDevices;
+            if (!partialDevices.empty()) result.localReason = "A later physical-device data retry failed; earlier bounded partial device evidence was retained.";
+            return result;
+        }
+        if (!devices.empty()) partialDevices = std::move(devices);
     }
-    return {};
+    result.result = VK_INCOMPLETE;
+    result.resultAvailable = true;
+    result.complete = false;
+    result.values = std::move(partialDevices);
+    return result;
 }
-
 
 std::vector<const char*> buildQueryInstanceExtensions(VulkanApi& api, const std::vector<VkExtensionProperties>* available = nullptr) {
-    std::vector<VkExtensionProperties> owned;
+    InstanceExtensionEnumeration ownedEnumeration;
     const std::vector<VkExtensionProperties>* extensions = available;
     if (!extensions) {
-        owned = instanceExtensions(api);
-        extensions = &owned;
+        ownedEnumeration = enumerateInstanceExtensions(api);
+        extensions = &ownedEnumeration.values;
     }
     std::vector<const char*> result;
-    if (hasExtension(*extensions, "VK_KHR_get_physical_device_properties2")) {
-        result.push_back("VK_KHR_get_physical_device_properties2");
+    const char* queryExtensions[] = {
+        "VK_KHR_get_physical_device_properties2",
+        "VK_KHR_device_group_creation",
+        "VK_KHR_external_memory_capabilities",
+        "VK_KHR_external_fence_capabilities",
+        "VK_KHR_external_semaphore_capabilities",
+    };
+    for (const char* extension : queryExtensions) {
+        if (hasExtension(*extensions, extension)) result.push_back(extension);
     }
     return result;
 }
@@ -1234,8 +1447,7 @@ std::vector<std::string> versionedFeatureNames(uint32_t version) {
 }
 
 void appendVersionedFeatures(std::ostringstream& out, uint32_t apiVersion, VulkanApi& api, VkPhysicalDevice device, uint32_t targetMinor) {
-    const uint32_t minor = VK_API_VERSION_MINOR(apiVersion);
-    if (!api.getPhysicalDeviceFeatures2 || targetMinor < 1 || targetMinor > 4 || minor < targetMinor) {
+    if (!api.getPhysicalDeviceFeatures2 || targetMinor < 1 || targetMinor > 4 || !apiVersionAtLeast(apiVersion, 1, targetMinor)) {
         out << "[]";
         return;
     }
@@ -1361,9 +1573,14 @@ void generatedEmitHexTyped(std::vector<GeneratedField>& dst, const char* section
 void generatedEmitHexTyped(std::vector<GeneratedField>& dst, const char* section, const char* name, const uint8_t* data, size_t count) {
     generatedEmitHexTyped(dst, section, name, "raw", data, count);
 }
+static bool generatedSectionIsFeatureStruct(const char* section) {
+    return section != nullptr && std::strstr(section, "Features") != nullptr;
+}
+
 void generatedEmitBool(std::vector<GeneratedField>& dst, const char* section, const char* name, VkBool32 value) {
-    std::string fullName = std::string(section) + " · " + name;
-    dst.push_back({true, section, fullName, value == VK_TRUE ? "true" : "false"});
+    const bool featureStruct = generatedSectionIsFeatureStruct(section);
+    const std::string fieldName = featureStruct ? (std::string(section) + " · " + name) : std::string(name);
+    dst.push_back({featureStruct, section ? section : "", fieldName, value == VK_TRUE ? "true" : "false"});
 }
 
 template <typename T> void generatedEmitNumeric(std::vector<GeneratedField>& dst, const char* section, const char* name, T value) {
@@ -1425,6 +1642,7 @@ static const char* canonicalImageLayoutName(VkImageLayout value) {
     if (value == VK_IMAGE_LAYOUT_FRAGMENT_DENSITY_MAP_OPTIMAL_EXT) return "VK_IMAGE_LAYOUT_FRAGMENT_DENSITY_MAP_OPTIMAL_EXT";
     if (value == VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR) return "VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR";
     if (value == VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT) return "VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT";
+    if (value == VK_IMAGE_LAYOUT_TENSOR_ALIASING_ARM) return "VK_IMAGE_LAYOUT_TENSOR_ALIASING_ARM";
     if (value == VK_IMAGE_LAYOUT_ZERO_INITIALIZED_EXT) return "VK_IMAGE_LAYOUT_ZERO_INITIALIZED_EXT";
     return nullptr;
 }
@@ -1433,7 +1651,7 @@ static std::string imageLayoutValueString(VkImageLayout value) {
     const char* name = canonicalImageLayoutName(value);
     const int32_t raw = static_cast<int32_t>(value);
     if (name) return std::string(name) + " (raw=" + std::to_string(raw) + ")";
-    return std::string("UNKNOWN_VK_IMAGE_LAYOUT (raw=") + std::to_string(raw) + ")";
+    return std::string("UNKNOWN(raw=") + std::to_string(raw) + ")";
 }
 
 static std::string imageLayoutListString(const VkImageLayout* values, uint32_t count) {
@@ -1454,11 +1672,17 @@ template <typename T> void generatedEmitAuto(std::vector<GeneratedField>& dst, c
         using E = std::remove_extent_t<U>;
         if constexpr (std::is_same_v<std::remove_cv_t<E>, char>) {
             generatedEmitString(dst, section, name, value, sizeof(value));
+        } else if constexpr (std::is_same_v<std::remove_cv_t<E>, uint8_t>) {
+            generatedEmitHexTyped(dst, section, name, "raw", reinterpret_cast<const uint8_t*>(value), sizeof(value));
+        } else if constexpr (std::is_integral_v<std::remove_cv_t<E>> || std::is_enum_v<std::remove_cv_t<E>>) {
+            generatedEmitArray(dst, section, name, value, sizeof(value) / sizeof(value[0]));
         } else {
             generatedEmitHexTyped(dst, section, name, "raw", reinterpret_cast<const uint8_t*>(&value), sizeof(value));
         }
-    } else if constexpr (std::is_same_v<D, VkBool32>) {
-        generatedEmitBool(dst, section, name, value);
+    } else if constexpr (std::is_same_v<D, VkExtent2D>) {
+        generatedEmitString(dst, section, name, std::to_string(value.width) + " × " + std::to_string(value.height));
+    } else if constexpr (std::is_same_v<D, VkExtent3D>) {
+        generatedEmitString(dst, section, name, std::to_string(value.width) + " × " + std::to_string(value.height) + " × " + std::to_string(value.depth));
     } else if constexpr (std::is_integral_v<D> || std::is_enum_v<D>) {
         generatedEmitNumeric(dst, section, name, value);
     } else if constexpr (std::is_floating_point_v<D>) {
@@ -1589,7 +1813,7 @@ uint32_t getQueueFamilyPropertiesPrimary(VulkanApi& api, VkPhysicalDevice device
 void appendCoreProperties(std::ostringstream& out, uint32_t apiVersion, VulkanApi& api, VkPhysicalDevice device, const std::vector<VkExtensionProperties>& devExts, uint32_t targetMinor, bool includeExtensions) {
     out << '[';
     bool first = true;
-    if (!api.getPhysicalDeviceProperties2 || VK_API_VERSION_MINOR(apiVersion) < 1) { out << ']'; return; }
+    if (!api.getPhysicalDeviceProperties2 || targetMinor < 1 || targetMinor > 4 || !apiVersionAtLeast(apiVersion, 1, targetMinor)) { out << ']'; return; }
 
     VkPhysicalDeviceProperties2 base{};
     base.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
@@ -1601,12 +1825,10 @@ void appendCoreProperties(std::ostringstream& out, uint32_t apiVersion, VulkanAp
     VkPhysicalDeviceFragmentDensityMap2PropertiesEXT fdm2{}; fdm2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_2_PROPERTIES_EXT;
     const bool hasFdm = hasExtension(devExts, "VK_EXT_fragment_density_map");
     const bool hasFdm2 = hasExtension(devExts, "VK_EXT_fragment_density_map2");
-    const uint32_t apiMinor = VK_API_VERSION_MINOR(apiVersion);
-    const uint32_t minor = std::min(apiMinor, targetMinor);
-    if (targetMinor == 1 && apiMinor >= 1) base.pNext = &p11;
-    if (targetMinor == 2 && apiMinor >= 2) base.pNext = &p12;
-    if (targetMinor == 3 && apiMinor >= 3) base.pNext = &p13;
-    if (targetMinor == 4 && apiMinor >= 4) base.pNext = &p14;
+    if (targetMinor == 1) base.pNext = &p11;
+    if (targetMinor == 2) base.pNext = &p12;
+    if (targetMinor == 3) base.pNext = &p13;
+    if (targetMinor == 4) base.pNext = &p14;
     void* extensionTail = nullptr;
     if (includeExtensions && hasFdm2) extensionTail = &fdm2;
     if (includeExtensions && hasFdm) { fdm.pNext = extensionTail; extensionTail = &fdm; }
@@ -1623,7 +1845,7 @@ void appendCoreProperties(std::ostringstream& out, uint32_t apiVersion, VulkanAp
     bool copySrcCollected = false;
     bool copyDstCollected = false;
     api.queryProperties2(device, &base);
-    if (targetMinor == 4 && minor >= 4) {
+    if (targetMinor == 4) {
         copySrcWithinLimit = p14.copySrcLayoutCount <= kMaxVulkan14LayoutEntries;
         copyDstWithinLimit = p14.copyDstLayoutCount <= kMaxVulkan14LayoutEntries;
         if (copySrcWithinLimit) copySrc.resize(p14.copySrcLayoutCount);
@@ -1640,7 +1862,7 @@ void appendCoreProperties(std::ostringstream& out, uint32_t apiVersion, VulkanAp
         if (copyDstCollected) copyDst.resize(p14.copyDstLayoutCount);
         else copyDst.clear();
     }
-    if (targetMinor == 1 && minor >= 1) {
+    if (targetMinor == 1) {
         appendProperty(out, first, "Core 1.1", "deviceUUID", hexBytes(p11.deviceUUID, 16));
         appendProperty(out, first, "Core 1.1", "driverUUID", hexBytes(p11.driverUUID, 16));
         appendProperty(out, first, "Core 1.1", "deviceLUID", hexBytes(p11.deviceLUID, 8));
@@ -1657,12 +1879,12 @@ void appendCoreProperties(std::ostringstream& out, uint32_t apiVersion, VulkanAp
         appendProperty(out, first, "Core 1.1", "maxPerSetDescriptors", p11.maxPerSetDescriptors);
         appendProperty(out, first, "Core 1.1", "maxMemoryAllocationSize", p11.maxMemoryAllocationSize);
     }
-    if (targetMinor == 2 && minor >= 2) {
+    if (targetMinor == 2) {
         appendProperty(out, first, "Core 1.2", "driverID", p12.driverID);
         appendProperty(out, first, "Vulkan Registry", "baseline", vulkanscope_registry::kBaseline);
     appendProperty(out, first, "Vulkan Registry", "queryEngine", vulkanscope_registry::kMode);
     appendProperty(out, first, "Vulkan Registry", "implementedPhysicalDeviceStructCount", static_cast<uint64_t>(vulkanscope_registry::kImplementedPhysicalDeviceStructCount));
-    appendProperty(out, first, "Vulkan Registry", "runtimeExtensionTokenCount", static_cast<uint64_t>(vulkanscope_registry::kRuntimeExtensionTokenCount));
+    appendProperty(out, first, "Vulkan Registry", "runtimeRegistryTokenReferenceCount", static_cast<uint64_t>(vulkanscope_registry::kRuntimeRegistryTokenReferenceCount));
     appendProperty(out, first, "Vulkan Registry", "validatedRuntimeQueryGroupCount", static_cast<uint64_t>(vulkanscope_registry::kValidatedRuntimeQueryGroupCount));
     appendProperty(out, first, "Core 1.2", "driverName", p12.driverName);
         appendProperty(out, first, "Core 1.2", "driverInfo", p12.driverInfo);
@@ -1683,7 +1905,7 @@ void appendCoreProperties(std::ostringstream& out, uint32_t apiVersion, VulkanAp
         appendBoolProperty(out, first, "Core 1.2", "filterMinmaxImageComponentMapping", p12.filterMinmaxImageComponentMapping);
         appendProperty(out, first, "Core 1.2", "maxTimelineSemaphoreValueDifference", p12.maxTimelineSemaphoreValueDifference);
     }
-    if (targetMinor == 3 && minor >= 3) {
+    if (targetMinor == 3) {
         const struct U32Field { const char* name; uint32_t value; } u32s[] = {
             {"minSubgroupSize",p13.minSubgroupSize},{"maxSubgroupSize",p13.maxSubgroupSize},{"maxComputeWorkgroupSubgroups",p13.maxComputeWorkgroupSubgroups},{"requiredSubgroupSizeStages",p13.requiredSubgroupSizeStages},{"maxInlineUniformBlockSize",p13.maxInlineUniformBlockSize},{"maxPerStageDescriptorInlineUniformBlocks",p13.maxPerStageDescriptorInlineUniformBlocks},{"maxPerStageDescriptorUpdateAfterBindInlineUniformBlocks",p13.maxPerStageDescriptorUpdateAfterBindInlineUniformBlocks},{"maxDescriptorSetInlineUniformBlocks",p13.maxDescriptorSetInlineUniformBlocks},{"maxDescriptorSetUpdateAfterBindInlineUniformBlocks",p13.maxDescriptorSetUpdateAfterBindInlineUniformBlocks},{"maxInlineUniformTotalSize",p13.maxInlineUniformTotalSize}
         };
@@ -1698,7 +1920,7 @@ void appendCoreProperties(std::ostringstream& out, uint32_t apiVersion, VulkanAp
         appendProperty(out, first, "Core 1.3", "uniformTexelBufferOffsetSingleTexelAlignment", p13.uniformTexelBufferOffsetSingleTexelAlignment);
         appendProperty(out, first, "Core 1.3", "maxBufferSize", p13.maxBufferSize);
     }
-    if (targetMinor == 4 && minor >= 4) {
+    if (targetMinor == 4) {
         appendProperty(out, first, "Core 1.4", "lineSubPixelPrecisionBits", p14.lineSubPixelPrecisionBits);
         appendProperty(out, first, "Core 1.4", "maxVertexAttribDivisor", p14.maxVertexAttribDivisor);
         appendBoolProperty(out, first, "Core 1.4", "supportsNonZeroFirstInstance", p14.supportsNonZeroFirstInstance);
@@ -1758,7 +1980,7 @@ std::string registryCoverageJson() {
         << ",\"mode\":" << jsonString(vulkanscope_registry::kMode)
         << ",\"implementedPhysicalDeviceStructCount\":" << vulkanscope_registry::kImplementedPhysicalDeviceStructCount
         << ",\"validatedRuntimeQueryGroupCount\":" << vulkanscope_registry::kValidatedRuntimeQueryGroupCount
-        << ",\"runtimeExtensionTokenCount\":" << vulkanscope_registry::kRuntimeExtensionTokenCount
+        << ",\"runtimeRegistryTokenReferenceCount\":" << vulkanscope_registry::kRuntimeRegistryTokenReferenceCount
         << ",\"catalogSchemaVersion\":" << vulkanscope_registry::kCatalogSchemaVersion
         << ",\"headerBaseline\":" << jsonString(vulkanscope_registry::kHeaderBaseline)
         << ",\"reportSchema\":" << jsonString(vulkanscope_registry::kReportSchema)
@@ -1813,13 +2035,19 @@ std::string collectVulkanSurface(jobject surfaceObject, JNIEnv* env, const char*
     }
     uint32_t loaderVersion = VK_API_VERSION_1_0;
     if (api.enumerateInstanceVersion && api.enumerateInstanceVersion(&loaderVersion) != VK_SUCCESS) loaderVersion = VK_API_VERSION_1_0;
-    const auto instanceExts = instanceExtensions(api);
+    const auto surfaceInstanceExtensionEnumeration = enumerateInstanceExtensions(api);
+    const auto& instanceExts = surfaceInstanceExtensionEnumeration.values;
     const bool androidSurfaceAvailable = hasExtension(instanceExts, "VK_KHR_android_surface");
     const bool surfaceAvailable = hasExtension(instanceExts, "VK_KHR_surface");
     const bool swapchainColorspaceAvailable = hasExtension(instanceExts, "VK_EXT_swapchain_colorspace");
     const bool surfaceCapabilities2Available = hasExtension(instanceExts, "VK_KHR_get_surface_capabilities2");
     if (!surfaceAvailable || !androidSurfaceAvailable) {
-        return std::string("{\"status\":\"unavailable\",\"reason\":") + jsonString(!surfaceAvailable ? "VK_KHR_surface is not exposed by the Vulkan instance." : "VK_KHR_android_surface is not exposed by the Vulkan instance.") + ",\"devices\":[]}";
+        const std::string missingExtension = !surfaceAvailable ? "VK_KHR_surface" : "VK_KHR_android_surface";
+        const std::string missingReason = surfaceInstanceExtensionEnumeration.complete
+            ? missingExtension + " is not exposed by the Vulkan instance."
+            : std::string("Instance-extension enumeration is not complete, so absence of ") + missingExtension + " cannot be established. " + surfaceInstanceExtensionEnumeration.reason;
+        const char* missingStatus = surfaceInstanceExtensionEnumeration.complete ? "not_applicable" : "unavailable";
+        return std::string("{\"status\":") + jsonString(missingStatus) + ",\"reason\":" + jsonString(missingReason) + ",\"devices\":[]}";
     }
 
     std::vector<const char*> enabledExtensions;
@@ -1840,19 +2068,34 @@ std::string collectVulkanSurface(jobject surfaceObject, JNIEnv* env, const char*
         api.destroyInstance(instance, nullptr);
         return "{\"status\":\"unavailable\",\"reason\":\"Required Android WSI entry points are unavailable.\",\"devices\":[]}";
     }
-    if (surfaceCapabilities2Available && (!api.getPhysicalDeviceSurfaceCapabilities2KHR || !api.getPhysicalDeviceSurfaceFormats2KHR)) {
-        api.destroyInstance(instance, nullptr);
-        return "{\"status\":\"unavailable\",\"reason\":\"VK_KHR_get_surface_capabilities2 is advertised but its required surface query entry points are unavailable.\",\"devices\":[]}";
-    }
+    const bool surfaceCapabilities2Usable = surfaceCapabilities2Available && api.getPhysicalDeviceSurfaceCapabilities2KHR && api.getPhysicalDeviceSurfaceFormats2KHR;
+    const char* surfaceCapabilities2Status = surfaceCapabilities2Usable ? "available" : (surfaceCapabilities2Available ? "unavailable" : (surfaceInstanceExtensionEnumeration.complete ? "not_exposed" : "unknown"));
+    const std::string surfaceCapabilities2Reason = surfaceCapabilities2Available && !surfaceCapabilities2Usable
+        ? "VK_KHR_get_surface_capabilities2 is advertised but one or more required entry points are unavailable; classic VK_KHR_surface queries are used as a fallback."
+        : "";
 
     g_probeStage = 22;
     const auto surfaceDevicesResult = enumeratePhysicalDevicesRobust(api, instance);
-    const VkResult surfaceDeviceResult = surfaceDevicesResult.first;
-    std::vector<VkPhysicalDevice> devices = surfaceDevicesResult.second;
+    const VkResult surfaceDeviceResult = surfaceDevicesResult.result;
+    std::vector<VkPhysicalDevice> devices = surfaceDevicesResult.values;
     const uint32_t deviceCount = static_cast<uint32_t>(devices.size());
-    if (surfaceDeviceResult != VK_SUCCESS || deviceCount == 0) {
+    const bool surfaceDeviceEnumerationComplete = surfaceDevicesResult.complete;
+    if (!surfaceDevicesResult.resultAvailable || ((surfaceDevicesResult.safetyRejected || (surfaceDeviceResult != VK_SUCCESS && surfaceDeviceResult != VK_INCOMPLETE)) && devices.empty())) {
         api.destroyInstance(instance, nullptr);
-        return std::string("{\"status\":\"unavailable\",\"reason\":") + jsonString(std::string("Surface probe physical-device enumeration failed. VkResult=") + std::to_string(surfaceDeviceResult)) + ",\"devices\":[]}";
+        const std::string reason = surfaceDevicesResult.safetyRejected
+            ? std::string("Surface probe physical-device enumeration was rejected by a local safety bound. ") + surfaceDevicesResult.localReason
+            : (!surfaceDevicesResult.resultAvailable
+                ? surfaceDevicesResult.localReason
+                : std::string("Surface probe physical-device enumeration failed. VkResult=") + std::to_string(surfaceDeviceResult));
+        return std::string("{\"status\":\"unavailable\",\"reason\":") + jsonString(reason) + ",\"physicalDeviceEnumerationSafetyRejected\":" + jsonBool(surfaceDevicesResult.safetyRejected) + ",\"devices\":[]}";
+    }
+    if (deviceCount == 0) {
+        api.destroyInstance(instance, nullptr);
+        const char* status = surfaceDeviceEnumerationComplete ? "not_applicable" : "incomplete";
+        const std::string reason = surfaceDeviceEnumerationComplete
+            ? "Surface probe Vulkan instance was created successfully but no physical devices were enumerated."
+            : "Surface probe physical-device enumeration remained VK_INCOMPLETE and returned no bounded partial device evidence.";
+        return std::string("{\"status\":") + jsonString(status) + ",\"reason\":" + jsonString(reason) + ",\"physicalDeviceEnumerationResult\":" + std::to_string(surfaceDeviceResult) + ",\"physicalDeviceEnumerationComplete\":" + jsonBool(surfaceDeviceEnumerationComplete) + ",\"physicalDeviceEnumerationSafetyRejected\":false,\"devices\":[]}";
     }
 
     g_probeStage = 23;
@@ -1870,8 +2113,18 @@ std::string collectVulkanSurface(jobject surfaceObject, JNIEnv* env, const char*
         return std::string("{\"status\":\"unavailable\",\"reason\":") + jsonString(std::string("vkCreateAndroidSurfaceKHR failed. VkResult=") + std::to_string(surfaceResult)) + ",\"devices\":[]}";
     }
 
+    const char* swapchainColorspaceStatus = swapchainColorspaceAvailable ? "available" : (surfaceInstanceExtensionEnumeration.complete ? "not_exposed" : "unknown");
     std::ostringstream out;
-    out << "{\"status\":\"available\",\"reason\":\"\",\"surfaceColorSpaceExtensionAvailable\":" << jsonBool(swapchainColorspaceAvailable) << ",\"surfaceColorSpaceExtensionEnabled\":" << jsonBool(swapchainColorspaceAvailable) << ",\"selectedApiVersion\":" << jsonString(versionString(selectedApiVersion)) << ",\"devices\":[";
+    out << "{\"status\":\"available\",\"reason\":\"\",\"surfaceColorSpaceExtensionStatus\":" << jsonString(swapchainColorspaceStatus)
+        << ",\"surfaceColorSpaceExtensionAvailable\":" << jsonBool(swapchainColorspaceAvailable)
+        << ",\"surfaceColorSpaceExtensionEnabled\":" << jsonBool(swapchainColorspaceAvailable)
+        << ",\"surfaceCapabilities2Status\":" << jsonString(surfaceCapabilities2Status)
+        << ",\"surfaceCapabilities2Reason\":" << jsonString(surfaceCapabilities2Reason)
+        << ",\"physicalDeviceEnumerationResult\":" << surfaceDeviceResult
+        << ",\"physicalDeviceEnumerationComplete\":" << jsonBool(surfaceDeviceEnumerationComplete)
+        << ",\"physicalDeviceEnumerationSafetyRejected\":" << jsonBool(surfaceDevicesResult.safetyRejected)
+        << ",\"physicalDeviceEnumerationReason\":" << jsonString(surfaceDevicesResult.localReason)
+        << ",\"selectedApiVersion\":" << jsonString(versionString(selectedApiVersion)) << ",\"devices\":[";
     for (uint32_t deviceIndex = 0; deviceIndex < deviceCount; ++deviceIndex) {
         if (deviceIndex) out << ',';
         VkPhysicalDevice device = devices[deviceIndex];
@@ -1888,28 +2141,53 @@ std::string collectVulkanSurface(jobject surfaceObject, JNIEnv* env, const char*
         if (queueCount) api.getPhysicalDeviceQueueFamilyProperties(device, &queueCount, queues.data());
         if (queueCount > queueCapacity) { queueSafetyRejected = true; queueCount = 0; queues.clear(); }
         bool presentationSupported = false;
+        bool presentationQueryComplete = !queueSafetyRejected;
         std::vector<bool> presentationByQueue(queueCount, false);
+        std::vector<VkResult> presentationQueryResults(queueCount, VK_ERROR_UNKNOWN);
         for (uint32_t i = 0; i < queueCount; ++i) {
             VkBool32 supported = VK_FALSE;
             const VkResult supportResult = api.getPhysicalDeviceSurfaceSupportKHR(device, i, surface, &supported);
+            presentationQueryResults[i] = supportResult;
+            if (supportResult != VK_SUCCESS) presentationQueryComplete = false;
             if (supportResult == VK_SUCCESS && supported == VK_TRUE) {
                 presentationSupported = true;
                 presentationByQueue[i] = true;
             }
         }
-        out << ",\"surface\":{\"available\":true,\"presentationSupported\":" << jsonBool(presentationSupported) << ",\"queueQuerySafetyRejected\":" << jsonBool(queueSafetyRejected);
+        out << ",\"surface\":{\"available\":true,\"presentationSupported\":" << jsonBool(presentationSupported) << ",\"queueQuerySafetyRejected\":" << jsonBool(queueSafetyRejected) << ",\"presentationQueryComplete\":" << jsonBool(presentationQueryComplete);
+        VkResult capResult = VK_SUCCESS;
+        bool capabilityQueryAttempted = false;
+        bool capabilities2QueryAttempted = false;
+        bool capabilities2FallbackUsed = false;
+        VkResult capabilities2QueryResult = VK_SUCCESS;
+        SurfaceFormatEnumeration formatEnumeration;
+        SurfaceFormatEnumeration formats2Enumeration;
+        bool formats2QueryAttempted = false;
+        bool formats2FallbackUsed = false;
+        SurfacePresentModeEnumeration presentModeEnumeration;
         if (presentationSupported) {
+            capabilityQueryAttempted = true;
             VkSurfaceCapabilitiesKHR caps{};
-            VkResult capResult = VK_ERROR_EXTENSION_NOT_PRESENT;
-            if (surfaceCapabilities2Available) {
+            if (surfaceCapabilities2Usable) {
+                capabilities2QueryAttempted = true;
                 VkPhysicalDeviceSurfaceInfo2KHR info{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR, nullptr, surface};
                 VkSurfaceCapabilities2KHR caps2{VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR, nullptr, {}};
-                capResult = api.getPhysicalDeviceSurfaceCapabilities2KHR(device, &info, &caps2);
-                if (capResult == VK_SUCCESS) caps = caps2.surfaceCapabilities;
+                capabilities2QueryResult = api.getPhysicalDeviceSurfaceCapabilities2KHR(device, &info, &caps2);
+                if (capabilities2QueryResult == VK_SUCCESS) {
+                    capResult = VK_SUCCESS;
+                    caps = caps2.surfaceCapabilities;
+                } else {
+                    capabilities2FallbackUsed = true;
+                    capResult = api.getPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &caps);
+                }
             } else {
                 capResult = api.getPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &caps);
             }
-            out << ",\"capabilityResult\":" << capResult;
+            out << ",\"capabilityResult\":" << capResult
+                << ",\"capabilities2QueryAttempted\":" << jsonBool(capabilities2QueryAttempted)
+                << ",\"capabilities2FallbackUsed\":" << jsonBool(capabilities2FallbackUsed);
+            if (capabilities2QueryAttempted) out << ",\"capabilities2QueryResult\":" << capabilities2QueryResult;
+            out << ",\"capabilityQueryApi\":" << jsonString(capabilities2QueryAttempted && !capabilities2FallbackUsed ? "vkGetPhysicalDeviceSurfaceCapabilities2KHR" : "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
             if (capResult == VK_SUCCESS) {
                 out << ",\"minImageCount\":" << caps.minImageCount
                     << ",\"maxImageCount\":" << caps.maxImageCount
@@ -1922,43 +2200,101 @@ std::string collectVulkanSurface(jobject surfaceObject, JNIEnv* env, const char*
                     << ",\"supportedCompositeAlpha\":" << caps.supportedCompositeAlpha
                     << ",\"supportedUsageFlags\":" << caps.supportedUsageFlags;
             }
+            g_probeStage = 25;
+            if (surfaceCapabilities2Usable) {
+                formats2QueryAttempted = true;
+                formats2Enumeration = enumerateSurfaceFormatsRobust(api, device, surface, true);
+                if (formats2Enumeration.complete) {
+                    formatEnumeration = formats2Enumeration;
+                } else if (!formats2Enumeration.safetyRejected) {
+                    formats2FallbackUsed = true;
+                    formatEnumeration = enumerateSurfaceFormatsRobust(api, device, surface, false);
+                    if (formatEnumeration.values.empty() && !formats2Enumeration.values.empty()) {
+                        formatEnumeration.values = formats2Enumeration.values;
+                        formatEnumeration.complete = false;
+                        const std::string fallbackReason = formatEnumeration.reason;
+                        formatEnumeration.reason = "Classic Surface-format fallback did not produce retained entries; earlier bounded partial vkGetPhysicalDeviceSurfaceFormats2KHR evidence was retained.";
+                        if (!fallbackReason.empty()) formatEnumeration.reason += " " + fallbackReason;
+                    }
+                } else {
+                    formatEnumeration = formats2Enumeration;
+                }
+            } else {
+                formatEnumeration = enumerateSurfaceFormatsRobust(api, device, surface, false);
+            }
+            out << ",\"formatQueryAttempted\":" << jsonBool(formatEnumeration.countAttempted)
+                << ",\"surfaceFormats2Used\":" << jsonBool(formats2QueryAttempted && !formats2FallbackUsed)
+                << ",\"surfaceFormats2Attempted\":" << jsonBool(formats2QueryAttempted)
+                << ",\"surfaceFormats2FallbackUsed\":" << jsonBool(formats2FallbackUsed)
+                << ",\"formatQueryResult\":" << formatEnumeration.countResult
+                << ",\"formatQueryResultSecond\":" << formatEnumeration.dataResult
+                << ",\"formatQuerySecondAttempted\":" << jsonBool(formatEnumeration.dataAttempted)
+                << ",\"formatQueryAttemptCount\":" << formatEnumeration.attemptCount
+                << ",\"formatQuerySafetyRejected\":" << jsonBool(formatEnumeration.safetyRejected)
+                << ",\"formatQuerySpecAnomaly\":" << jsonBool(formatEnumeration.specAnomaly)
+                << ",\"formatQueryReason\":" << jsonString(formatEnumeration.reason)
+                << ",\"formatEnumerationComplete\":" << jsonBool(formatEnumeration.complete);
+            if (formats2QueryAttempted) {
+                out << ",\"surfaceFormats2CountQueryAttempted\":" << jsonBool(formats2Enumeration.countAttempted)
+                    << ",\"surfaceFormats2CountQueryResult\":" << formats2Enumeration.countResult
+                    << ",\"surfaceFormats2DataQueryAttempted\":" << jsonBool(formats2Enumeration.dataAttempted)
+                    << ",\"surfaceFormats2DataQueryResult\":" << formats2Enumeration.dataResult
+                    << ",\"surfaceFormats2SafetyRejected\":" << jsonBool(formats2Enumeration.safetyRejected)
+                    << ",\"surfaceFormats2SpecAnomaly\":" << jsonBool(formats2Enumeration.specAnomaly)
+                    << ",\"surfaceFormats2Reason\":" << jsonString(formats2Enumeration.reason);
+            }
+            out << ",\"formatCount\":" << formatEnumeration.values.size() << ",\"formats\":[";
+            for (size_t i = 0; i < formatEnumeration.values.size(); ++i) {
+                if (i) out << ',';
+                const VkSurfaceFormatKHR format = formatEnumeration.values[i];
+                out << "{\"format\":" << jsonString(formatName(format.format))
+                    << ",\"colorSpace\":" << jsonString(colorSpaceName(format.colorSpace))
+                    << ",\"class\":" << jsonString(colorSpaceClass(format.colorSpace))
+                    << ",\"description\":" << jsonString(colorSpaceDescription(format.colorSpace)) << '}';
+            }
+            out << "]";
+            g_probeStage = 26;
+            presentModeEnumeration = enumerateSurfacePresentModesRobust(api, device, surface);
+            out << ",\"presentModeQueryAttempted\":" << jsonBool(presentModeEnumeration.countAttempted)
+                << ",\"presentModeCountQueryResult\":" << presentModeEnumeration.countResult
+                << ",\"presentModeDataQueryResult\":" << presentModeEnumeration.dataResult
+                << ",\"presentModeDataQueryAttempted\":" << jsonBool(presentModeEnumeration.dataAttempted)
+                << ",\"presentModeQueryAttemptCount\":" << presentModeEnumeration.attemptCount
+                << ",\"presentModeQuerySafetyRejected\":" << jsonBool(presentModeEnumeration.safetyRejected)
+                << ",\"presentModeQuerySpecAnomaly\":" << jsonBool(presentModeEnumeration.specAnomaly)
+                << ",\"presentModeQueryReason\":" << jsonString(presentModeEnumeration.reason)
+                << ",\"presentModeEnumerationComplete\":" << jsonBool(presentModeEnumeration.complete)
+                << ",\"presentModes\":[";
+            for (size_t i = 0; i < presentModeEnumeration.values.size(); ++i) {
+                if (i) out << ',';
+                out << jsonString(presentModeName(presentModeEnumeration.values[i]));
+            }
+            out << "]";
+        } else {
+            out << ",\"formatQueryAttempted\":false,\"formatQuerySecondAttempted\":false,\"formatQuerySafetyRejected\":false,\"formatEnumerationComplete\":false,\"formatCount\":0,\"formats\":[]"
+                << ",\"presentModeQueryAttempted\":false,\"presentModeDataQueryAttempted\":false,\"presentModeQuerySafetyRejected\":false,\"presentModeEnumerationComplete\":false,\"presentModes\":[]";
         }
-        g_probeStage = 25;
-        const SurfaceFormatEnumeration formatEnumeration = enumerateSurfaceFormatsRobust(api, device, surface, surfaceCapabilities2Available);
-        out << ",\"surfaceFormats2Used\":" << jsonBool(surfaceCapabilities2Available)
-            << ",\"formatQueryResult\":" << formatEnumeration.countResult
-            << ",\"formatQueryResultSecond\":" << formatEnumeration.dataResult
-            << ",\"formatQuerySecondAttempted\":" << jsonBool(formatEnumeration.dataAttempted)
-            << ",\"formatQuerySafetyRejected\":" << jsonBool(formatEnumeration.safetyRejected)
-            << ",\"formatEnumerationComplete\":" << jsonBool(formatEnumeration.complete)
-            << ",\"formatCount\":" << formatEnumeration.values.size() << ",\"formats\":[";
-        for (size_t i = 0; i < formatEnumeration.values.size(); ++i) {
-            if (i) out << ',';
-            const VkSurfaceFormatKHR format = formatEnumeration.values[i];
-            out << "{\"format\":" << jsonString(formatName(format.format))
-                << ",\"colorSpace\":" << jsonString(colorSpaceName(format.colorSpace))
-                << ",\"class\":" << jsonString(colorSpaceClass(format.colorSpace))
-                << ",\"description\":" << jsonString(colorSpaceDescription(format.colorSpace)) << '}';
+        const bool dependentWsiQueriesComplete = !presentationSupported || (capResult == VK_SUCCESS && formatEnumeration.complete && presentModeEnumeration.complete);
+        const char* dependentWsiQueryStatus = presentationSupported ? (dependentWsiQueriesComplete ? "available" : "incomplete") : ((presentationQueryComplete && !queueSafetyRejected) ? "not_applicable" : "unknown");
+        out << ",\"dependentWsiQueryStatus\":" << jsonString(dependentWsiQueryStatus);
+        const bool surfaceQueryComplete = surfaceDeviceEnumerationComplete && surfaceInstanceExtensionEnumeration.complete && presentationQueryComplete && !queueSafetyRejected && dependentWsiQueriesComplete;
+        std::string surfaceQueryReason;
+        if (!surfaceQueryComplete) {
+            if (!surfaceDeviceEnumerationComplete) surfaceQueryReason += (surfaceDevicesResult.localReason.empty() ? "Physical-device enumeration is incomplete; returned devices are partial positive evidence only. " : surfaceDevicesResult.localReason + " ");
+            if (!surfaceInstanceExtensionEnumeration.complete) surfaceQueryReason += "Instance-extension enumeration is incomplete or unavailable, so extension-dependent Surface evidence may be incomplete. ";
+            if (queueSafetyRejected) surfaceQueryReason += "Queue-family enumeration exceeded a safety bound. ";
+            if (!presentationQueryComplete) surfaceQueryReason += "One or more vkGetPhysicalDeviceSurfaceSupportKHR calls failed. ";
+            if (capabilityQueryAttempted && capResult != VK_SUCCESS) surfaceQueryReason += "Surface capability query failed. ";
+            if (presentationSupported && !formatEnumeration.complete) surfaceQueryReason += "Surface-format enumeration is incomplete or unavailable. ";
+            if (presentationSupported && !presentModeEnumeration.complete) surfaceQueryReason += "Present-mode enumeration is incomplete or unavailable.";
+            while (!surfaceQueryReason.empty() && surfaceQueryReason.back() == ' ') surfaceQueryReason.pop_back();
         }
-        out << "]";
-        g_probeStage = 26;
-        const SurfacePresentModeEnumeration presentModeEnumeration = enumerateSurfacePresentModesRobust(api, device, surface);
-        out << ",\"presentModeCountQueryResult\":" << presentModeEnumeration.countResult
-            << ",\"presentModeDataQueryResult\":" << presentModeEnumeration.dataResult
-            << ",\"presentModeDataQueryAttempted\":" << jsonBool(presentModeEnumeration.dataAttempted)
-            << ",\"presentModeQuerySafetyRejected\":" << jsonBool(presentModeEnumeration.safetyRejected)
-            << ",\"presentModeEnumerationComplete\":" << jsonBool(presentModeEnumeration.complete)
-            << ",\"presentModes\":[";
-        for (size_t i = 0; i < presentModeEnumeration.values.size(); ++i) {
-            if (i) out << ',';
-            out << jsonString(presentModeName(presentModeEnumeration.values[i]));
-        }
-        out << "],\"queuePresentation\":[";
+        out << ",\"queryStatus\":" << jsonString(surfaceQueryComplete ? "available" : "incomplete") << ",\"queryReason\":" << jsonString(surfaceQueryReason) << ",\"queuePresentation\":[";
         bool firstPresentation = true;
         for (uint32_t i = 0; i < queueCount; ++i) {
             if (!firstPresentation) out << ',';
             firstPresentation = false;
-            out << "{\"queueFamily\":" << i << ",\"supported\":" << jsonBool(presentationByQueue[i]) << '}';
+            out << "{\"queueFamily\":" << i << ",\"supported\":" << jsonBool(presentationByQueue[i]) << ",\"queryResult\":" << presentationQueryResults[i] << '}';
         }
         out << "]}";
         out << '}';
@@ -1970,12 +2306,14 @@ std::string collectVulkanSurface(jobject surfaceObject, JNIEnv* env, const char*
 }
 
 
-void publishProbeCheckpoint(const char* path, const std::string& text) {
-    if (!path || path[0] == '\0' || text.empty()) return;
+constexpr size_t kMaxProbePublishedBytes = 64ULL * 1024ULL * 1024ULL;
+
+bool publishProbeCheckpoint(const char* path, const std::string& text) {
+    if (!path || path[0] == '\0' || text.empty() || text.size() > kMaxProbePublishedBytes) return false;
     const std::string tempPath = std::string(path) + ".checkpoint.tmp";
     unlink(tempPath.c_str());
     int fd = open(tempPath.c_str(), O_CREAT | O_TRUNC | O_WRONLY | O_CLOEXEC, 0600);
-    if (fd < 0) return;
+    if (fd < 0) return false;
     const char* data = text.data();
     size_t remaining = text.size();
     while (remaining > 0) {
@@ -1989,15 +2327,17 @@ void publishProbeCheckpoint(const char* path, const std::string& text) {
         close(fd);
         if (rename(tempPath.c_str(), path) == 0) {
             g_probePartialPublished = 1;
-            return;
+            return true;
         }
     } else {
         close(fd);
     }
     unlink(tempPath.c_str());
+    return false;
 }
 
-std::string collect(jobject surfaceObject, JNIEnv* env, const char* driverMode, const char* driverIcdPath, const char* driverBundlePath, const char* hookLibDir, const char* checkpointPath) {
+std::string collect(jobject surfaceObject, JNIEnv* env, const char* driverMode, const char* driverIcdPath, const char* driverBundlePath, const char* hookLibDir, const char* checkpointPath, bool* finalPublicationOut) {
+    if (finalPublicationOut) *finalPublicationOut = false;
 
     VulkanApi api;
     if (!api.open(driverMode, driverIcdPath, driverBundlePath, hookLibDir)) {
@@ -2006,20 +2346,12 @@ std::string collect(jobject surfaceObject, JNIEnv* env, const char* driverMode, 
 
     uint32_t loaderVersion = VK_API_VERSION_1_0;
     if (api.enumerateInstanceVersion) { VkResult versionResult = api.enumerateInstanceVersion(&loaderVersion); if (versionResult != VK_SUCCESS) loaderVersion = VK_API_VERSION_1_0; }
-    const auto instanceExts = instanceExtensions(api);
-    const bool swapchainColorspaceAvailable = hasExtension(instanceExts, "VK_EXT_swapchain_colorspace");
+    const auto baseInstanceExtensionEnumeration = enumerateInstanceExtensions(api);
+    const auto& instanceExts = baseInstanceExtensionEnumeration.values;
     const bool surfaceExtensionAvailable = hasExtension(instanceExts, "VK_KHR_surface");
     const bool androidSurfaceExtensionAvailable = hasExtension(instanceExts, "VK_KHR_android_surface");
-    const bool getSurfaceCapabilities2Available = hasExtension(instanceExts, "VK_KHR_get_surface_capabilities2");
-    const bool hasLiveSurface = false;
-
+    const bool swapchainColorspaceAvailable = hasExtension(instanceExts, "VK_EXT_swapchain_colorspace");
     std::vector<const char*> enabledExtensions;
-    if (hasLiveSurface) {
-        enabledExtensions.push_back("VK_KHR_surface");
-        enabledExtensions.push_back("VK_KHR_android_surface");
-        if (swapchainColorspaceAvailable) enabledExtensions.push_back("VK_EXT_swapchain_colorspace");
-        if (getSurfaceCapabilities2Available) enabledExtensions.push_back("VK_KHR_get_surface_capabilities2");
-    }
 
     g_probeStage = 2;
     VkInstance instance = nullptr;
@@ -2038,57 +2370,48 @@ std::string collect(jobject surfaceObject, JNIEnv* env, const char* driverMode, 
         !api.destroyInstance || !api.enumeratePhysicalDevices || !api.getPhysicalDeviceProperties ||
         !api.getPhysicalDeviceFeatures || !api.getPhysicalDeviceMemoryProperties ||
         !api.getPhysicalDeviceQueueFamilyProperties || !api.enumerateDeviceExtensionProperties) {
-        if (api.destroyInstance) api.destroyInstance(instance, nullptr);
         return "{\"status\":\"unavailable\",\"reason\":\"Required Vulkan physical-device query entry points are unavailable.\",\"devices\":[]}";
-    }
-
-    VkSurfaceKHR liveSurface = VK_NULL_HANDLE;
-    if (hasLiveSurface) {
-        if (getSurfaceCapabilities2Available && (!api.getPhysicalDeviceSurfaceCapabilities2KHR || !api.getPhysicalDeviceSurfaceFormats2KHR)) {
-            api.destroyInstance(instance, nullptr);
-            return "{\"status\":\"available\",\"reason\":\"VK_KHR_get_surface_capabilities2 is advertised but its required entry points are unavailable.\",\"surfaceColorSpaceExtensionAvailable\":" + jsonBool(swapchainColorspaceAvailable) + ",\"surfaceColorSpaceExtensionEnabled\":false,\"deviceCount\":0,\"devices\":[]}";
-        }
-        g_probeStage = 20;
-        ANativeWindow* nativeWindow = ANativeWindow_fromSurface(env, surfaceObject);
-        if (!nativeWindow) {
-            api.destroyInstance(instance, nullptr);
-            return std::string("{\"status\":\"available\",\"reason\":") + jsonString("Unable to obtain a native window from the Android Surface.") + ",\"surfaceColorSpaceExtensionAvailable\":" + jsonBool(swapchainColorspaceAvailable) + ",\"surfaceColorSpaceExtensionEnabled\":false,\"deviceCount\":0,\"devices\":[]}";
-        }
-        VkAndroidSurfaceCreateInfoKHR createInfo{VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR, nullptr, 0, nativeWindow};
-        const VkResult surfaceResult = api.createAndroidSurfaceKHR ? api.createAndroidSurfaceKHR(instance, &createInfo, nullptr, &liveSurface) : VK_ERROR_EXTENSION_NOT_PRESENT;
-        ANativeWindow_release(nativeWindow);
-        if (surfaceResult != VK_SUCCESS || liveSurface == VK_NULL_HANDLE) {
-            api.destroyInstance(instance, nullptr);
-            return std::string("{\"status\":\"available\",\"reason\":") + jsonString(std::string("vkCreateAndroidSurfaceKHR failed. VkResult=") + std::to_string(surfaceResult)) + ",\"surfaceColorSpaceExtensionAvailable\":" + jsonBool(swapchainColorspaceAvailable) + ",\"surfaceColorSpaceExtensionEnabled\":false,\"deviceCount\":0,\"devices\":[]}";
-        }
     }
 
     g_probeStage = 4;
     __android_log_print(ANDROID_LOG_INFO, "VulkanProbe", "base enumerate physical devices: instanceApi=%s", versionString(instanceApiVersion).c_str());
     const auto baseDevicesResult = enumeratePhysicalDevicesRobust(api, instance);
-    const VkResult deviceEnumerationResult = baseDevicesResult.first;
-    std::vector<VkPhysicalDevice> devices = baseDevicesResult.second;
+    const VkResult deviceEnumerationResult = baseDevicesResult.result;
+    std::vector<VkPhysicalDevice> devices = baseDevicesResult.values;
     const uint32_t deviceCount = static_cast<uint32_t>(devices.size());
-    __android_log_print(ANDROID_LOG_INFO, "VulkanProbe", "base enumerate result=%d count=%u", static_cast<int>(deviceEnumerationResult), deviceCount);
-    if (deviceEnumerationResult != VK_SUCCESS) {
-        api.destroyInstance(instance, nullptr);
-        return std::string("{\"error\":\"vkEnumeratePhysicalDevices failed: ") + std::to_string(deviceEnumerationResult) + "\"}";
+    __android_log_print(ANDROID_LOG_INFO, "VulkanProbe", "base enumerate resultAvailable=%d result=%d complete=%d safetyRejected=%d count=%u", baseDevicesResult.resultAvailable ? 1 : 0, static_cast<int>(deviceEnumerationResult), baseDevicesResult.complete ? 1 : 0, baseDevicesResult.safetyRejected ? 1 : 0, deviceCount);
+    const bool deviceEnumerationComplete = baseDevicesResult.complete;
+    if (!baseDevicesResult.resultAvailable || ((baseDevicesResult.safetyRejected || (deviceEnumerationResult != VK_SUCCESS && deviceEnumerationResult != VK_INCOMPLETE)) && devices.empty())) {
+        const std::string failureReason = baseDevicesResult.safetyRejected
+            ? std::string("Physical-device enumeration was rejected by a local safety bound. ") + baseDevicesResult.localReason
+            : (!baseDevicesResult.resultAvailable ? baseDevicesResult.localReason : std::string("vkEnumeratePhysicalDevices failed. VkResult=") + std::to_string(deviceEnumerationResult));
+        std::ostringstream failure;
+        failure << "{\"status\":\"unavailable\",\"reason\":" << jsonString(failureReason) << ",\"baseReportComplete\":false,\"physicalDeviceEnumerationResult\":";
+        if (baseDevicesResult.resultAvailable) failure << static_cast<int>(deviceEnumerationResult); else failure << "null";
+        failure << ",\"physicalDeviceEnumerationComplete\":false,\"physicalDeviceEnumerationSafetyRejected\":" << jsonBool(baseDevicesResult.safetyRejected) << ",\"physicalDeviceEnumerationReason\":" << jsonString(baseDevicesResult.localReason) << ",\"devices\":[]}";
+        return failure.str();
     }
+    if (devices.empty()) {
+        const char* status = deviceEnumerationComplete ? "not_applicable" : "incomplete";
+        const char* reason = deviceEnumerationComplete ? "Vulkan instance was created but no physical devices were enumerated." : "Physical-device enumeration remained VK_INCOMPLETE and returned no bounded partial device handles.";
+        return std::string("{\"status\":") + jsonString(status) + ",\"reason\":" + jsonString(reason) + ",\"baseReportComplete\":false,\"physicalDeviceEnumerationResult\":" + std::to_string(deviceEnumerationResult) + ",\"physicalDeviceEnumerationComplete\":" + jsonBool(deviceEnumerationComplete) + ",\"physicalDeviceEnumerationSafetyRejected\":false,\"physicalDeviceEnumerationReason\":\"\",\"devices\":[]}";
+    }
+    const char* baseEnumerationStatus = deviceEnumerationComplete ? "available" : "incomplete";
+    const std::string baseEnumerationReason = deviceEnumerationComplete ? "" : (!baseDevicesResult.localReason.empty() ? baseDevicesResult.localReason : "Physical-device enumeration remained VK_INCOMPLETE after bounded retries; returned devices are retained as partial positive evidence and the base report is not complete.");
     (void)surfaceObject;
     (void)env;
 
     g_probeStage = 6;
     std::vector<VkPhysicalDeviceProperties> cachedProperties(deviceCount);
     std::ostringstream checkpoint;
-    checkpoint << "{\"status\":\"available\",\"reason\":\"\",\"baseReportComplete\":false,\"loaderVersion\":" << jsonString(versionString(loaderVersion));
+    checkpoint << "{\"status\":" << jsonString(baseEnumerationStatus) << ",\"reason\":" << jsonString(baseEnumerationReason) << ",\"baseReportComplete\":false,\"physicalDeviceEnumerationResult\":" << static_cast<int>(deviceEnumerationResult) << ",\"physicalDeviceEnumerationComplete\":" << jsonBool(deviceEnumerationComplete) << ",\"physicalDeviceEnumerationSafetyRejected\":" << jsonBool(baseDevicesResult.safetyRejected) << ",\"physicalDeviceEnumerationReason\":" << jsonString(baseDevicesResult.localReason) << ",\"loaderVersion\":" << jsonString(versionString(loaderVersion));
     checkpoint << ",\"instanceApiVersion\":" << jsonString(versionString(instanceApiVersion));
-    checkpoint << ",\"vulkanRegistryVersion\":\"1.4.360\",\"deviceCount\":" << deviceCount << ",\"devices\":[";
+    checkpoint << ",\"vulkanRegistryVersion\":\"1.4.361\",\"deviceCount\":" << deviceCount << ",\"devices\":[";
     for (uint32_t deviceIndex = 0; deviceIndex < deviceCount; ++deviceIndex) {
         if (deviceIndex) checkpoint << ',';
         __android_log_print(ANDROID_LOG_INFO, "VulkanProbe", "base preflight device[%u] properties begin", deviceIndex);
         if (!getDevicePropertiesStable(api, devices[deviceIndex], cachedProperties[deviceIndex])) {
-            api.destroyInstance(instance, nullptr);
-            return "{\"status\":\"unavailable\",\"reason\":\"No physical-device property query entry point is available.\",\"devices\":[]}";
+                return "{\"status\":\"unavailable\",\"reason\":\"No physical-device property query entry point is available.\",\"devices\":[]}";
         }
         const auto& p = cachedProperties[deviceIndex];
         __android_log_print(ANDROID_LOG_INFO, "VulkanProbe", "base preflight device[%u] properties end name=%s api=%s", deviceIndex, p.deviceName, versionString(p.apiVersion).c_str());
@@ -2106,15 +2429,17 @@ std::string collect(jobject surfaceObject, JNIEnv* env, const char* driverMode, 
 
     g_probeStage = 50;
     std::ostringstream out;
-    out << "{\"status\":\"available\",\"reason\":\"\",\"baseReportComplete\":false,\"loaderVersion\":" << jsonString(versionString(loaderVersion));
+    out << "{\"status\":" << jsonString(baseEnumerationStatus) << ",\"reason\":" << jsonString(baseEnumerationReason) << ",\"baseReportComplete\":false,\"physicalDeviceEnumerationResult\":" << static_cast<int>(deviceEnumerationResult) << ",\"physicalDeviceEnumerationComplete\":" << jsonBool(deviceEnumerationComplete) << ",\"physicalDeviceEnumerationSafetyRejected\":" << jsonBool(baseDevicesResult.safetyRejected) << ",\"physicalDeviceEnumerationReason\":" << jsonString(baseDevicesResult.localReason) << ",\"loaderVersion\":" << jsonString(versionString(loaderVersion));
     out << ",\"instanceApiVersion\":" << jsonString(versionString(instanceApiVersion));
-    out << ",\"vulkanRegistryVersion\":\"1.4.360\"";
+    out << ",\"vulkanRegistryVersion\":\"1.4.361\"";
     out << ",\"surfaceColorSpaceExtensionAvailable\":" << jsonBool(swapchainColorspaceAvailable);
     out << ",\"surfaceExtensionAvailable\":" << jsonBool(surfaceExtensionAvailable);
     out << ",\"androidSurfaceExtensionAvailable\":" << jsonBool(androidSurfaceExtensionAvailable);
     out << ",\"surfaceColorSpaceExtensionEnabled\":false";
     out << ",\"deviceCount\":" << deviceCount;
     out << ",\"devices\":[";
+    bool allDeviceExtensionEnumerationsComplete = true;
+    std::string deviceExtensionEnumerationReason;
 
     for (uint32_t deviceIndex = 0; deviceIndex < deviceCount; ++deviceIndex) {
         if (deviceIndex) out << ',';
@@ -2133,15 +2458,23 @@ std::string collect(jobject surfaceObject, JNIEnv* env, const char* driverMode, 
         __android_log_print(ANDROID_LOG_INFO, "VulkanProbe", "base device[%u] extension enumeration begin", deviceIndex);
         const auto deviceExtensionEnumeration = enumerateDeviceExtensions(api, device);
         const auto& devExts = deviceExtensions(deviceExtensionEnumeration);
+        if (std::strcmp(deviceExtensionEnumeration.status, "available") != 0) {
+            allDeviceExtensionEnumerationsComplete = false;
+            if (!deviceExtensionEnumeration.reason.empty() && deviceExtensionEnumerationReason.find(deviceExtensionEnumeration.reason) == std::string::npos) {
+                if (!deviceExtensionEnumerationReason.empty()) deviceExtensionEnumerationReason += " ";
+                deviceExtensionEnumerationReason += deviceExtensionEnumeration.reason;
+            }
+        }
         __android_log_print(ANDROID_LOG_INFO, "VulkanProbe", "base device[%u] extension enumeration end status=%s count=%zu", deviceIndex, deviceExtensionEnumeration.status, devExts.size());
         g_probeStage = 62;
-        const std::string deviceLayers = deviceLayersJson(api, device);
-        __android_log_print(ANDROID_LOG_INFO, "VulkanProbe", "base device[%u] layer enumeration end bytes=%zu", deviceIndex, deviceLayers.size());
+        const auto deviceLayerEnumeration = enumerateDeviceLayers(api, device);
+        const std::string deviceLayers = deviceLayersJson(api, device, deviceLayerEnumeration.values);
+        __android_log_print(ANDROID_LOG_INFO, "VulkanProbe", "base device[%u] layer enumeration end status=%s count=%zu bytes=%zu", deviceIndex, deviceLayerEnumeration.status.c_str(), deviceLayerEnumeration.values.size(), deviceLayers.size());
         {
             std::ostringstream extensionSnapshot;
-            extensionSnapshot << "{\"status\":\"available\",\"reason\":\"\",\"baseReportComplete\":false,\"loaderVersion\":" << jsonString(versionString(loaderVersion))
+            extensionSnapshot << "{\"status\":" << jsonString(baseEnumerationStatus) << ",\"reason\":" << jsonString(baseEnumerationReason) << ",\"baseReportComplete\":false,\"physicalDeviceEnumerationResult\":" << static_cast<int>(deviceEnumerationResult) << ",\"physicalDeviceEnumerationComplete\":" << jsonBool(deviceEnumerationComplete) << ",\"physicalDeviceEnumerationSafetyRejected\":" << jsonBool(baseDevicesResult.safetyRejected) << ",\"physicalDeviceEnumerationReason\":" << jsonString(baseDevicesResult.localReason) << ",\"loaderVersion\":" << jsonString(versionString(loaderVersion))
                 << ",\"instanceApiVersion\":" << jsonString(versionString(instanceApiVersion))
-                << ",\"vulkanRegistryVersion\":\"1.4.360\",\"deviceCount\":" << deviceCount << ",\"devices\":[{\"name\":" << jsonString(deviceName)
+                << ",\"vulkanRegistryVersion\":\"1.4.361\",\"deviceCount\":" << deviceCount << ",\"devices\":[{\"name\":" << jsonString(deviceName)
                 << ",\"apiVersion\":" << jsonString(versionString(apiVersion))
                 << ",\"driverVersion\":" << jsonString(std::to_string(driverVersion))
                 << ",\"driverVersionText\":" << jsonString(driverVersionText(vendorId, driverVersion))
@@ -2149,16 +2482,19 @@ std::string collect(jobject surfaceObject, JNIEnv* env, const char* driverMode, 
                 << ",\"deviceExtensionStatus\":" << jsonString(deviceExtensionEnumeration.status)
                 << ",\"deviceExtensionReason\":" << jsonString(deviceExtensionEnumeration.reason)
                 << ",\"deviceExtensions\":" << extensionsJson(devExts, "Device")
+                << ",\"deviceLayerStatus\":" << jsonString(deviceLayerEnumeration.status)
+                << ",\"deviceLayerReason\":" << jsonString(deviceLayerEnumeration.reason)
+                << ",\"deviceLayersComplete\":" << jsonBool(deviceLayerEnumeration.complete)
                 << ",\"deviceLayers\":" << deviceLayers
                 << ",\"features\":[],\"versionedFeatures\":[],\"queues\":[],\"memory\":{\"heapCount\":0,\"heaps\":[],\"typeCount\":0,\"types\":[]},\"formats\":[],\"detailedProperties\":[],\"surface\":{\"available\":false}}]}";
             publishProbeCheckpoint(checkpointPath, extensionSnapshot.str());
             __android_log_print(ANDROID_LOG_INFO, "VulkanProbe", "base extension checkpoint published device=%u", deviceIndex);
         }
-        const bool coreExtendedQueriesAvailable = api.getPhysicalDeviceProperties2 && api.getPhysicalDeviceFeatures2 && VK_API_VERSION_MINOR(apiVersion) >= 1;
-        const char* extendedQueryStatus = coreExtendedQueriesAvailable ? "available" : (VK_API_VERSION_MINOR(apiVersion) >= 1 ? "unavailable" : "not_applicable");
+        const bool coreExtendedQueriesAvailable = api.getPhysicalDeviceProperties2 && api.getPhysicalDeviceFeatures2 && apiVersionAtLeast(apiVersion, 1, 1);
+        const char* extendedQueryStatus = coreExtendedQueriesAvailable ? "available" : (apiVersionAtLeast(apiVersion, 1, 1) ? "unavailable" : "not_applicable");
         std::string extendedQueryReason = coreExtendedQueriesAvailable
             ? "Core Vulkan 1.1–1.4 feature and property data are collected by isolated validated core probes."
-            : (VK_API_VERSION_MINOR(apiVersion) >= 1 ? std::string("The Vulkan 1.1+ physical-device query entry points are unavailable: properties2=") + (api.getPhysicalDeviceProperties2 ? "present" : "missing") + ", features2=" + (api.getPhysicalDeviceFeatures2 ? "present" : "missing") + ", KHR_get_physical_device_properties2=" + (hasExtension(instanceExts, "VK_KHR_get_physical_device_properties2") ? "advertised" : "not advertised") : "The device API version is below Vulkan 1.1.");
+            : (apiVersionAtLeast(apiVersion, 1, 1) ? std::string("The Vulkan 1.1+ physical-device query entry points are unavailable: properties2=") + (api.getPhysicalDeviceProperties2 ? "present" : "missing") + ", features2=" + (api.getPhysicalDeviceFeatures2 ? "present" : "missing") + ", KHR_get_physical_device_properties2=" + (hasExtension(instanceExts, "VK_KHR_get_physical_device_properties2") ? "advertised" : (baseInstanceExtensionEnumeration.complete ? "not advertised" : "unknown because instance-extension enumeration is incomplete")) : "The device API version is below Vulkan 1.1.");
         VkPhysicalDeviceFeatures features{};
         getDeviceFeaturesPrimary(api, device, features);
         VkPhysicalDeviceMemoryProperties memory{};
@@ -2187,7 +2523,11 @@ std::string collect(jobject surfaceObject, JNIEnv* env, const char* driverMode, 
             << ",\"extendedQueryReason\":" << jsonString(extendedQueryReason)
             << ",\"deviceExtensionStatus\":" << jsonString(deviceExtensionEnumeration.status)
             << ",\"deviceExtensionReason\":" << jsonString(deviceExtensionEnumeration.reason)
-            << ",\"deviceExtensions\":" << extensionsJson(devExts, "Device") << ",\"deviceLayers\":" << deviceLayers << ",\"features\":[";
+            << ",\"deviceExtensions\":" << extensionsJson(devExts, "Device")
+            << ",\"deviceLayerStatus\":" << jsonString(deviceLayerEnumeration.status)
+            << ",\"deviceLayerReason\":" << jsonString(deviceLayerEnumeration.reason)
+            << ",\"deviceLayersComplete\":" << jsonBool(deviceLayerEnumeration.complete)
+            << ",\"deviceLayers\":" << deviceLayers << ",\"features\":[";
         const std::array<VkBool32, 55> coreFeatureValues = {
             features.robustBufferAccess, features.fullDrawIndexUint32, features.imageCubeArray, features.independentBlend, features.geometryShader,
             features.tessellationShader, features.sampleRateShading, features.dualSrcBlend, features.logicOp, features.multiDrawIndirect,
@@ -2252,8 +2592,8 @@ std::string collect(jobject surfaceObject, JNIEnv* env, const char* driverMode, 
         appendBoolProperty(out, detailedFirst, "Core 1.0", "sparseResidencyAlignedMipSize", sparseProperties->residencyAlignedMipSize);
         appendBoolProperty(out, detailedFirst, "Core 1.0", "sparseResidencyNonResidentStrict", sparseProperties->residencyNonResidentStrict);
         out << ']';
-        out << ",\"vulkan14Status\":" << jsonString(VK_API_VERSION_MINOR(apiVersion) >= 4 ? "deferred" : "not_applicable")
-            << ",\"vulkan14Reason\":" << jsonString(VK_API_VERSION_MINOR(apiVersion) >= 4
+        out << ",\"vulkan14Status\":" << jsonString(apiVersionAtLeast(apiVersion, 1, 4) ? "deferred" : "not_applicable")
+            << ",\"vulkan14Reason\":" << jsonString(apiVersionAtLeast(apiVersion, 1, 4)
                 ? "Vulkan 1.4 core feature and property queries are collected in an isolated validated probe."
                 : "The device API version is below Vulkan 1.4.");
         out << ",\"queues\":[";
@@ -2290,92 +2630,36 @@ std::string collect(jobject surfaceObject, JNIEnv* env, const char* driverMode, 
         out << "]},\"formats\":[]";
         {
             std::string baseReadySnapshot = out.str();
-            baseReadySnapshot += ",\"surface\":{\"available\":false}}]";
-            publishProbeCheckpoint(checkpointPath, baseReadySnapshot);
-            __android_log_print(ANDROID_LOG_INFO, "VulkanProbe", "base core checkpoint published before optional surface enrichment device=%u", deviceIndex);
+            baseReadySnapshot += ",\"surface\":{\"available\":false}}]}";
+            const bool baseReadyPublished = publishProbeCheckpoint(checkpointPath, baseReadySnapshot);
+            __android_log_print(baseReadyPublished ? ANDROID_LOG_INFO : ANDROID_LOG_ERROR, "VulkanProbe", baseReadyPublished ? "base core checkpoint published before optional surface enrichment device=%u" : "base core checkpoint publication failed before optional surface enrichment device=%u", deviceIndex);
         }
-        if (liveSurface != VK_NULL_HANDLE) {
-            api.destroySurfaceKHR(instance, liveSurface, nullptr);
-            liveSurface = VK_NULL_HANDLE;
-        }
-        out << ",\"surface\":{";
-        if (liveSurface == VK_NULL_HANDLE) {
-            out << "\"available\":false,\"colorSpaceExtensionAvailable\":" << jsonBool(swapchainColorspaceAvailable) << ",\"colorSpaceExtensionEnabled\":false,\"presentationSupported\":false}";
-        } else {
-            g_probeStage = 24;
-            bool presentationSupported = false;
-            out << "\"available\":true,\"colorSpaceExtensionAvailable\":" << jsonBool(swapchainColorspaceAvailable) << ",\"colorSpaceExtensionEnabled\":" << jsonBool(swapchainColorspaceAvailable);
-            out << ",\"queuePresentation\":[";
-            for (uint32_t qi = 0; qi < queueCount; ++qi) {
-                VkBool32 supported = VK_FALSE;
-                const VkResult r = api.getPhysicalDeviceSurfaceSupportKHR ? api.getPhysicalDeviceSurfaceSupportKHR(device, qi, liveSurface, &supported) : VK_ERROR_EXTENSION_NOT_PRESENT;
-                if (r == VK_SUCCESS && supported == VK_TRUE) presentationSupported = true;
-                if (qi) out << ',';
-                out << "{\"queueFamily\":" << qi << ",\"supported\":" << jsonBool(r == VK_SUCCESS && supported == VK_TRUE) << "}";
-            }
-            out << "],\"presentationSupported\":" << jsonBool(presentationSupported);
-            VkSurfaceCapabilitiesKHR caps{};
-            VkResult capResult = VK_ERROR_EXTENSION_NOT_PRESENT;
-            if (getSurfaceCapabilities2Available) {
-                VkPhysicalDeviceSurfaceInfo2KHR info{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR, nullptr, liveSurface};
-                VkSurfaceCapabilities2KHR caps2{VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR, nullptr, {}};
-                capResult = api.getPhysicalDeviceSurfaceCapabilities2KHR(device, &info, &caps2);
-                if (capResult == VK_SUCCESS) caps = caps2.surfaceCapabilities;
-            } else if (api.getPhysicalDeviceSurfaceCapabilitiesKHR) {
-                capResult = api.getPhysicalDeviceSurfaceCapabilitiesKHR(device, liveSurface, &caps);
-            }
-            out << ",\"capabilityResult\":" << capResult;
-            if (capResult == VK_SUCCESS) {
-                out << ",\"minImageCount\":" << caps.minImageCount << ",\"maxImageCount\":" << caps.maxImageCount
-                    << ",\"currentExtent\":" << jsonString(std::to_string(caps.currentExtent.width) + " × " + std::to_string(caps.currentExtent.height))
-                    << ",\"minExtent\":" << jsonString(std::to_string(caps.minImageExtent.width) + " × " + std::to_string(caps.minImageExtent.height))
-                    << ",\"maxExtent\":" << jsonString(std::to_string(caps.maxImageExtent.width) + " × " + std::to_string(caps.maxImageExtent.height))
-                    << ",\"maxImageArrayLayers\":" << caps.maxImageArrayLayers << ",\"supportedTransforms\":" << caps.supportedTransforms
-                    << ",\"currentTransform\":" << caps.currentTransform << ",\"supportedCompositeAlpha\":" << caps.supportedCompositeAlpha
-                    << ",\"supportedUsageFlags\":" << caps.supportedUsageFlags;
-            }
-            g_probeStage = 25;
-            const SurfaceFormatEnumeration formatEnumeration = enumerateSurfaceFormatsRobust(api, device, liveSurface, getSurfaceCapabilities2Available);
-            out << ",\"formatQueryResult\":" << formatEnumeration.countResult
-                << ",\"formatQueryResultSecond\":" << formatEnumeration.dataResult
-                << ",\"formatQuerySecondAttempted\":" << jsonBool(formatEnumeration.dataAttempted)
-                << ",\"formatQuerySafetyRejected\":" << jsonBool(formatEnumeration.safetyRejected)
-                << ",\"formatEnumerationComplete\":" << jsonBool(formatEnumeration.complete)
-                << ",\"formats\":[";
-            for (size_t fi = 0; fi < formatEnumeration.values.size(); ++fi) {
-                if (fi) out << ',';
-                const auto& f = formatEnumeration.values[fi];
-                out << "{\"format\":" << jsonString(formatName(f.format)) << ",\"colorSpace\":" << jsonString(colorSpaceName(f.colorSpace))
-                    << ",\"class\":" << jsonString(colorSpaceClass(f.colorSpace)) << ",\"description\":" << jsonString(colorSpaceDescription(f.colorSpace)) << '}';
-            }
-            out << "]";
-            g_probeStage = 26;
-            const SurfacePresentModeEnumeration presentModeEnumeration = enumerateSurfacePresentModesRobust(api, device, liveSurface);
-            out << ",\"presentModeCountQueryResult\":" << presentModeEnumeration.countResult
-                << ",\"presentModeDataQueryResult\":" << presentModeEnumeration.dataResult
-                << ",\"presentModeDataQueryAttempted\":" << jsonBool(presentModeEnumeration.dataAttempted)
-                << ",\"presentModeQuerySafetyRejected\":" << jsonBool(presentModeEnumeration.safetyRejected)
-                << ",\"presentModeEnumerationComplete\":" << jsonBool(presentModeEnumeration.complete)
-                << ",\"presentModes\":[";
-            for (size_t mi = 0; mi < presentModeEnumeration.values.size(); ++mi) {
-                if (mi) out << ',';
-                out << jsonString(presentModeName(presentModeEnumeration.values[mi]));
-            }
-            out << "]}";
-        }
-        out << "}";
+        out << ",\"surface\":{\"available\":false,\"queryStatus\":\"unknown\",\"queryReason\":\"Base probe does not own final live-Surface evidence.\"}";
+        out << '}';
     }
     out << "]}";
     std::string finalResult = out.str();
-    if (!finalResult.empty() && finalResult.back() == '}') {
-        finalResult.pop_back();
-        finalResult += ",\"baseReportComplete\":true}";
-    } else {
-        finalResult += "\"baseReportComplete\":true}";
+    const bool baseReportComplete = deviceEnumerationComplete && allDeviceExtensionEnumerationsComplete;
+    const std::string completenessMarker = "\"baseReportComplete\":false";
+    const size_t completenessMarkerPos = finalResult.find(completenessMarker);
+    const bool uniqueCompletenessMarker = completenessMarkerPos != std::string::npos && finalResult.find(completenessMarker, completenessMarkerPos + completenessMarker.size()) == std::string::npos;
+    if (!uniqueCompletenessMarker || !jsonContainersBalanced(finalResult)) {
+        return "{\"status\":\"unavailable\",\"reason\":\"Base report terminal JSON construction failed.\",\"baseReportComplete\":false,\"devices\":[]}";
     }
-    publishProbeCheckpoint(checkpointPath, finalResult);
-    __android_log_print(ANDROID_LOG_INFO, "VulkanProbe", "base report complete checkpoint published before optional metadata");
-    api.destroyInstance(instance, nullptr);
+    finalResult.replace(completenessMarkerPos, completenessMarker.size(), std::string("\"baseReportComplete\":") + jsonBool(baseReportComplete));
+    const std::string deviceExtensionCompleteness = std::string(",\"deviceExtensionEnumerationsComplete\":") + jsonBool(allDeviceExtensionEnumerationsComplete) + ",\"deviceExtensionEnumerationReason\":" + jsonString(deviceExtensionEnumerationReason);
+    finalResult.pop_back();
+    finalResult += deviceExtensionCompleteness + "}";
+    if (!jsonContainersBalanced(finalResult)) {
+        return "{\"status\":\"unavailable\",\"reason\":\"Base report terminal JSON construction failed after completeness metadata.\",\"baseReportComplete\":false,\"devices\":[]}";
+    }
+    const bool finalCheckpointPublished = publishProbeCheckpoint(checkpointPath, finalResult);
+    if (finalPublicationOut) *finalPublicationOut = finalCheckpointPublished;
+    if (finalCheckpointPublished) {
+        __android_log_print(ANDROID_LOG_INFO, "VulkanProbe", baseReportComplete ? "base report complete checkpoint published before JNI return; terminal marker remains service-owned" : "partial base report checkpoint published before JNI return; terminal marker remains service-owned");
+    } else {
+        __android_log_print(ANDROID_LOG_ERROR, "VulkanProbe", "base terminal checkpoint publication failed before JNI return");
+    }
     return finalResult;
 }
 
@@ -2384,15 +2668,23 @@ std::string collectVulkanMetadata(const char* driverMode, const char* driverIcdP
     if (!api.open(driverMode, driverIcdPath, driverBundlePath, hookLibDir)) {
         return std::string("{\"status\":\"unavailable\",\"group\":\"metadata\",\"reason\":") + jsonString(api.openError.empty() ? "Vulkan loader unavailable" : api.openError) + ",\"instanceExtensions\":[],\"instanceLayers\":[]}";
     }
-    const auto instanceExts = instanceExtensions(api);
-    const auto instanceLayerValues = instanceLayers(api);
+    const auto instanceExtensionEnumeration = enumerateInstanceExtensions(api);
+    const auto instanceLayerEnumeration = enumerateInstanceLayers(api);
+    const auto& instanceExts = instanceExtensionEnumeration.values;
+    const auto& instanceLayerValues = instanceLayerEnumeration.values;
     std::ostringstream out;
     out << "{\"status\":\"available\",\"group\":\"metadata\",\"reason\":\"\"";
     out << ",\"registryCoverage\":" << registryCoverageJson();
     out << ",\"instanceExtensionDependencyQueryEnabled\":" << jsonBool(hasExtension(instanceExts, "VK_KHR_get_physical_device_properties2"));
+    out << ",\"instanceExtensionStatus\":" << jsonString(instanceExtensionEnumeration.status);
+    out << ",\"instanceExtensionReason\":" << jsonString(instanceExtensionEnumeration.reason);
+    out << ",\"instanceExtensionsComplete\":" << jsonBool(instanceExtensionEnumeration.complete);
     out << ",\"instanceExtensions\":" << extensionsJson(instanceExts, "Instance");
+    out << ",\"instanceLayerStatus\":" << jsonString(instanceLayerEnumeration.status);
+    out << ",\"instanceLayerReason\":" << jsonString(instanceLayerEnumeration.reason);
+    out << ",\"instanceLayersComplete\":" << jsonBool(instanceLayerEnumeration.complete);
     out << ",\"instanceLayers\":" << layersJson(api, instanceLayerValues);
-    out << ",\"instanceLayersComplete\":true,\"registryCoverageComplete\":true}";
+    out << ",\"registryCoverageComplete\":true}";
     return out.str();
 }
 
@@ -2421,22 +2713,34 @@ std::string collectVulkanCoreGroup(const char* driverMode, const char* driverIcd
         return std::string("{\"status\":\"unavailable\",\"group\":") + jsonString(group) + ",\"reason\":\"Vulkan extended physical-device query entry points are unavailable.\",\"devices\":[]}";
     }
     const auto queryDevicesResult = enumeratePhysicalDevicesRobust(api, instance);
-    const VkResult queryDeviceResult = queryDevicesResult.first;
-    std::vector<VkPhysicalDevice> devices = queryDevicesResult.second;
+    const VkResult queryDeviceResult = queryDevicesResult.result;
+    std::vector<VkPhysicalDevice> devices = queryDevicesResult.values;
     const uint32_t count = static_cast<uint32_t>(devices.size());
-    if (queryDeviceResult != VK_SUCCESS || count == 0) {
+    const bool physicalDeviceEnumerationComplete = queryDevicesResult.complete;
+    if (!queryDevicesResult.resultAvailable || (queryDevicesResult.safetyRejected && queryDevicesResult.values.empty())) {
         api.destroyInstance(instance, nullptr);
-        return std::string("{\"status\":\"not_applicable\",\"group\":") + jsonString(group) + ",\"reason\":\"No physical Vulkan devices were enumerated.\",\"devices\":[]}";
+        const std::string reason = queryDevicesResult.safetyRejected ? std::string("Physical-device enumeration was rejected by a local safety bound. ") + queryDevicesResult.localReason : queryDevicesResult.localReason;
+        return std::string("{\"status\":\"unavailable\",\"group\":") + jsonString(group) + ",\"reason\":" + jsonString(reason) + ",\"physicalDeviceEnumerationSafetyRejected\":" + jsonBool(queryDevicesResult.safetyRejected) + ",\"devices\":[]}";
+    }
+    if (queryDeviceResult != VK_SUCCESS && queryDeviceResult != VK_INCOMPLETE && queryDevicesResult.values.empty()) {
+        api.destroyInstance(instance, nullptr);
+        return std::string("{\"status\":\"unavailable\",\"group\":") + jsonString(group) + ",\"reason\":" + jsonString(std::string("vkEnumeratePhysicalDevices failed. VkResult=") + std::to_string(queryDeviceResult)) + ",\"devices\":[]}";
+    }
+    if (count == 0) {
+        api.destroyInstance(instance, nullptr);
+        const char* status = physicalDeviceEnumerationComplete ? "not_applicable" : "incomplete";
+        const char* reason = physicalDeviceEnumerationComplete ? "No physical Vulkan devices were enumerated." : "Physical-device enumeration remained VK_INCOMPLETE and returned no bounded partial device handles.";
+        return std::string("{\"status\":") + jsonString(status) + ",\"group\":" + jsonString(group) + ",\"reason\":" + jsonString(reason) + ",\"devices\":[]}";
     }
     std::ostringstream out;
-    out << "{\"status\":\"available\",\"group\":" << jsonString(group) << ",\"reason\":\"\",\"devices\":[";
+    out << "{\"status\":" << jsonString(physicalDeviceEnumerationComplete ? "available" : "incomplete") << ",\"group\":" << jsonString(group) << ",\"reason\":" << jsonString(physicalDeviceEnumerationComplete ? "" : (!queryDevicesResult.localReason.empty() ? queryDevicesResult.localReason : "Physical-device enumeration remained VK_INCOMPLETE; bounded partial positive evidence was retained.")) << ",\"physicalDeviceEnumerationResult\":" << static_cast<int>(queryDeviceResult) << ",\"physicalDeviceEnumerationComplete\":" << jsonBool(physicalDeviceEnumerationComplete) << ",\"devices\":[";
     bool firstDevice = true;
     bool matchedAny = false;
     for (uint32_t i = 0; i < count; ++i) {
         VkPhysicalDeviceProperties physicalProperties{};
         getDevicePropertiesPrimary(api, devices[i], physicalProperties);
         const uint32_t apiVersion = physicalProperties.apiVersion;
-        if (VK_API_VERSION_MINOR(apiVersion) < targetMinor) continue;
+        if (!apiVersionAtLeast(apiVersion, 1, targetMinor)) continue;
         matchedAny = true;
         const uint32_t vendorId = physicalProperties.vendorID;
         const uint32_t deviceId = physicalProperties.deviceID;
@@ -2454,6 +2758,7 @@ std::string collectVulkanCoreGroup(const char* driverMode, const char* driverIcd
     out << "]}";
     if (!matchedAny) {
         api.destroyInstance(instance, nullptr);
+        if (!physicalDeviceEnumerationComplete) return std::string("{\"status\":\"incomplete\",\"group\":") + jsonString(group) + ",\"reason\":\"Physical-device enumeration was incomplete, so absence of a device meeting the requested core API version cannot be established.\",\"devices\":[]}";
         return std::string("{\"status\":\"not_applicable\",\"group\":") + jsonString(group) + ",\"reason\":\"The installed Vulkan device API version is below the requested core version.\",\"devices\":[]}";
     }
     api.destroyInstance(instance, nullptr);
@@ -2495,21 +2800,53 @@ std::string collectVulkanExtensionGroup(const char* driverMode, const char* driv
         return std::string("{\"status\":\"unavailable\",\"group\":") + jsonString(group) + ",\"reason\":\"Vulkan extended physical-device query entry points are unavailable.\",\"devices\":[]}";
     }
     const auto extensionDevicesResult = enumeratePhysicalDevicesRobust(api, instance);
-    const VkResult extensionDeviceResult = extensionDevicesResult.first;
-    std::vector<VkPhysicalDevice> devices = extensionDevicesResult.second;
+    const VkResult extensionDeviceResult = extensionDevicesResult.result;
+    std::vector<VkPhysicalDevice> devices = extensionDevicesResult.values;
     const uint32_t count = static_cast<uint32_t>(devices.size());
-    if (extensionDeviceResult != VK_SUCCESS || count == 0) {
+    const bool physicalDeviceEnumerationComplete = extensionDevicesResult.complete;
+    if (!extensionDevicesResult.resultAvailable || (extensionDevicesResult.safetyRejected && extensionDevicesResult.values.empty())) {
         api.destroyInstance(instance, nullptr);
-        return std::string("{\"status\":\"not_applicable\",\"group\":") + jsonString(group) + ",\"reason\":\"No physical Vulkan devices were enumerated.\",\"devices\":[]}";
+        const std::string reason = extensionDevicesResult.safetyRejected ? std::string("Physical-device enumeration was rejected by a local safety bound. ") + extensionDevicesResult.localReason : extensionDevicesResult.localReason;
+        return std::string("{\"status\":\"unavailable\",\"group\":") + jsonString(group) + ",\"reason\":" + jsonString(reason) + ",\"physicalDeviceEnumerationSafetyRejected\":" + jsonBool(extensionDevicesResult.safetyRejected) + ",\"devices\":[]}";
+    }
+    if (extensionDeviceResult != VK_SUCCESS && extensionDeviceResult != VK_INCOMPLETE && extensionDevicesResult.values.empty()) {
+        api.destroyInstance(instance, nullptr);
+        return std::string("{\"status\":\"unavailable\",\"group\":") + jsonString(group) + ",\"reason\":" + jsonString(std::string("vkEnumeratePhysicalDevices failed. VkResult=") + std::to_string(extensionDeviceResult)) + ",\"devices\":[]}";
+    }
+    if (count == 0) {
+        api.destroyInstance(instance, nullptr);
+        const char* status = physicalDeviceEnumerationComplete ? "not_applicable" : "incomplete";
+        const char* reason = physicalDeviceEnumerationComplete ? "No physical Vulkan devices were enumerated." : "Physical-device enumeration remained VK_INCOMPLETE and returned no bounded partial device handles.";
+        return std::string("{\"status\":") + jsonString(status) + ",\"group\":" + jsonString(group) + ",\"reason\":" + jsonString(reason) + ",\"devices\":[]}";
     }
     std::ostringstream out;
-    out << "{\"status\":\"available\",\"group\":" << jsonString(group) << ",\"extension\":" << jsonString(extensionName) << ",\"reason\":\"\",\"devices\":[";
+    bool extensionQueryIncomplete = !physicalDeviceEnumerationComplete;
+    std::string extensionQueryReason = physicalDeviceEnumerationComplete ? "" : (!extensionDevicesResult.localReason.empty() ? extensionDevicesResult.localReason : "Physical-device enumeration remained VK_INCOMPLETE; bounded partial positive evidence was retained.");
+    auto markExtensionIncomplete = [&](const std::string& reason) {
+        extensionQueryIncomplete = true;
+        if (reason.empty() || extensionQueryReason.find(reason) != std::string::npos) return;
+        if (!extensionQueryReason.empty()) extensionQueryReason += " ";
+        extensionQueryReason += reason;
+    };
+    const std::string extensionStatusToken = "__VULKANSCOPE_EXTENSION_STATUS__";
+    const std::string extensionReasonToken = "__VULKANSCOPE_EXTENSION_REASON__";
+    out << "{\"status\":" << jsonString(extensionStatusToken) << ",\"group\":" << jsonString(group) << ",\"extension\":" << jsonString(extensionName) << ",\"reason\":" << jsonString(extensionReasonToken) << ",\"physicalDeviceEnumerationResult\":" << static_cast<int>(extensionDeviceResult) << ",\"physicalDeviceEnumerationComplete\":" << jsonBool(physicalDeviceEnumerationComplete) << ",\"devices\":[";
     bool firstDevice = true;
     bool matchedAny = false;
+    bool extensionEnumerationUncertain = false;
+    bool extensionEnumerationIncomplete = false;
+    std::string extensionEnumerationReason;
     for (uint32_t i = 0; i < count; ++i) {
         const auto deviceExtensionEnumeration = enumerateDeviceExtensions(api, devices[i]);
         const auto& devExts = deviceExtensions(deviceExtensionEnumeration);
-        if (!hasExtension(devExts, extensionName) && group && std::strcmp(group, "videoCapabilities") != 0) continue;
+        const bool extensionPresent = hasExtension(devExts, extensionName);
+        if (std::strcmp(deviceExtensionEnumeration.status, "available") != 0) {
+            extensionEnumerationUncertain = true;
+            if (std::strcmp(deviceExtensionEnumeration.status, "incomplete") == 0) extensionEnumerationIncomplete = true;
+            if (extensionEnumerationReason.empty()) extensionEnumerationReason = deviceExtensionEnumeration.reason;
+            markExtensionIncomplete(deviceExtensionEnumeration.reason.empty() ? "Device-extension enumeration was incomplete or unavailable for at least one physical device; extension absence cannot be established there." : deviceExtensionEnumeration.reason);
+        }
+        if (!extensionPresent) continue;
         matchedAny = true;
         VkPhysicalDeviceProperties physicalProperties{};
         getDevicePropertiesPrimary(api, devices[i], physicalProperties);
@@ -2520,11 +2857,16 @@ std::string collectVulkanExtensionGroup(const char* driverMode, const char* driv
         struct GroupProperty { std::string section; std::string name; std::string value; };
         std::vector<GroupFeature> featureEntries;
         std::vector<GroupProperty> propertyEntries;
+        const std::string genericPropertySection = extensionName[0] ? (std::string("Extension · ") + extensionName) : "Advanced Query";
         auto addFeature = [&](const char* featureName, VkBool32 value) { featureEntries.push_back({std::string(extensionName) + " · " + featureName, value == VK_TRUE}); };
-        auto hasExt = [&](const char* name) { return hasExtension(devExts, name); };
         auto addProperty = [&](const std::string& propertyName, const std::string& value) {
-            const std::string section = extensionName[0] ? (std::string("Extension · ") + extensionName) : "Advanced Query";
-            propertyEntries.push_back({section, propertyName, value});
+            propertyEntries.push_back({genericPropertySection, propertyName, value});
+        };
+        auto propertyValuesEquivalent = [](const std::string& left, const std::string& right) {
+            if (left == right) return true;
+            if (!left.empty() && right.rfind(left + " (0x", 0) == 0) return true;
+            if (!right.empty() && left.rfind(right + " (0x", 0) == 0) return true;
+            return false;
         };
         if (std::strcmp(extensionName, "VK_EXT_descriptor_buffer") == 0 || std::strcmp(group, "descriptorBuffer") == 0) {
             VkPhysicalDeviceDescriptorBufferFeaturesEXT f{};
@@ -2733,7 +3075,7 @@ std::string collectVulkanExtensionGroup(const char* driverMode, const char* driv
                 if (type == VK_COMPONENT_TYPE_FLOAT4_E2M1_EXT) return "VK_COMPONENT_TYPE_FLOAT4_E2M1_EXT";
                 if (type == VK_COMPONENT_TYPE_FLOAT8_UNSIGNED_E8M0_EXT) return "VK_COMPONENT_TYPE_FLOAT8_UNSIGNED_E8M0_EXT";
                 if (type == VK_COMPONENT_TYPE_MXINT8_EXT) return "VK_COMPONENT_TYPE_MXINT8_EXT";
-                return "UNKNOWN_VK_COMPONENT_TYPE_KHR";
+                return "UNKNOWN";
             };
             VkPhysicalDeviceCooperativeMatrixMaintenance1FeaturesEXT maintenance{};
             maintenance.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_MAINTENANCE_1_FEATURES_EXT;
@@ -2752,11 +3094,13 @@ std::string collectVulkanExtensionGroup(const char* driverMode, const char* driv
                 info.flags = 0;
                 uint32_t propertyCount = 0;
                 VkResult propertyResult = api.getPhysicalDeviceCooperativeMatrixProperties2EXT(devices[i], &info, &propertyCount, nullptr);
+                if (propertyResult == VK_INCOMPLETE) markExtensionIncomplete("vkGetPhysicalDeviceCooperativeMatrixProperties2EXT count query returned VK_INCOMPLETE; bounded partial property evidence is not a complete enumeration.");
                 if ((propertyResult == VK_SUCCESS || propertyResult == VK_INCOMPLETE) && propertyCount <= 4096) {
                     std::vector<VkCooperativeMatrixProperties2EXT> properties(propertyCount);
                     for (auto& property : properties) { property.sType = VK_STRUCTURE_TYPE_COOPERATIVE_MATRIX_PROPERTIES_2_EXT; property.pNext = nullptr; }
                     const size_t propertyCapacity = properties.size();
                     if (propertyCount > 0) propertyResult = api.getPhysicalDeviceCooperativeMatrixProperties2EXT(devices[i], &info, &propertyCount, properties.data());
+                    if (propertyResult == VK_INCOMPLETE) markExtensionIncomplete("vkGetPhysicalDeviceCooperativeMatrixProperties2EXT data query returned VK_INCOMPLETE; bounded partial property evidence was retained.");
                     if (propertyCount > propertyCapacity) {
                         addProperty("cooperativeMatrixProperties2Query", "Unavailable: data query count exceeded the bounded allocation.");
                         addProperty("cooperativeMatrixProperties2Count", std::to_string(propertyCount));
@@ -2793,212 +3137,7 @@ std::string collectVulkanExtensionGroup(const char* driverMode, const char* driv
             }
         }
         const char* groupName = group;
-        if (std::strcmp(groupName, "videoCapabilities") == 0) {
-            const bool videoQueue = hasExt("VK_KHR_video_queue");
-            if (!videoQueue) {
-                addProperty("queryStatus", "Unavailable: VK_KHR_video_queue is not enumerated by this physical device.");
-            } else if (!api.getPhysicalDeviceVideoCapabilitiesKHR) {
-                addProperty("queryStatus", "Unavailable: vkGetPhysicalDeviceVideoCapabilitiesKHR is unavailable in this Vulkan stack.");
-            } else {
-                auto makeBaseProfile = [](VkVideoCodecOperationFlagsKHR operation) {
-                    VkVideoProfileInfoKHR p{};
-                    p.sType = VK_STRUCTURE_TYPE_VIDEO_PROFILE_INFO_KHR;
-                    p.pNext = nullptr;
-                    p.videoCodecOperation = static_cast<VkVideoCodecOperationFlagBitsKHR>(operation);
-                    p.chromaSubsampling = VK_VIDEO_CHROMA_SUBSAMPLING_420_BIT_KHR;
-                    p.lumaBitDepth = VK_VIDEO_COMPONENT_BIT_DEPTH_8_BIT_KHR;
-                    p.chromaBitDepth = VK_VIDEO_COMPONENT_BIT_DEPTH_8_BIT_KHR;
-                    return p;
-                };
-                auto emitDecode = [&](const char* name, const char* extension, VkVideoCodecOperationFlagsKHR operation, uint32_t profileSType, uint32_t profileValue, uint32_t capSType) {
-                    if (!hasExt(extension) || !hasExt("VK_KHR_video_decode_queue")) {
-                        addProperty(std::string("Video · ") + name, "Unavailable: required video decode extension is not enumerated.");
-                        return;
-                    }
-                    VkVideoProfileInfoKHR profile = makeBaseProfile(operation);
-                    if (std::strcmp(name, "H.264 decode") == 0) {
-                        VkVideoDecodeH264ProfileInfoKHR codec{};
-                        codec.sType = static_cast<VkStructureType>(profileSType); codec.pNext = nullptr; codec.stdProfileIdc = static_cast<StdVideoH264ProfileIdc>(profileValue); codec.pictureLayout = VK_VIDEO_DECODE_H264_PICTURE_LAYOUT_PROGRESSIVE_KHR;
-                        profile.pNext = &codec;
-                        VkVideoDecodeH264CapabilitiesKHR codecCaps{};
-                        codecCaps.sType = static_cast<VkStructureType>(capSType); codecCaps.pNext = nullptr;
-                        VkVideoDecodeCapabilitiesKHR decodeCaps{};
-                        decodeCaps.sType = VK_STRUCTURE_TYPE_VIDEO_DECODE_CAPABILITIES_KHR;
-                        decodeCaps.pNext = &codecCaps;
-                        VkVideoCapabilitiesKHR caps{};
-                        caps.sType = VK_STRUCTURE_TYPE_VIDEO_CAPABILITIES_KHR;
-                        caps.pNext = &decodeCaps;
-                        const VkResult r = api.getPhysicalDeviceVideoCapabilitiesKHR(devices[i], &profile, &caps);
-                        addProperty(std::string("Video · ") + name + " status", r == VK_SUCCESS ? "Supported" : ("Unavailable (VkResult=" + std::to_string(r) + ")"));
-                        if (r == VK_SUCCESS) {
-                            addProperty(std::string("Video · ") + name + " maxLevelIdc", std::to_string(codecCaps.maxLevelIdc));
-                            addProperty(std::string("Video · ") + name + " fieldOffsetGranularity", std::to_string(codecCaps.fieldOffsetGranularity.x) + " × " + std::to_string(codecCaps.fieldOffsetGranularity.y));
-                            addProperty(std::string("Video · ") + name + " codedExtent", std::to_string(caps.minCodedExtent.width) + " × " + std::to_string(caps.minCodedExtent.height) + " .. " + std::to_string(caps.maxCodedExtent.width) + " × " + std::to_string(caps.maxCodedExtent.height));
-                            addProperty(std::string("Video · ") + name + " DPB", std::to_string(caps.maxDpbSlots) + " slots / " + std::to_string(caps.maxActiveReferencePictures) + " active refs");
-                            addProperty(std::string("Video · ") + name + " bitstreamAlignment", std::to_string(caps.minBitstreamBufferOffsetAlignment) + " offset / " + std::to_string(caps.minBitstreamBufferSizeAlignment) + " size");
-                            addProperty(std::string("Video · ") + name + " stdHeader", std::string(caps.stdHeaderVersion.extensionName) + " " + std::to_string(caps.stdHeaderVersion.specVersion));
-                        }
-                    } else if (std::strcmp(name, "H.265 decode") == 0) {
-                        VkVideoDecodeH265ProfileInfoKHR codec{};
-                        codec.sType = static_cast<VkStructureType>(profileSType); codec.pNext = nullptr; codec.stdProfileIdc = static_cast<StdVideoH265ProfileIdc>(profileValue);
-                        profile.pNext = &codec;
-                        VkVideoDecodeH265CapabilitiesKHR codecCaps{};
-                        codecCaps.sType = static_cast<VkStructureType>(capSType); codecCaps.pNext = nullptr;
-                        VkVideoDecodeCapabilitiesKHR decodeCaps{};
-                        decodeCaps.sType = VK_STRUCTURE_TYPE_VIDEO_DECODE_CAPABILITIES_KHR;
-                        decodeCaps.pNext = &codecCaps;
-                        VkVideoCapabilitiesKHR caps{};
-                        caps.sType = VK_STRUCTURE_TYPE_VIDEO_CAPABILITIES_KHR;
-                        caps.pNext = &decodeCaps;
-                        const VkResult r = api.getPhysicalDeviceVideoCapabilitiesKHR(devices[i], &profile, &caps);
-                        addProperty(std::string("Video · ") + name + " status", r == VK_SUCCESS ? "Supported" : ("Unavailable (VkResult=" + std::to_string(r) + ")"));
-                        if (r == VK_SUCCESS) {
-                            addProperty(std::string("Video · ") + name + " maxLevelIdc", std::to_string(codecCaps.maxLevelIdc));
-                            addProperty(std::string("Video · ") + name + " codedExtent", std::to_string(caps.minCodedExtent.width) + " × " + std::to_string(caps.minCodedExtent.height) + " .. " + std::to_string(caps.maxCodedExtent.width) + " × " + std::to_string(caps.maxCodedExtent.height));
-                            addProperty(std::string("Video · ") + name + " DPB", std::to_string(caps.maxDpbSlots) + " slots / " + std::to_string(caps.maxActiveReferencePictures) + " active refs");
-                            addProperty(std::string("Video · ") + name + " bitstreamAlignment", std::to_string(caps.minBitstreamBufferOffsetAlignment) + " offset / " + std::to_string(caps.minBitstreamBufferSizeAlignment) + " size");
-                            addProperty(std::string("Video · ") + name + " stdHeader", std::string(caps.stdHeaderVersion.extensionName) + " " + std::to_string(caps.stdHeaderVersion.specVersion));
-                        }
-                    } else if (std::strcmp(name, "VP9 decode") == 0) {
-                        VkVideoDecodeVP9ProfileInfoKHR codec{};
-                        codec.sType = static_cast<VkStructureType>(profileSType); codec.pNext = nullptr; codec.stdProfile = static_cast<StdVideoVP9Profile>(profileValue);
-                        profile.pNext = &codec;
-                        VkVideoDecodeVP9CapabilitiesKHR codecCaps{};
-                        codecCaps.sType = static_cast<VkStructureType>(capSType); codecCaps.pNext = nullptr;
-                        VkVideoDecodeCapabilitiesKHR decodeCaps{};
-                        decodeCaps.sType = VK_STRUCTURE_TYPE_VIDEO_DECODE_CAPABILITIES_KHR;
-                        decodeCaps.pNext = &codecCaps;
-                        VkVideoCapabilitiesKHR caps{};
-                        caps.sType = VK_STRUCTURE_TYPE_VIDEO_CAPABILITIES_KHR;
-                        caps.pNext = &decodeCaps;
-                        const VkResult r = api.getPhysicalDeviceVideoCapabilitiesKHR(devices[i], &profile, &caps);
-                        addProperty(std::string("Video · ") + name + " status", r == VK_SUCCESS ? "Supported" : ("Unavailable (VkResult=" + std::to_string(r) + ")"));
-                        if (r == VK_SUCCESS) {
-                            addProperty(std::string("Video · ") + name + " maxLevel", std::to_string(codecCaps.maxLevel));
-                            addProperty(std::string("Video · ") + name + " codedExtent", std::to_string(caps.minCodedExtent.width) + " × " + std::to_string(caps.minCodedExtent.height) + " .. " + std::to_string(caps.maxCodedExtent.width) + " × " + std::to_string(caps.maxCodedExtent.height));
-                            addProperty(std::string("Video · ") + name + " DPB", std::to_string(caps.maxDpbSlots) + " slots / " + std::to_string(caps.maxActiveReferencePictures) + " active refs");
-                        }
-                    } else {
-                        VkVideoDecodeAV1ProfileInfoKHR codec{};
-                        codec.sType = static_cast<VkStructureType>(profileSType); codec.pNext = nullptr; codec.stdProfile = static_cast<StdVideoAV1Profile>(profileValue); codec.filmGrainSupport = VK_FALSE;
-                        profile.pNext = &codec;
-                        VkVideoDecodeAV1CapabilitiesKHR codecCaps{};
-                        codecCaps.sType = static_cast<VkStructureType>(capSType); codecCaps.pNext = nullptr;
-                        VkVideoDecodeCapabilitiesKHR decodeCaps{};
-                        decodeCaps.sType = VK_STRUCTURE_TYPE_VIDEO_DECODE_CAPABILITIES_KHR;
-                        decodeCaps.pNext = &codecCaps;
-                        VkVideoCapabilitiesKHR caps{};
-                        caps.sType = VK_STRUCTURE_TYPE_VIDEO_CAPABILITIES_KHR;
-                        caps.pNext = &decodeCaps;
-                        const VkResult r = api.getPhysicalDeviceVideoCapabilitiesKHR(devices[i], &profile, &caps);
-                        addProperty(std::string("Video · ") + name + " status", r == VK_SUCCESS ? "Supported" : ("Unavailable (VkResult=" + std::to_string(r) + ")"));
-                        if (r == VK_SUCCESS) {
-                            addProperty(std::string("Video · ") + name + " maxLevel", std::to_string(codecCaps.maxLevel));
-                            addProperty(std::string("Video · ") + name + " codedExtent", std::to_string(caps.minCodedExtent.width) + " × " + std::to_string(caps.minCodedExtent.height) + " .. " + std::to_string(caps.maxCodedExtent.width) + " × " + std::to_string(caps.maxCodedExtent.height));
-                            addProperty(std::string("Video · ") + name + " DPB", std::to_string(caps.maxDpbSlots) + " slots / " + std::to_string(caps.maxActiveReferencePictures) + " active refs");
-                        }
-                    }
-                };
-
-                auto emitEncode = [&](const char* name, const char* extension, VkVideoCodecOperationFlagsKHR operation, uint32_t profileSType, uint32_t profileValue) {
-                    if (!hasExt(extension) || !hasExt("VK_KHR_video_encode_queue")) {
-                        addProperty(std::string("Video · ") + name, "Unavailable: required video encode extension is not enumerated.");
-                        return;
-                    }
-                    VkVideoProfileInfoKHR profile = makeBaseProfile(operation);
-                    alignas(VkVideoEncodeAV1ProfileInfoKHR) std::array<uint8_t, 64> profileStorage{};
-                    if (std::strcmp(name, "H.264 encode") == 0) {
-                        auto* codec = reinterpret_cast<VkVideoEncodeH264ProfileInfoKHR*>(profileStorage.data());
-                        codec->sType = static_cast<VkStructureType>(profileSType); codec->pNext = nullptr; codec->stdProfileIdc = static_cast<StdVideoH264ProfileIdc>(profileValue);
-                        profile.pNext = codec;
-                    } else if (std::strcmp(name, "H.265 encode") == 0) {
-                        auto* codec = reinterpret_cast<VkVideoEncodeH265ProfileInfoKHR*>(profileStorage.data());
-                        codec->sType = static_cast<VkStructureType>(profileSType); codec->pNext = nullptr; codec->stdProfileIdc = static_cast<StdVideoH265ProfileIdc>(profileValue);
-                        profile.pNext = codec;
-                    } else {
-                        auto* codec = reinterpret_cast<VkVideoEncodeAV1ProfileInfoKHR*>(profileStorage.data());
-                        codec->sType = static_cast<VkStructureType>(profileSType); codec->pNext = nullptr; codec->stdProfile = static_cast<StdVideoAV1Profile>(profileValue);
-                        profile.pNext = codec;
-                    }
-                    VkVideoEncodeCapabilitiesKHR encodeCaps{};
-                    encodeCaps.sType = VK_STRUCTURE_TYPE_VIDEO_ENCODE_CAPABILITIES_KHR;
-                    encodeCaps.pNext = nullptr;
-                    VkVideoCapabilitiesKHR caps{};
-                    caps.sType = VK_STRUCTURE_TYPE_VIDEO_CAPABILITIES_KHR;
-                    caps.pNext = &encodeCaps;
-                    const VkResult r = api.getPhysicalDeviceVideoCapabilitiesKHR(devices[i], &profile, &caps);
-                    addProperty(std::string("Video · ") + name + " status", r == VK_SUCCESS ? "Supported" : ("Unavailable (VkResult=" + std::to_string(r) + ")"));
-                    if (r == VK_SUCCESS) {
-                        addProperty(std::string("Video · ") + name + " maxBitrate", std::to_string(encodeCaps.maxBitrate));
-                        addProperty(std::string("Video · ") + name + " maxQualityLevels", std::to_string(encodeCaps.maxQualityLevels));
-                        addProperty(std::string("Video · ") + name + " maxRateControlLayers", std::to_string(encodeCaps.maxRateControlLayers));
-                        addProperty(std::string("Video · ") + name + " rateControlModes", std::to_string(encodeCaps.rateControlModes));
-                        addProperty(std::string("Video · ") + name + " supportedEncodeFeedbackFlags", std::to_string(encodeCaps.supportedEncodeFeedbackFlags));
-                        addProperty(std::string("Video · ") + name + " codedExtent", std::to_string(caps.minCodedExtent.width) + " × " + std::to_string(caps.minCodedExtent.height) + " .. " + std::to_string(caps.maxCodedExtent.width) + " × " + std::to_string(caps.maxCodedExtent.height));
-                        addProperty(std::string("Video · ") + name + " stdHeader", std::string(caps.stdHeaderVersion.extensionName) + " " + std::to_string(caps.stdHeaderVersion.specVersion));
-                    }
-                };
-
-                emitDecode("H.264 decode", "VK_KHR_video_decode_h264", VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR, VK_STRUCTURE_TYPE_VIDEO_DECODE_H264_PROFILE_INFO_KHR, STD_VIDEO_H264_PROFILE_IDC_BASELINE, VK_STRUCTURE_TYPE_VIDEO_DECODE_H264_CAPABILITIES_KHR);
-                emitDecode("H.265 decode", "VK_KHR_video_decode_h265", VK_VIDEO_CODEC_OPERATION_DECODE_H265_BIT_KHR, VK_STRUCTURE_TYPE_VIDEO_DECODE_H265_PROFILE_INFO_KHR, STD_VIDEO_H265_PROFILE_IDC_MAIN, VK_STRUCTURE_TYPE_VIDEO_DECODE_H265_CAPABILITIES_KHR);
-                emitDecode("VP9 decode", "VK_KHR_video_decode_vp9", VK_VIDEO_CODEC_OPERATION_DECODE_VP9_BIT_KHR, VK_STRUCTURE_TYPE_VIDEO_DECODE_VP9_PROFILE_INFO_KHR, STD_VIDEO_VP9_PROFILE_0, VK_STRUCTURE_TYPE_VIDEO_DECODE_VP9_CAPABILITIES_KHR);
-                emitDecode("AV1 decode", "VK_KHR_video_decode_av1", VK_VIDEO_CODEC_OPERATION_DECODE_AV1_BIT_KHR, VK_STRUCTURE_TYPE_VIDEO_DECODE_AV1_PROFILE_INFO_KHR, STD_VIDEO_AV1_PROFILE_MAIN, VK_STRUCTURE_TYPE_VIDEO_DECODE_AV1_CAPABILITIES_KHR);
-                emitEncode("H.264 encode", "VK_KHR_video_encode_h264", VK_VIDEO_CODEC_OPERATION_ENCODE_H264_BIT_KHR, VK_STRUCTURE_TYPE_VIDEO_ENCODE_H264_PROFILE_INFO_KHR, STD_VIDEO_H264_PROFILE_IDC_MAIN);
-                emitEncode("H.265 encode", "VK_KHR_video_encode_h265", VK_VIDEO_CODEC_OPERATION_ENCODE_H265_BIT_KHR, VK_STRUCTURE_TYPE_VIDEO_ENCODE_H265_PROFILE_INFO_KHR, STD_VIDEO_H265_PROFILE_IDC_MAIN);
-                emitEncode("AV1 encode", "VK_KHR_video_encode_av1", VK_VIDEO_CODEC_OPERATION_ENCODE_AV1_BIT_KHR, VK_STRUCTURE_TYPE_VIDEO_ENCODE_AV1_PROFILE_INFO_KHR, STD_VIDEO_AV1_PROFILE_MAIN);
-
-                if (api.getPhysicalDeviceVideoFormatPropertiesKHR) {
-                    auto queryVideoFormats = [&](const char* name, VkVideoCodecOperationFlagsKHR op, const char* extension, uint32_t codecSType, uint32_t profileValue) {
-                        if (!hasExt(extension) || !hasExt("VK_KHR_video_decode_queue")) return;
-                        VkVideoProfileInfoKHR profile = makeBaseProfile(op);
-                        alignas(VkVideoDecodeAV1ProfileInfoKHR) std::array<uint8_t, 64> codecStorage{};
-                        if (std::strcmp(name, "H.264") == 0) {
-                            auto* codec = reinterpret_cast<VkVideoDecodeH264ProfileInfoKHR*>(codecStorage.data()); codec->sType = static_cast<VkStructureType>(codecSType); codec->pNext = nullptr; codec->stdProfileIdc = static_cast<StdVideoH264ProfileIdc>(profileValue); codec->pictureLayout = VK_VIDEO_DECODE_H264_PICTURE_LAYOUT_PROGRESSIVE_KHR; profile.pNext = codec;
-                        } else if (std::strcmp(name, "H.265") == 0) {
-                            auto* codec = reinterpret_cast<VkVideoDecodeH265ProfileInfoKHR*>(codecStorage.data()); codec->sType = static_cast<VkStructureType>(codecSType); codec->pNext = nullptr; codec->stdProfileIdc = static_cast<StdVideoH265ProfileIdc>(profileValue); profile.pNext = codec;
-                        } else if (std::strcmp(name, "VP9") == 0) {
-                            auto* codec = reinterpret_cast<VkVideoDecodeVP9ProfileInfoKHR*>(codecStorage.data()); codec->sType = static_cast<VkStructureType>(codecSType); codec->pNext = nullptr; codec->stdProfile = static_cast<StdVideoVP9Profile>(profileValue); profile.pNext = codec;
-                        } else {
-                            auto* codec = reinterpret_cast<VkVideoDecodeAV1ProfileInfoKHR*>(codecStorage.data()); codec->sType = static_cast<VkStructureType>(codecSType); codec->pNext = nullptr; codec->stdProfile = static_cast<StdVideoAV1Profile>(profileValue); codec->filmGrainSupport = VK_FALSE; profile.pNext = codec;
-                        }
-                        VkVideoProfileListInfoKHR list{VK_STRUCTURE_TYPE_VIDEO_PROFILE_LIST_INFO_KHR, nullptr, 1, &profile};
-                        VkPhysicalDeviceVideoFormatInfoKHR info{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VIDEO_FORMAT_INFO_KHR, &list, VK_IMAGE_USAGE_SAMPLED_BIT};
-                        uint32_t formatCount = 0;
-                        VkResult r = api.getPhysicalDeviceVideoFormatPropertiesKHR(devices[i], &info, &formatCount, nullptr);
-                        if (r != VK_SUCCESS || formatCount == 0) {
-                            addProperty(std::string("Video formats · ") + name + " decode (sampled)", "Unavailable (VkResult=" + std::to_string(r) + ")");
-                            return;
-                        }
-                        if (formatCount > kMaxVideoFormatEntries) {
-                            addProperty(std::string("Video formats · ") + name + " decode (sampled)", "Unavailable: result count exceeds safety limit.");
-                            return;
-                        }
-                        std::vector<VkVideoFormatPropertiesKHR> formats(formatCount);
-                        for (auto& f : formats) { f.sType = VK_STRUCTURE_TYPE_VIDEO_FORMAT_PROPERTIES_KHR; f.pNext = nullptr; }
-                        r = api.getPhysicalDeviceVideoFormatPropertiesKHR(devices[i], &info, &formatCount, formats.data());
-                        if (r != VK_SUCCESS && r != VK_INCOMPLETE) {
-                            addProperty(std::string("Video formats · ") + name + " decode (sampled)", "Unavailable (VkResult=" + std::to_string(r) + ")");
-                            return;
-                        }
-                        if (formatCount > formats.size()) {
-                            addProperty(std::string("Video formats · ") + name + " decode (sampled)", "Unavailable: data query count exceeded the bounded allocation.");
-                            return;
-                        }
-                        std::ostringstream values;
-                        if (r == VK_INCOMPLETE) values << "Partial: VK_INCOMPLETE; returned entries are positive evidence only. ";
-                        for (uint32_t fi = 0; fi < formatCount; ++fi) {
-                            if (fi) values << "; ";
-                            values << formatName(formats[fi].format) << " (usage=0x" << std::hex << formats[fi].imageUsageFlags << std::dec << ")";
-                        }
-                        addProperty(std::string("Video formats · ") + name + " decode (sampled)", values.str());
-                    };
-                    queryVideoFormats("H.264", VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR, "VK_KHR_video_decode_h264", VK_STRUCTURE_TYPE_VIDEO_DECODE_H264_PROFILE_INFO_KHR, STD_VIDEO_H264_PROFILE_IDC_BASELINE);
-                    queryVideoFormats("H.265", VK_VIDEO_CODEC_OPERATION_DECODE_H265_BIT_KHR, "VK_KHR_video_decode_h265", VK_STRUCTURE_TYPE_VIDEO_DECODE_H265_PROFILE_INFO_KHR, STD_VIDEO_H265_PROFILE_IDC_MAIN);
-                    queryVideoFormats("VP9", VK_VIDEO_CODEC_OPERATION_DECODE_VP9_BIT_KHR, "VK_KHR_video_decode_vp9", VK_STRUCTURE_TYPE_VIDEO_DECODE_VP9_PROFILE_INFO_KHR, STD_VIDEO_VP9_PROFILE_0);
-                    queryVideoFormats("AV1", VK_VIDEO_CODEC_OPERATION_DECODE_AV1_BIT_KHR, "VK_KHR_video_decode_av1", VK_STRUCTURE_TYPE_VIDEO_DECODE_AV1_PROFILE_INFO_KHR, STD_VIDEO_AV1_PROFILE_MAIN);
-                }
-            }
-        } else if (std::strcmp(groupName, "videoEncodeFeedback2") == 0) {
+        if (std::strcmp(groupName, "videoEncodeFeedback2") == 0) {
             VkPhysicalDeviceVideoEncodeFeedback2FeaturesKHR f{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VIDEO_ENCODE_FEEDBACK_2_FEATURES_KHR,nullptr,VK_FALSE};
             VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,&f,{}};
             api.queryFeatures2(devices[i], &f2);
@@ -3301,8 +3440,16 @@ std::string collectVulkanExtensionGroup(const char* driverMode, const char* driv
                 if (!duplicate) featureEntries.push_back({generated.name, generated.value == "true"});
             } else {
                 bool duplicate = false;
-                for (const auto& existing : propertyEntries) {
-                    if (existing.name == generated.name) { duplicate = true; break; }
+                for (auto& existing : propertyEntries) {
+                    if (existing.section == generated.section && existing.name == generated.name && propertyValuesEquivalent(existing.value, generated.value)) {
+                        duplicate = true;
+                        break;
+                    }
+                    if (existing.section == genericPropertySection && existing.name == generated.name && propertyValuesEquivalent(existing.value, generated.value)) {
+                        existing.section = generated.section;
+                        duplicate = true;
+                        break;
+                    }
                 }
                 if (!duplicate) propertyEntries.push_back({generated.section, generated.name, generated.value});
             }
@@ -3324,8 +3471,25 @@ std::string collectVulkanExtensionGroup(const char* driverMode, const char* driv
     }
     out << "]}";
     api.destroyInstance(instance, nullptr);
-    if (!matchedAny) return std::string("{\"status\":\"not_applicable\",\"group\":") + jsonString(group) + ",\"extension\":" + jsonString(extensionName) + ",\"reason\":\"The selected extension was not enumerated by any physical device.\",\"devices\":[]}";
-    return out.str();
+    if (!matchedAny && !physicalDeviceEnumerationComplete) {
+        return std::string("{\"status\":\"incomplete\",\"group\":") + jsonString(group) + ",\"extension\":" + jsonString(extensionName) + ",\"reason\":\"Physical-device enumeration was incomplete, so extension absence cannot be established across all devices.\",\"devices\":[]}";
+    }
+    if (!matchedAny && extensionEnumerationIncomplete) {
+        return std::string("{\"status\":\"incomplete\",\"group\":") + jsonString(group) + ",\"extension\":" + jsonString(extensionName) + ",\"reason\":" + jsonString(extensionEnumerationReason.empty() ? "Device-extension enumeration remained VK_INCOMPLETE, so extension absence cannot be established." : extensionEnumerationReason) + ",\"devices\":[]}";
+    }
+    if (!matchedAny && extensionEnumerationUncertain) {
+        return std::string("{\"status\":\"unavailable\",\"group\":") + jsonString(group) + ",\"extension\":" + jsonString(extensionName) + ",\"reason\":" + jsonString(extensionEnumerationReason.empty() ? "Device-extension enumeration was unavailable, so extension applicability could not be established." : extensionEnumerationReason) + ",\"devices\":[]}";
+    }
+    if (!matchedAny) return std::string("{\"status\":\"not_applicable\",\"group\":") + jsonString(group) + ",\"extension\":" + jsonString(extensionName) + ",\"reason\":\"The selected extension was not enumerated by any physical device after complete extension enumeration.\",\"devices\":[]}";
+    std::string extensionJson = out.str();
+    auto replaceExtensionToken = [&](const std::string& token, const std::string& value) {
+        const std::string encodedToken = jsonString(token);
+        const std::size_t position = extensionJson.find(encodedToken);
+        if (position != std::string::npos) extensionJson.replace(position, encodedToken.size(), jsonString(value));
+    };
+    replaceExtensionToken(extensionStatusToken, extensionQueryIncomplete ? "incomplete" : "available");
+    replaceExtensionToken(extensionReasonToken, extensionQueryReason);
+    return extensionJson;
 }
 
 std::string collectVulkan14(const char* driverMode, const char* driverIcdPath, const char* driverBundlePath, const char* hookLibDir) {
@@ -3344,29 +3508,39 @@ std::string collectVulkan14(const char* driverMode, const char* driverIcdPath, c
     g_probeStage = 2;
     const VkResult createResult = api.createInstanceCompatible(loaderVersion, queryInstanceExtensions, &instance, &selectedInstanceApiVersion);
     if (createResult != VK_SUCCESS || !instance) {
-        return std::string("{\"status\":\"unavailable\",\"reason\":") + jsonString(std::string("Unable to create Vulkan instance for the isolated Vulkan 1.4 probe. VkResult=") + std::to_string(createResult)) + ",\"devices\":[]}";
+        return std::string("{\"status\":\"unavailable\",\"reason\":") + jsonString(std::string("Unable to create Vulkan instance for the dedicated Vulkan 1.4 probe. VkResult=") + std::to_string(createResult)) + ",\"devices\":[]}";
     }
     if (!api.loadInstanceFunctions(instance) || !api.getPhysicalDeviceProperties2 || !api.getPhysicalDeviceFeatures2) {
         api.destroyInstance(instance, nullptr);
         return "{\"status\":\"unavailable\",\"reason\":\"Vulkan 1.4 probe entry points are unavailable.\",\"devices\":[]}";
     }
     const auto v14DevicesResult = enumeratePhysicalDevicesRobust(api, instance);
-    const VkResult v14DeviceResult = v14DevicesResult.first;
-    std::vector<VkPhysicalDevice> devices = v14DevicesResult.second;
+    const VkResult v14DeviceResult = v14DevicesResult.result;
+    std::vector<VkPhysicalDevice> devices = v14DevicesResult.values;
     const uint32_t count = static_cast<uint32_t>(devices.size());
-    if (v14DeviceResult != VK_SUCCESS || count == 0) {
+    const bool physicalDeviceEnumerationComplete = v14DevicesResult.complete;
+    if (!v14DevicesResult.resultAvailable || (v14DevicesResult.safetyRejected && v14DevicesResult.values.empty())) {
         api.destroyInstance(instance, nullptr);
-        return "{\"status\":\"not_applicable\",\"reason\":\"No physical Vulkan devices were enumerated.\",\"devices\":[]}";
+        const std::string reason = v14DevicesResult.safetyRejected ? std::string("Physical-device enumeration was rejected by a local safety bound. ") + v14DevicesResult.localReason : v14DevicesResult.localReason;
+        return std::string("{\"status\":\"unavailable\",\"reason\":") + jsonString(reason) + ",\"physicalDeviceEnumerationSafetyRejected\":" + jsonBool(v14DevicesResult.safetyRejected) + ",\"devices\":[]}";
+    }
+    if (v14DeviceResult != VK_SUCCESS && v14DeviceResult != VK_INCOMPLETE && v14DevicesResult.values.empty()) {
+        api.destroyInstance(instance, nullptr);
+        return std::string("{\"status\":\"unavailable\",\"reason\":") + jsonString(std::string("vkEnumeratePhysicalDevices failed. VkResult=") + std::to_string(v14DeviceResult)) + ",\"devices\":[]}";
+    }
+    if (count == 0) {
+        api.destroyInstance(instance, nullptr);
+        return physicalDeviceEnumerationComplete ? "{\"status\":\"not_applicable\",\"reason\":\"No physical Vulkan devices were enumerated.\",\"devices\":[]}" : "{\"status\":\"incomplete\",\"reason\":\"Physical-device enumeration remained VK_INCOMPLETE and returned no bounded partial device handles.\",\"devices\":[]}";
     }
     std::ostringstream out;
-    out << "{\"status\":\"available\",\"reason\":\"\",\"devices\":[";
+    out << "{\"status\":" << jsonString(physicalDeviceEnumerationComplete ? "available" : "incomplete") << ",\"reason\":" << jsonString(physicalDeviceEnumerationComplete ? "" : (!v14DevicesResult.localReason.empty() ? v14DevicesResult.localReason : "Physical-device enumeration remained VK_INCOMPLETE; bounded partial positive evidence was retained.")) << ",\"physicalDeviceEnumerationResult\":" << static_cast<int>(v14DeviceResult) << ",\"physicalDeviceEnumerationComplete\":" << jsonBool(physicalDeviceEnumerationComplete) << ",\"devices\":[";
     bool firstDevice = true;
     bool saw14 = false;
     for (uint32_t i = 0; i < count; ++i) {
         VkPhysicalDeviceProperties physicalProperties{};
         getDevicePropertiesPrimary(api, devices[i], physicalProperties);
         const uint32_t apiVersion = physicalProperties.apiVersion;
-        if (VK_API_VERSION_MINOR(apiVersion) < 4) continue;
+        if (!apiVersionAtLeast(apiVersion, 1, 4)) continue;
         saw14 = true;
         const uint32_t vendorId = physicalProperties.vendorID;
         const uint32_t deviceId = physicalProperties.deviceID;
@@ -3445,7 +3619,8 @@ std::string collectVulkan14(const char* driverMode, const char* driverIcdPath, c
     if (!saw14) {
         out.str("");
         out.clear();
-        out << "{\"status\":\"not_applicable\",\"reason\":\"The installed Vulkan device API version is below 1.4.\",\"devices\":[]}";
+        if (physicalDeviceEnumerationComplete) out << "{\"status\":\"not_applicable\",\"reason\":\"The installed Vulkan device API version is below 1.4.\",\"devices\":[]}";
+        else out << "{\"status\":\"incomplete\",\"reason\":\"Physical-device enumeration was incomplete, so absence of a Vulkan 1.4 device cannot be established.\",\"devices\":[]}";
     }
     api.destroyInstance(instance, nullptr);
     return out.str();
@@ -3475,12 +3650,24 @@ std::string collectVulkanAdvancedGroup(const char* driverMode, const char* drive
         return std::string("{\"status\":\"unavailable\",\"group\":") + jsonString(group ? group : "") + ",\"reason\":\"Required Vulkan instance entry points are unavailable.\",\"devices\":[]}";
     }
     const auto advancedDevicesResult = enumeratePhysicalDevicesRobust(api, instance);
-    const VkResult advancedDeviceResult = advancedDevicesResult.first;
-    std::vector<VkPhysicalDevice> devices = advancedDevicesResult.second;
+    const VkResult advancedDeviceResult = advancedDevicesResult.result;
+    std::vector<VkPhysicalDevice> devices = advancedDevicesResult.values;
     const uint32_t count = static_cast<uint32_t>(devices.size());
-    if (advancedDeviceResult != VK_SUCCESS || count == 0) {
+    const bool physicalDeviceEnumerationComplete = advancedDevicesResult.complete;
+    if (!advancedDevicesResult.resultAvailable || (advancedDevicesResult.safetyRejected && advancedDevicesResult.values.empty())) {
         api.destroyInstance(instance, nullptr);
-        return std::string("{\"status\":\"not_applicable\",\"group\":") + jsonString(group ? group : "") + ",\"reason\":\"No physical Vulkan devices were enumerated.\",\"devices\":[]}";
+        const std::string reason = advancedDevicesResult.safetyRejected ? std::string("Physical-device enumeration was rejected by a local safety bound. ") + advancedDevicesResult.localReason : advancedDevicesResult.localReason;
+        return std::string("{\"status\":\"unavailable\",\"group\":") + jsonString(group) + ",\"reason\":" + jsonString(reason) + ",\"physicalDeviceEnumerationSafetyRejected\":" + jsonBool(advancedDevicesResult.safetyRejected) + ",\"devices\":[]}";
+    }
+    if (advancedDeviceResult != VK_SUCCESS && advancedDeviceResult != VK_INCOMPLETE && advancedDevicesResult.values.empty()) {
+        api.destroyInstance(instance, nullptr);
+        return std::string("{\"status\":\"unavailable\",\"group\":") + jsonString(group ? group : "") + ",\"reason\":" + jsonString(std::string("vkEnumeratePhysicalDevices failed. VkResult=") + std::to_string(advancedDeviceResult)) + ",\"devices\":[]}";
+    }
+    if (count == 0) {
+        api.destroyInstance(instance, nullptr);
+        const char* status = physicalDeviceEnumerationComplete ? "not_applicable" : "incomplete";
+        const char* reason = physicalDeviceEnumerationComplete ? "No physical Vulkan devices were enumerated." : "Physical-device enumeration remained VK_INCOMPLETE and returned no bounded partial device handles.";
+        return std::string("{\"status\":") + jsonString(status) + ",\"group\":" + jsonString(group ? group : "") + ",\"reason\":" + jsonString(reason) + ",\"devices\":[]}";
     }
     if (group && std::strcmp(group, "tools") == 0 && !api.getPhysicalDeviceToolProperties) {
         api.destroyInstance(instance, nullptr);
@@ -3510,14 +3697,61 @@ std::string collectVulkanAdvancedGroup(const char* driverMode, const char* drive
         api.destroyInstance(instance, nullptr);
         return "{\"status\":\"unavailable\",\"group\":\"groups\",\"reason\":\"vkEnumeratePhysicalDeviceGroups is unavailable in this Vulkan stack.\",\"devices\":[]}";
     }
-    if (group && std::strcmp(group, "external") == 0 &&
-        (!api.getPhysicalDeviceExternalBufferProperties || !api.getPhysicalDeviceExternalFenceProperties || !api.getPhysicalDeviceExternalSemaphoreProperties)) {
-        api.destroyInstance(instance, nullptr);
-        return "{\"status\":\"unavailable\",\"group\":\"external\",\"reason\":\"One or more external capability query entry points are unavailable in this Vulkan stack.\",\"devices\":[]}";
+
+    std::vector<VkPhysicalDeviceGroupProperties> physicalDeviceGroups;
+    VkResult physicalDeviceGroupEnumerationResult = VK_SUCCESS;
+    bool physicalDeviceGroupEnumerationComplete = true;
+    if (group && std::strcmp(group, "groups") == 0) {
+        uint32_t groupCount = 0;
+        const VkResult groupCountResult = api.enumeratePhysicalDeviceGroups(instance, &groupCount, nullptr);
+        if (groupCountResult != VK_SUCCESS && groupCountResult != VK_INCOMPLETE) {
+            api.destroyInstance(instance, nullptr);
+            return std::string("{\"status\":\"unavailable\",\"group\":\"groups\",\"reason\":") + jsonString(std::string("vkEnumeratePhysicalDeviceGroups count query failed. VkResult=") + std::to_string(groupCountResult)) + ",\"devices\":[]}";
+        }
+        if (groupCount > kMaxDeviceGroupEntries) {
+            api.destroyInstance(instance, nullptr);
+            return "{\"status\":\"unavailable\",\"group\":\"groups\",\"reason\":\"Physical device group count exceeds safety limit.\",\"devices\":[]}";
+        }
+        physicalDeviceGroups.resize(groupCount);
+        for (auto& item : physicalDeviceGroups) { item.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_GROUP_PROPERTIES; item.pNext = nullptr; }
+        if (groupCount > 0) {
+            const size_t groupCapacity = physicalDeviceGroups.size();
+            physicalDeviceGroupEnumerationResult = api.enumeratePhysicalDeviceGroups(instance, &groupCount, physicalDeviceGroups.data());
+            if ((physicalDeviceGroupEnumerationResult != VK_SUCCESS && physicalDeviceGroupEnumerationResult != VK_INCOMPLETE) || groupCount > groupCapacity) {
+                api.destroyInstance(instance, nullptr);
+                const std::string detail = groupCount > groupCapacity ? "Physical device group data query exceeded the bounded allocation." : std::string("vkEnumeratePhysicalDeviceGroups data query failed. VkResult=") + std::to_string(physicalDeviceGroupEnumerationResult);
+                return std::string("{\"status\":\"unavailable\",\"group\":\"groups\",\"reason\":") + jsonString(detail) + ",\"devices\":[]}";
+            }
+            physicalDeviceGroups.resize(groupCount);
+        } else {
+            physicalDeviceGroupEnumerationResult = groupCountResult;
+        }
+        physicalDeviceGroupEnumerationComplete = groupCountResult == VK_SUCCESS && physicalDeviceGroupEnumerationResult == VK_SUCCESS;
     }
 
     std::ostringstream out;
-    out << "{\"status\":\"available\",\"group\":" << jsonString(group ? group : "") << ",\"reason\":\"\",\"devices\":[";
+    const bool groupEnumerationIncomplete = group && std::strcmp(group, "groups") == 0 && !physicalDeviceGroupEnumerationComplete;
+    bool advancedEnumerationIncomplete = groupEnumerationIncomplete || !physicalDeviceEnumerationComplete;
+    std::string advancedEnumerationReason;
+    auto markAdvancedIncomplete = [&](const std::string& reason) {
+        advancedEnumerationIncomplete = true;
+        if (reason.empty() || advancedEnumerationReason.find(reason) != std::string::npos) return;
+        if (!advancedEnumerationReason.empty()) advancedEnumerationReason += " ";
+        advancedEnumerationReason += reason;
+    };
+    if (!physicalDeviceEnumerationComplete) markAdvancedIncomplete(!advancedDevicesResult.localReason.empty() ? advancedDevicesResult.localReason : "Physical-device enumeration remained VK_INCOMPLETE; bounded partial positive evidence was retained.");
+    if (groupEnumerationIncomplete) markAdvancedIncomplete("vkEnumeratePhysicalDeviceGroups returned VK_INCOMPLETE; bounded partial group evidence was retained.");
+    const bool advancedDependsOnDeviceExtensions = group && (
+        std::strcmp(group, "queue2") == 0 ||
+        std::strcmp(group, "format2") == 0 ||
+        std::strcmp(group, "imageFormat2") == 0 ||
+        std::strcmp(group, "external") == 0 ||
+        std::strcmp(group, "sparse") == 0 ||
+        std::strcmp(group, "memory2") == 0 ||
+        std::strcmp(group, "videoCapabilities") == 0);
+    const std::string advancedStatusToken = "__VULKANSCOPE_ADVANCED_STATUS__";
+    const std::string advancedReasonToken = "__VULKANSCOPE_ADVANCED_REASON__";
+    out << "{\"status\":" << jsonString(advancedStatusToken) << ",\"group\":" << jsonString(group ? group : "") << ",\"reason\":" << jsonString(advancedReasonToken) << ",\"physicalDeviceEnumerationResult\":" << static_cast<int>(advancedDeviceResult) << ",\"physicalDeviceEnumerationComplete\":" << jsonBool(physicalDeviceEnumerationComplete) << ",\"devices\":[";
     bool firstDevice = true;
     auto addDevicePrefix = [&](uint32_t i) {
         VkPhysicalDeviceProperties physicalProperties{};
@@ -3536,6 +3770,9 @@ std::string collectVulkanAdvancedGroup(const char* driverMode, const char* drive
         const uint32_t apiVersion = physicalProperties.apiVersion;
         const auto deviceExtensionEnumeration = enumerateDeviceExtensions(api, devices[i]);
         const auto& devExts = deviceExtensions(deviceExtensionEnumeration);
+        if (advancedDependsOnDeviceExtensions && std::strcmp(deviceExtensionEnumeration.status, "available") != 0) {
+            markAdvancedIncomplete(deviceExtensionEnumeration.reason.empty() ? "Device-extension enumeration was incomplete or unavailable for an extension-dependent advanced query; optional or extension-gated evidence may be missing." : deviceExtensionEnumeration.reason);
+        }
         auto hasExt = [&](const char* n) { return hasExtension(devExts, n); };
         const uint32_t vendorId = physicalProperties.vendorID;
         const uint32_t deviceId = physicalProperties.deviceID;
@@ -3544,6 +3781,7 @@ std::string collectVulkanAdvancedGroup(const char* driverMode, const char* drive
             addDevicePrefix(i);
             uint32_t toolCount = 0;
             const VkResult toolCountResult = api.getPhysicalDeviceToolProperties(devices[i], &toolCount, nullptr);
+            if (toolCountResult == VK_INCOMPLETE) markAdvancedIncomplete("vkGetPhysicalDeviceToolProperties count query returned VK_INCOMPLETE; tool absence is not proven.");
             out << ",\"properties\":[";
             if (toolCountResult != VK_SUCCESS && toolCountResult != VK_INCOMPLETE) {
                 out << "{\"section\":\"Vulkan Tool Query\",\"name\":\"Status\",\"value\":" << jsonString(std::string("Unavailable: count query VkResult=") + std::to_string(toolCountResult)) << '}';
@@ -3554,6 +3792,7 @@ std::string collectVulkanAdvancedGroup(const char* driverMode, const char* drive
                 for (auto& t : tools) { t.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TOOL_PROPERTIES; t.pNext = nullptr; }
                 const size_t toolCapacity = tools.size();
                 const VkResult toolResult = api.getPhysicalDeviceToolProperties(devices[i], &toolCount, tools.data());
+                if (toolResult == VK_INCOMPLETE) markAdvancedIncomplete("vkGetPhysicalDeviceToolProperties data query returned VK_INCOMPLETE; bounded partial tool evidence was retained.");
                 if ((toolResult != VK_SUCCESS && toolResult != VK_INCOMPLETE) || toolCount > toolCapacity) {
                     const std::string detail = toolCount > toolCapacity ? "Unavailable: data query count exceeded the bounded allocation." : std::string("Unavailable: data query VkResult=") + std::to_string(toolResult);
                     out << "{\"section\":\"Vulkan Tool Query\",\"name\":\"Status\",\"value\":" << jsonString(detail) << '}';
@@ -3574,6 +3813,8 @@ std::string collectVulkanAdvancedGroup(const char* driverMode, const char* drive
                         out << "{\"section\":\"Vulkan Tool\",\"name\":" << jsonString(tools[t].name) << ",\"value\":" << jsonString(std::string(tools[t].description) + " | version " + std::string(tools[t].version) + " | purposes=" + toolPurposes(tools[t].purposes) + " | layer=" + tools[t].layer + completeness) << '}';
                     }
                 }
+            } else {
+                out << "{\"section\":\"Vulkan Tool Query\",\"name\":\"Status\",\"value\":" << jsonString(toolCountResult == VK_SUCCESS ? "Available: zero active Vulkan tools were reported." : "Incomplete: VK_INCOMPLETE returned zero tool entries; absence is not proven.") << '}';
             }
             out << "]}";
         } else if (group && std::strcmp(group, "queue2") == 0) {
@@ -3644,13 +3885,12 @@ std::string collectVulkanAdvancedGroup(const char* driverMode, const char* drive
                 if (!shouldQueryFormat(fmt, apiVersion, devExts)) continue;
                 VkFormatProperties3 p3{}; p3.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3; p3.pNext = nullptr;
                 VkFormatProperties2 p2{}; p2.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2; p2.pNext = formatFeatureFlags2 ? static_cast<void*>(&p3) : nullptr;
-                if (api.getPhysicalDeviceFormatProperties2(devices[i], fmt, &p2), true) {
-                    if (!firstProp) out << ',';
-                    firstProp = false;
-                    std::ostringstream value;
-                    value << "linear=0x" << std::hex << p2.formatProperties.linearTilingFeatures << ", optimal=0x" << p2.formatProperties.optimalTilingFeatures << ", buffer=0x" << p2.formatProperties.bufferFeatures << ", featureFlags2Available=" << (formatFeatureFlags2 ? "true" : "false") << ", featureFlags2 linear=0x" << (formatFeatureFlags2 ? p3.linearTilingFeatures : 0) << " optimal=0x" << (formatFeatureFlags2 ? p3.optimalTilingFeatures : 0) << " buffer=0x" << (formatFeatureFlags2 ? p3.bufferFeatures : 0);
-                    out << "{\"section\":\"Format Properties2\",\"name\":" << jsonString(formatName(fmt)) << ",\"value\":" << jsonString(value.str()) << '}';
-                }
+                api.getPhysicalDeviceFormatProperties2(devices[i], fmt, &p2);
+                if (!firstProp) out << ',';
+                firstProp = false;
+                std::ostringstream value;
+                value << "linear=0x" << std::hex << p2.formatProperties.linearTilingFeatures << ", optimal=0x" << p2.formatProperties.optimalTilingFeatures << ", buffer=0x" << p2.formatProperties.bufferFeatures << ", featureFlags2Available=" << (formatFeatureFlags2 ? "true" : "false") << ", featureFlags2 linear=0x" << (formatFeatureFlags2 ? p3.linearTilingFeatures : 0) << " optimal=0x" << (formatFeatureFlags2 ? p3.optimalTilingFeatures : 0) << " buffer=0x" << (formatFeatureFlags2 ? p3.bufferFeatures : 0);
+                out << "{\"section\":\"Format Properties2\",\"name\":" << jsonString(formatName(fmt)) << ",\"value\":" << jsonString(value.str()) << '}';
             }
             out << "]}";
         } else if (group && std::strcmp(group, "imageFormat2") == 0) {
@@ -3744,30 +3984,417 @@ std::string collectVulkanAdvancedGroup(const char* driverMode, const char* drive
                 out << ",\"reason\":" << jsonString(result.reason) << '}';
             }
             out << "]}";
+        } else if (group && std::strcmp(group, "videoCapabilities") == 0) {
+            addDevicePrefix(i);
+            std::vector<std::pair<std::string, std::string>> videoProperties;
+            auto addProperty = [&](const std::string& propertyName, const std::string& propertyValue) { videoProperties.emplace_back(propertyName, propertyValue); };
+
+            const bool deviceExtensionsComplete = std::strcmp(deviceExtensionEnumeration.status, "available") == 0;
+            const bool videoQueue = hasExt("VK_KHR_video_queue");
+            if (!videoQueue) {
+                addProperty("queryStatus", deviceExtensionsComplete ? "Not applicable: VK_KHR_video_queue was not enumerated by this physical device." : "Unknown: device-extension enumeration is incomplete or unavailable, so absence of VK_KHR_video_queue cannot be established.");
+            } else {
+                auto makeBaseProfile = [](VkVideoCodecOperationFlagsKHR operation) {
+                    VkVideoProfileInfoKHR p{};
+                    p.sType = VK_STRUCTURE_TYPE_VIDEO_PROFILE_INFO_KHR;
+                    p.pNext = nullptr;
+                    p.videoCodecOperation = static_cast<VkVideoCodecOperationFlagBitsKHR>(operation);
+                    p.chromaSubsampling = VK_VIDEO_CHROMA_SUBSAMPLING_420_BIT_KHR;
+                    p.lumaBitDepth = VK_VIDEO_COMPONENT_BIT_DEPTH_8_BIT_KHR;
+                    p.chromaBitDepth = VK_VIDEO_COMPONENT_BIT_DEPTH_8_BIT_KHR;
+                    return p;
+                };
+                auto exactProfileStatus = [](VkResult result) {
+                    if (result == VK_SUCCESS) return std::string("Supported for exact 4:2:0 8-bit profile");
+                    const bool unsupported = result == VK_ERROR_VIDEO_PICTURE_LAYOUT_NOT_SUPPORTED_KHR || result == VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR || result == VK_ERROR_VIDEO_PROFILE_FORMAT_NOT_SUPPORTED_KHR || result == VK_ERROR_VIDEO_PROFILE_CODEC_NOT_SUPPORTED_KHR;
+                    return std::string(unsupported ? "Unsupported for exact 4:2:0 8-bit profile (VkResult=" : "Unavailable (VkResult=") + std::to_string(result) + ")";
+                };
+                addProperty("videoRegistry", std::string("Khronos video.xml SHA-256 ") + kVideoRegistrySha256 + "; Vulkan registry SHA-256 " + kVideoRegistryVulkanSha256);
+                addProperty("queryRecipe", "Registry-driven codec-profile census. Codec-specific profile member values come from the locked Vulkan 1.4.361 vk.xml and are cross-checked against locked Khronos video.xml StdVideo enums. Capability queries use one exact general profile: VK_VIDEO_CHROMA_SUBSAMPLING_420_BIT_KHR with 8-bit luma/chroma. H.264 decode includes every registry-defined pictureLayout value and AV1 decode includes both filmGrainSupport values. Results apply only to each exact 4:2:0 8-bit profile combination and are not codec-wide or bit-depth-wide claims. Video format enumeration remains separately labelled sampled-profile evidence.");
+                if (!api.getPhysicalDeviceVideoCapabilitiesKHR) {
+                    addProperty("Video capability query", "Unavailable: vkGetPhysicalDeviceVideoCapabilitiesKHR is unavailable in this Vulkan stack.");
+                } else {
+                auto emitDecode = [&](const char* name, const std::string& variant, const char* extension, VkVideoCodecOperationFlagsKHR operation, uint32_t profileSType, uint32_t profileValue, uint32_t capSType, int32_t auxiliaryValue) {
+                    if (!hasExt(extension) || !hasExt("VK_KHR_video_decode_queue")) {
+                        addProperty(std::string("Video · ") + name + " · " + variant, deviceExtensionsComplete ? "Not applicable: required video decode extension was not enumerated." : "Unknown: device-extension enumeration is incomplete or unavailable, so required video decode extension absence cannot be established.");
+                        return;
+                    }
+                    VkVideoProfileInfoKHR profile = makeBaseProfile(operation);
+                    if (std::strcmp(name, "H.264 decode") == 0) {
+                        VkVideoDecodeH264ProfileInfoKHR codec{};
+                        codec.sType = static_cast<VkStructureType>(profileSType); codec.pNext = nullptr; codec.stdProfileIdc = static_cast<StdVideoH264ProfileIdc>(profileValue); codec.pictureLayout = static_cast<VkVideoDecodeH264PictureLayoutFlagBitsKHR>(auxiliaryValue);
+                        profile.pNext = &codec;
+                        VkVideoDecodeH264CapabilitiesKHR codecCaps{};
+                        codecCaps.sType = static_cast<VkStructureType>(capSType); codecCaps.pNext = nullptr;
+                        VkVideoDecodeCapabilitiesKHR decodeCaps{};
+                        decodeCaps.sType = VK_STRUCTURE_TYPE_VIDEO_DECODE_CAPABILITIES_KHR;
+                        decodeCaps.pNext = &codecCaps;
+                        VkVideoCapabilitiesKHR caps{};
+                        caps.sType = VK_STRUCTURE_TYPE_VIDEO_CAPABILITIES_KHR;
+                        caps.pNext = &decodeCaps;
+                        const VkResult r = api.getPhysicalDeviceVideoCapabilitiesKHR(devices[i], &profile, &caps);
+                        const std::string prefix = std::string("Video · ") + name + " · " + variant + " ";
+                        addProperty(prefix + "status", exactProfileStatus(r));
+                        if (r == VK_SUCCESS) {
+                            addProperty(prefix + "maxLevelIdc", std::string(videoH264LevelName(static_cast<int32_t>(codecCaps.maxLevelIdc))) + " (raw=" + std::to_string(static_cast<int32_t>(codecCaps.maxLevelIdc)) + ")");
+                            addProperty(prefix + "fieldOffsetGranularity", std::to_string(codecCaps.fieldOffsetGranularity.x) + " × " + std::to_string(codecCaps.fieldOffsetGranularity.y));
+                            addProperty(prefix + "codedExtent", std::to_string(caps.minCodedExtent.width) + " × " + std::to_string(caps.minCodedExtent.height) + " .. " + std::to_string(caps.maxCodedExtent.width) + " × " + std::to_string(caps.maxCodedExtent.height));
+                            addProperty(prefix + "DPB", std::to_string(caps.maxDpbSlots) + " slots / " + std::to_string(caps.maxActiveReferencePictures) + " active refs");
+                            addProperty(prefix + "bitstreamAlignment", std::to_string(caps.minBitstreamBufferOffsetAlignment) + " offset / " + std::to_string(caps.minBitstreamBufferSizeAlignment) + " size");
+                            addProperty(prefix + "stdHeader", std::string(caps.stdHeaderVersion.extensionName) + " " + std::to_string(caps.stdHeaderVersion.specVersion));
+                        }
+                    } else if (std::strcmp(name, "H.265 decode") == 0) {
+                        VkVideoDecodeH265ProfileInfoKHR codec{};
+                        codec.sType = static_cast<VkStructureType>(profileSType); codec.pNext = nullptr; codec.stdProfileIdc = static_cast<StdVideoH265ProfileIdc>(profileValue);
+                        profile.pNext = &codec;
+                        VkVideoDecodeH265CapabilitiesKHR codecCaps{};
+                        codecCaps.sType = static_cast<VkStructureType>(capSType); codecCaps.pNext = nullptr;
+                        VkVideoDecodeCapabilitiesKHR decodeCaps{};
+                        decodeCaps.sType = VK_STRUCTURE_TYPE_VIDEO_DECODE_CAPABILITIES_KHR;
+                        decodeCaps.pNext = &codecCaps;
+                        VkVideoCapabilitiesKHR caps{};
+                        caps.sType = VK_STRUCTURE_TYPE_VIDEO_CAPABILITIES_KHR;
+                        caps.pNext = &decodeCaps;
+                        const VkResult r = api.getPhysicalDeviceVideoCapabilitiesKHR(devices[i], &profile, &caps);
+                        const std::string prefix = std::string("Video · ") + name + " · " + variant + " ";
+                        addProperty(prefix + "status", exactProfileStatus(r));
+                        if (r == VK_SUCCESS) {
+                            addProperty(prefix + "maxLevelIdc", std::string(videoH265LevelName(static_cast<int32_t>(codecCaps.maxLevelIdc))) + " (raw=" + std::to_string(static_cast<int32_t>(codecCaps.maxLevelIdc)) + ")");
+                            addProperty(prefix + "codedExtent", std::to_string(caps.minCodedExtent.width) + " × " + std::to_string(caps.minCodedExtent.height) + " .. " + std::to_string(caps.maxCodedExtent.width) + " × " + std::to_string(caps.maxCodedExtent.height));
+                            addProperty(prefix + "DPB", std::to_string(caps.maxDpbSlots) + " slots / " + std::to_string(caps.maxActiveReferencePictures) + " active refs");
+                            addProperty(prefix + "bitstreamAlignment", std::to_string(caps.minBitstreamBufferOffsetAlignment) + " offset / " + std::to_string(caps.minBitstreamBufferSizeAlignment) + " size");
+                            addProperty(prefix + "stdHeader", std::string(caps.stdHeaderVersion.extensionName) + " " + std::to_string(caps.stdHeaderVersion.specVersion));
+                        }
+                    } else if (std::strcmp(name, "VP9 decode") == 0) {
+                        VkVideoDecodeVP9ProfileInfoKHR codec{};
+                        codec.sType = static_cast<VkStructureType>(profileSType); codec.pNext = nullptr; codec.stdProfile = static_cast<StdVideoVP9Profile>(profileValue);
+                        profile.pNext = &codec;
+                        VkVideoDecodeVP9CapabilitiesKHR codecCaps{};
+                        codecCaps.sType = static_cast<VkStructureType>(capSType); codecCaps.pNext = nullptr;
+                        VkVideoDecodeCapabilitiesKHR decodeCaps{};
+                        decodeCaps.sType = VK_STRUCTURE_TYPE_VIDEO_DECODE_CAPABILITIES_KHR;
+                        decodeCaps.pNext = &codecCaps;
+                        VkVideoCapabilitiesKHR caps{};
+                        caps.sType = VK_STRUCTURE_TYPE_VIDEO_CAPABILITIES_KHR;
+                        caps.pNext = &decodeCaps;
+                        const VkResult r = api.getPhysicalDeviceVideoCapabilitiesKHR(devices[i], &profile, &caps);
+                        const std::string prefix = std::string("Video · ") + name + " · " + variant + " ";
+                        addProperty(prefix + "status", exactProfileStatus(r));
+                        if (r == VK_SUCCESS) {
+                            addProperty(prefix + "maxLevel", std::string(videoVP9LevelName(static_cast<int32_t>(codecCaps.maxLevel))) + " (raw=" + std::to_string(static_cast<int32_t>(codecCaps.maxLevel)) + ")");
+                            addProperty(prefix + "codedExtent", std::to_string(caps.minCodedExtent.width) + " × " + std::to_string(caps.minCodedExtent.height) + " .. " + std::to_string(caps.maxCodedExtent.width) + " × " + std::to_string(caps.maxCodedExtent.height));
+                            addProperty(prefix + "DPB", std::to_string(caps.maxDpbSlots) + " slots / " + std::to_string(caps.maxActiveReferencePictures) + " active refs");
+                        }
+                    } else {
+                        VkVideoDecodeAV1ProfileInfoKHR codec{};
+                        codec.sType = static_cast<VkStructureType>(profileSType); codec.pNext = nullptr; codec.stdProfile = static_cast<StdVideoAV1Profile>(profileValue); codec.filmGrainSupport = static_cast<VkBool32>(auxiliaryValue);
+                        profile.pNext = &codec;
+                        VkVideoDecodeAV1CapabilitiesKHR codecCaps{};
+                        codecCaps.sType = static_cast<VkStructureType>(capSType); codecCaps.pNext = nullptr;
+                        VkVideoDecodeCapabilitiesKHR decodeCaps{};
+                        decodeCaps.sType = VK_STRUCTURE_TYPE_VIDEO_DECODE_CAPABILITIES_KHR;
+                        decodeCaps.pNext = &codecCaps;
+                        VkVideoCapabilitiesKHR caps{};
+                        caps.sType = VK_STRUCTURE_TYPE_VIDEO_CAPABILITIES_KHR;
+                        caps.pNext = &decodeCaps;
+                        const VkResult r = api.getPhysicalDeviceVideoCapabilitiesKHR(devices[i], &profile, &caps);
+                        const std::string prefix = std::string("Video · ") + name + " · " + variant + " ";
+                        addProperty(prefix + "status", exactProfileStatus(r));
+                        if (r == VK_SUCCESS) {
+                            addProperty(prefix + "maxLevel", std::string(videoAV1LevelName(static_cast<int32_t>(codecCaps.maxLevel))) + " (raw=" + std::to_string(static_cast<int32_t>(codecCaps.maxLevel)) + ")");
+                            addProperty(prefix + "codedExtent", std::to_string(caps.minCodedExtent.width) + " × " + std::to_string(caps.minCodedExtent.height) + " .. " + std::to_string(caps.maxCodedExtent.width) + " × " + std::to_string(caps.maxCodedExtent.height));
+                            addProperty(prefix + "DPB", std::to_string(caps.maxDpbSlots) + " slots / " + std::to_string(caps.maxActiveReferencePictures) + " active refs");
+                        }
+                    }
+                };
+
+                auto emitEncode = [&](const char* name, const std::string& variant, const char* extension, VkVideoCodecOperationFlagsKHR operation, uint32_t profileSType, uint32_t profileValue) {
+                    if (!hasExt(extension) || !hasExt("VK_KHR_video_encode_queue")) {
+                        addProperty(std::string("Video · ") + name + " · " + variant, deviceExtensionsComplete ? "Not applicable: required video encode extension was not enumerated." : "Unknown: device-extension enumeration is incomplete or unavailable, so required video encode extension absence cannot be established.");
+                        return;
+                    }
+                    VkVideoProfileInfoKHR profile = makeBaseProfile(operation);
+                    VkVideoEncodeH264ProfileInfoKHR h264Profile{};
+                    VkVideoEncodeH265ProfileInfoKHR h265Profile{};
+                    VkVideoEncodeAV1ProfileInfoKHR av1Profile{};
+                    VkVideoEncodeH264CapabilitiesKHR h264Caps{};
+                    VkVideoEncodeH265CapabilitiesKHR h265Caps{};
+                    VkVideoEncodeAV1CapabilitiesKHR av1Caps{};
+                    void* codecCaps = nullptr;
+                    if (std::strcmp(name, "H.264 encode") == 0) {
+                        h264Profile.sType = static_cast<VkStructureType>(profileSType); h264Profile.pNext = nullptr; h264Profile.stdProfileIdc = static_cast<StdVideoH264ProfileIdc>(profileValue);
+                        h264Caps.sType = VK_STRUCTURE_TYPE_VIDEO_ENCODE_H264_CAPABILITIES_KHR; h264Caps.pNext = nullptr;
+                        profile.pNext = &h264Profile;
+                        codecCaps = &h264Caps;
+                    } else if (std::strcmp(name, "H.265 encode") == 0) {
+                        h265Profile.sType = static_cast<VkStructureType>(profileSType); h265Profile.pNext = nullptr; h265Profile.stdProfileIdc = static_cast<StdVideoH265ProfileIdc>(profileValue);
+                        h265Caps.sType = VK_STRUCTURE_TYPE_VIDEO_ENCODE_H265_CAPABILITIES_KHR; h265Caps.pNext = nullptr;
+                        profile.pNext = &h265Profile;
+                        codecCaps = &h265Caps;
+                    } else {
+                        av1Profile.sType = static_cast<VkStructureType>(profileSType); av1Profile.pNext = nullptr; av1Profile.stdProfile = static_cast<StdVideoAV1Profile>(profileValue);
+                        av1Caps.sType = VK_STRUCTURE_TYPE_VIDEO_ENCODE_AV1_CAPABILITIES_KHR; av1Caps.pNext = nullptr;
+                        profile.pNext = &av1Profile;
+                        codecCaps = &av1Caps;
+                    }
+                    VkVideoEncodeCapabilitiesKHR encodeCaps{};
+                    encodeCaps.sType = VK_STRUCTURE_TYPE_VIDEO_ENCODE_CAPABILITIES_KHR;
+                    encodeCaps.pNext = codecCaps;
+                    VkVideoCapabilitiesKHR caps{};
+                    caps.sType = VK_STRUCTURE_TYPE_VIDEO_CAPABILITIES_KHR;
+                    caps.pNext = &encodeCaps;
+                    const VkResult r = api.getPhysicalDeviceVideoCapabilitiesKHR(devices[i], &profile, &caps);
+                    const std::string prefix = std::string("Video · ") + name + " · " + variant + " ";
+                    addProperty(prefix + "status", exactProfileStatus(r));
+                    if (r == VK_SUCCESS) {
+                        addProperty(prefix + "capabilityFlags", std::to_string(caps.flags));
+                        addProperty(prefix + "bitstreamAlignment", std::to_string(caps.minBitstreamBufferOffsetAlignment) + " offset / " + std::to_string(caps.minBitstreamBufferSizeAlignment) + " size");
+                        addProperty(prefix + "pictureAccessGranularity", std::to_string(caps.pictureAccessGranularity.width) + " × " + std::to_string(caps.pictureAccessGranularity.height));
+                        addProperty(prefix + "codedExtent", std::to_string(caps.minCodedExtent.width) + " × " + std::to_string(caps.minCodedExtent.height) + " .. " + std::to_string(caps.maxCodedExtent.width) + " × " + std::to_string(caps.maxCodedExtent.height));
+                        addProperty(prefix + "DPB", std::to_string(caps.maxDpbSlots) + " slots / " + std::to_string(caps.maxActiveReferencePictures) + " active refs");
+                        addProperty(prefix + "stdHeader", std::string(caps.stdHeaderVersion.extensionName) + " " + std::to_string(caps.stdHeaderVersion.specVersion));
+                        addProperty(prefix + "encodeFlags", std::to_string(encodeCaps.flags));
+                        addProperty(prefix + "rateControlModes", std::to_string(encodeCaps.rateControlModes));
+                        addProperty(prefix + "maxRateControlLayers", std::to_string(encodeCaps.maxRateControlLayers));
+                        addProperty(prefix + "maxBitrate", std::to_string(encodeCaps.maxBitrate));
+                        addProperty(prefix + "maxQualityLevels", std::to_string(encodeCaps.maxQualityLevels));
+                        addProperty(prefix + "encodeInputPictureGranularity", std::to_string(encodeCaps.encodeInputPictureGranularity.width) + " × " + std::to_string(encodeCaps.encodeInputPictureGranularity.height));
+                        addProperty(prefix + "supportedEncodeFeedbackFlags", std::to_string(encodeCaps.supportedEncodeFeedbackFlags));
+                        if (std::strcmp(name, "H.264 encode") == 0) {
+                            addProperty(prefix + "codecFlags", std::to_string(h264Caps.flags));
+                            addProperty(prefix + "maxLevelIdc", std::string(videoH264LevelName(static_cast<int32_t>(h264Caps.maxLevelIdc))) + " (raw=" + std::to_string(static_cast<int32_t>(h264Caps.maxLevelIdc)) + ")");
+                            addProperty(prefix + "maxSliceCount", std::to_string(h264Caps.maxSliceCount));
+                            addProperty(prefix + "maxPPictureL0ReferenceCount", std::to_string(h264Caps.maxPPictureL0ReferenceCount));
+                            addProperty(prefix + "maxBPictureL0ReferenceCount", std::to_string(h264Caps.maxBPictureL0ReferenceCount));
+                            addProperty(prefix + "maxL1ReferenceCount", std::to_string(h264Caps.maxL1ReferenceCount));
+                            addProperty(prefix + "maxTemporalLayerCount", std::to_string(h264Caps.maxTemporalLayerCount));
+                            addProperty(prefix + "expectDyadicTemporalLayerPattern", h264Caps.expectDyadicTemporalLayerPattern == VK_TRUE ? "true" : "false");
+                            addProperty(prefix + "qpRange", std::to_string(h264Caps.minQp) + " .. " + std::to_string(h264Caps.maxQp));
+                            addProperty(prefix + "prefersGopRemainingFrames", h264Caps.prefersGopRemainingFrames == VK_TRUE ? "true" : "false");
+                            addProperty(prefix + "requiresGopRemainingFrames", h264Caps.requiresGopRemainingFrames == VK_TRUE ? "true" : "false");
+                            addProperty(prefix + "stdSyntaxFlags", std::to_string(h264Caps.stdSyntaxFlags));
+                        } else if (std::strcmp(name, "H.265 encode") == 0) {
+                            addProperty(prefix + "codecFlags", std::to_string(h265Caps.flags));
+                            addProperty(prefix + "maxLevelIdc", std::string(videoH265LevelName(static_cast<int32_t>(h265Caps.maxLevelIdc))) + " (raw=" + std::to_string(static_cast<int32_t>(h265Caps.maxLevelIdc)) + ")");
+                            addProperty(prefix + "maxSliceSegmentCount", std::to_string(h265Caps.maxSliceSegmentCount));
+                            addProperty(prefix + "maxTiles", std::to_string(h265Caps.maxTiles.width) + " × " + std::to_string(h265Caps.maxTiles.height));
+                            addProperty(prefix + "ctbSizes", std::to_string(h265Caps.ctbSizes));
+                            addProperty(prefix + "transformBlockSizes", std::to_string(h265Caps.transformBlockSizes));
+                            addProperty(prefix + "maxPPictureL0ReferenceCount", std::to_string(h265Caps.maxPPictureL0ReferenceCount));
+                            addProperty(prefix + "maxBPictureL0ReferenceCount", std::to_string(h265Caps.maxBPictureL0ReferenceCount));
+                            addProperty(prefix + "maxL1ReferenceCount", std::to_string(h265Caps.maxL1ReferenceCount));
+                            addProperty(prefix + "maxSubLayerCount", std::to_string(h265Caps.maxSubLayerCount));
+                            addProperty(prefix + "expectDyadicTemporalSubLayerPattern", h265Caps.expectDyadicTemporalSubLayerPattern == VK_TRUE ? "true" : "false");
+                            addProperty(prefix + "qpRange", std::to_string(h265Caps.minQp) + " .. " + std::to_string(h265Caps.maxQp));
+                            addProperty(prefix + "prefersGopRemainingFrames", h265Caps.prefersGopRemainingFrames == VK_TRUE ? "true" : "false");
+                            addProperty(prefix + "requiresGopRemainingFrames", h265Caps.requiresGopRemainingFrames == VK_TRUE ? "true" : "false");
+                            addProperty(prefix + "stdSyntaxFlags", std::to_string(h265Caps.stdSyntaxFlags));
+                        } else {
+                            addProperty(prefix + "codecFlags", std::to_string(av1Caps.flags));
+                            addProperty(prefix + "maxLevel", std::string(videoAV1LevelName(static_cast<int32_t>(av1Caps.maxLevel))) + " (raw=" + std::to_string(static_cast<int32_t>(av1Caps.maxLevel)) + ")");
+                            addProperty(prefix + "codedPictureAlignment", std::to_string(av1Caps.codedPictureAlignment.width) + " × " + std::to_string(av1Caps.codedPictureAlignment.height));
+                            addProperty(prefix + "maxTiles", std::to_string(av1Caps.maxTiles.width) + " × " + std::to_string(av1Caps.maxTiles.height));
+                            addProperty(prefix + "minTileSize", std::to_string(av1Caps.minTileSize.width) + " × " + std::to_string(av1Caps.minTileSize.height));
+                            addProperty(prefix + "maxTileSize", std::to_string(av1Caps.maxTileSize.width) + " × " + std::to_string(av1Caps.maxTileSize.height));
+                            addProperty(prefix + "superblockSizes", std::to_string(av1Caps.superblockSizes));
+                            addProperty(prefix + "maxSingleReferenceCount", std::to_string(av1Caps.maxSingleReferenceCount));
+                            addProperty(prefix + "singleReferenceNameMask", std::to_string(av1Caps.singleReferenceNameMask));
+                            addProperty(prefix + "maxUnidirectionalCompoundReferenceCount", std::to_string(av1Caps.maxUnidirectionalCompoundReferenceCount));
+                            addProperty(prefix + "maxUnidirectionalCompoundGroup1ReferenceCount", std::to_string(av1Caps.maxUnidirectionalCompoundGroup1ReferenceCount));
+                            addProperty(prefix + "unidirectionalCompoundReferenceNameMask", std::to_string(av1Caps.unidirectionalCompoundReferenceNameMask));
+                            addProperty(prefix + "maxBidirectionalCompoundReferenceCount", std::to_string(av1Caps.maxBidirectionalCompoundReferenceCount));
+                            addProperty(prefix + "maxBidirectionalCompoundGroup1ReferenceCount", std::to_string(av1Caps.maxBidirectionalCompoundGroup1ReferenceCount));
+                            addProperty(prefix + "maxBidirectionalCompoundGroup2ReferenceCount", std::to_string(av1Caps.maxBidirectionalCompoundGroup2ReferenceCount));
+                            addProperty(prefix + "bidirectionalCompoundReferenceNameMask", std::to_string(av1Caps.bidirectionalCompoundReferenceNameMask));
+                            addProperty(prefix + "maxTemporalLayerCount", std::to_string(av1Caps.maxTemporalLayerCount));
+                            addProperty(prefix + "maxSpatialLayerCount", std::to_string(av1Caps.maxSpatialLayerCount));
+                            addProperty(prefix + "maxOperatingPoints", std::to_string(av1Caps.maxOperatingPoints));
+                            addProperty(prefix + "qIndexRange", std::to_string(av1Caps.minQIndex) + " .. " + std::to_string(av1Caps.maxQIndex));
+                            addProperty(prefix + "prefersGopRemainingFrames", av1Caps.prefersGopRemainingFrames == VK_TRUE ? "true" : "false");
+                            addProperty(prefix + "requiresGopRemainingFrames", av1Caps.requiresGopRemainingFrames == VK_TRUE ? "true" : "false");
+                            addProperty(prefix + "stdSyntaxFlags", std::to_string(av1Caps.stdSyntaxFlags));
+                        }
+                    }
+                };
+
+                for (const auto& profileEntry : kVideoH264DecodeProfiles) {
+                    for (const auto& layoutEntry : kVideoH264PictureLayouts) {
+                        emitDecode("H.264 decode", std::string(profileEntry.displayName) + " / " + layoutEntry.displayName + " [" + profileEntry.token + "; " + layoutEntry.token + "]", "VK_KHR_video_decode_h264", VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR, VK_STRUCTURE_TYPE_VIDEO_DECODE_H264_PROFILE_INFO_KHR, static_cast<uint32_t>(profileEntry.value), VK_STRUCTURE_TYPE_VIDEO_DECODE_H264_CAPABILITIES_KHR, layoutEntry.value);
+                    }
+                }
+                for (const auto& profileEntry : kVideoH265DecodeProfiles) emitDecode("H.265 decode", std::string(profileEntry.displayName) + " [" + profileEntry.token + "]", "VK_KHR_video_decode_h265", VK_VIDEO_CODEC_OPERATION_DECODE_H265_BIT_KHR, VK_STRUCTURE_TYPE_VIDEO_DECODE_H265_PROFILE_INFO_KHR, static_cast<uint32_t>(profileEntry.value), VK_STRUCTURE_TYPE_VIDEO_DECODE_H265_CAPABILITIES_KHR, 0);
+                for (const auto& profileEntry : kVideoVP9DecodeProfiles) emitDecode("VP9 decode", std::string(profileEntry.displayName) + " [" + profileEntry.token + "]", "VK_KHR_video_decode_vp9", VK_VIDEO_CODEC_OPERATION_DECODE_VP9_BIT_KHR, VK_STRUCTURE_TYPE_VIDEO_DECODE_VP9_PROFILE_INFO_KHR, static_cast<uint32_t>(profileEntry.value), VK_STRUCTURE_TYPE_VIDEO_DECODE_VP9_CAPABILITIES_KHR, 0);
+                for (const auto& profileEntry : kVideoAV1DecodeProfiles) {
+                    for (const auto& filmGrainEntry : kVideoAV1FilmGrainModes) {
+                        emitDecode("AV1 decode", std::string(profileEntry.displayName) + " / " + filmGrainEntry.displayName + " [" + profileEntry.token + "; " + filmGrainEntry.token + "]", "VK_KHR_video_decode_av1", VK_VIDEO_CODEC_OPERATION_DECODE_AV1_BIT_KHR, VK_STRUCTURE_TYPE_VIDEO_DECODE_AV1_PROFILE_INFO_KHR, static_cast<uint32_t>(profileEntry.value), VK_STRUCTURE_TYPE_VIDEO_DECODE_AV1_CAPABILITIES_KHR, filmGrainEntry.value);
+                    }
+                }
+                for (const auto& profileEntry : kVideoH264EncodeProfiles) emitEncode("H.264 encode", std::string(profileEntry.displayName) + " [" + profileEntry.token + "]", "VK_KHR_video_encode_h264", VK_VIDEO_CODEC_OPERATION_ENCODE_H264_BIT_KHR, VK_STRUCTURE_TYPE_VIDEO_ENCODE_H264_PROFILE_INFO_KHR, static_cast<uint32_t>(profileEntry.value));
+                for (const auto& profileEntry : kVideoH265EncodeProfiles) emitEncode("H.265 encode", std::string(profileEntry.displayName) + " [" + profileEntry.token + "]", "VK_KHR_video_encode_h265", VK_VIDEO_CODEC_OPERATION_ENCODE_H265_BIT_KHR, VK_STRUCTURE_TYPE_VIDEO_ENCODE_H265_PROFILE_INFO_KHR, static_cast<uint32_t>(profileEntry.value));
+                for (const auto& profileEntry : kVideoAV1EncodeProfiles) emitEncode("AV1 encode", std::string(profileEntry.displayName) + " [" + profileEntry.token + "]", "VK_KHR_video_encode_av1", VK_VIDEO_CODEC_OPERATION_ENCODE_AV1_BIT_KHR, VK_STRUCTURE_TYPE_VIDEO_ENCODE_AV1_PROFILE_INFO_KHR, static_cast<uint32_t>(profileEntry.value));
+                }
+
+                if (api.getPhysicalDeviceVideoFormatPropertiesKHR) {
+                    auto videoFormatFailureStatus = [](VkResult result) {
+                        const bool unsupported = result == VK_ERROR_IMAGE_USAGE_NOT_SUPPORTED_KHR || result == VK_ERROR_VIDEO_PICTURE_LAYOUT_NOT_SUPPORTED_KHR || result == VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR || result == VK_ERROR_VIDEO_PROFILE_FORMAT_NOT_SUPPORTED_KHR || result == VK_ERROR_VIDEO_PROFILE_CODEC_NOT_SUPPORTED_KHR;
+                        return std::string(unsupported ? "Unsupported for sampled profile/usage (VkResult=" : "Unavailable (VkResult=") + std::to_string(result) + ")";
+                    };
+                    auto enumerateVideoFormats = [&](const std::string& label, VkVideoProfileInfoKHR& profile, VkImageUsageFlags usage) {
+                        VkVideoProfileListInfoKHR list{VK_STRUCTURE_TYPE_VIDEO_PROFILE_LIST_INFO_KHR, nullptr, 1, &profile};
+                        VkPhysicalDeviceVideoFormatInfoKHR info{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VIDEO_FORMAT_INFO_KHR, &list, usage};
+                        uint32_t formatCount = 0;
+                        VkResult r = api.getPhysicalDeviceVideoFormatPropertiesKHR(devices[i], &info, &formatCount, nullptr);
+                        if (r == VK_INCOMPLETE) markAdvancedIncomplete("vkGetPhysicalDeviceVideoFormatPropertiesKHR count query returned VK_INCOMPLETE for at least one sampled profile/usage; absence is not proven.");
+                        if (r != VK_SUCCESS && r != VK_INCOMPLETE) {
+                            addProperty(label, videoFormatFailureStatus(r));
+                            return;
+                        }
+                        if (formatCount == 0) {
+                            addProperty(label, r == VK_SUCCESS ? "Available: zero matching video formats reported for this sampled profile and usage." : "Incomplete: VK_INCOMPLETE returned zero entries; absence is not proven.");
+                            return;
+                        }
+                        if (formatCount > kMaxVideoFormatEntries) {
+                            addProperty(label, "Unavailable: result count exceeds safety limit.");
+                            return;
+                        }
+                        std::vector<VkVideoFormatPropertiesKHR> formats(formatCount);
+                        for (auto& f : formats) { f.sType = VK_STRUCTURE_TYPE_VIDEO_FORMAT_PROPERTIES_KHR; f.pNext = nullptr; }
+                        const size_t formatCapacity = formats.size();
+                        r = api.getPhysicalDeviceVideoFormatPropertiesKHR(devices[i], &info, &formatCount, formats.data());
+                        if (r == VK_INCOMPLETE) markAdvancedIncomplete("vkGetPhysicalDeviceVideoFormatPropertiesKHR data query returned VK_INCOMPLETE for at least one sampled profile/usage; bounded partial format evidence was retained.");
+                        if (r != VK_SUCCESS && r != VK_INCOMPLETE) {
+                            addProperty(label, videoFormatFailureStatus(r));
+                            return;
+                        }
+                        if (formatCount > formatCapacity) {
+                            addProperty(label, "Unavailable: data query count exceeded the bounded allocation.");
+                            return;
+                        }
+                        formats.resize(formatCount);
+                        std::ostringstream values;
+                        if (r == VK_INCOMPLETE) values << "Partial: VK_INCOMPLETE; returned entries are positive evidence only. ";
+                        if (formatCount == 0 && r == VK_SUCCESS) values << "Available: zero matching video formats reported for this sampled profile and usage.";
+                        else if (formatCount == 0) values << "Incomplete: VK_INCOMPLETE returned zero entries; absence is not proven.";
+                        for (uint32_t fi = 0; fi < formatCount; ++fi) {
+                            if (fi) values << "; ";
+                            values << formatName(formats[fi].format) << " (imageUsageFlags=0x" << std::hex << formats[fi].imageUsageFlags << ", imageCreateFlags=0x" << formats[fi].imageCreateFlags << std::dec << ")";
+                        }
+                        addProperty(label, values.str());
+                    };
+                    auto queryDecodeFormats = [&](const char* name, VkVideoCodecOperationFlagsKHR operation, const char* extension, uint32_t codecSType, uint32_t profileValue) {
+                        const std::string prefix = std::string("Video formats · ") + name + " decode sampled-profile · ";
+                        if (!hasExt(extension) || !hasExt("VK_KHR_video_decode_queue")) {
+                            const std::string value = deviceExtensionsComplete ? "Not applicable: required video decode extension was not enumerated." : "Unknown: device-extension enumeration is incomplete or unavailable, so required video decode extension absence cannot be established.";
+                            addProperty(prefix + "VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR", value);
+                            addProperty(prefix + "VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR", value);
+                            return;
+                        }
+                        VkVideoProfileInfoKHR profile = makeBaseProfile(operation);
+                        VkVideoDecodeH264ProfileInfoKHR h264Profile{};
+                        VkVideoDecodeH265ProfileInfoKHR h265Profile{};
+                        VkVideoDecodeVP9ProfileInfoKHR vp9Profile{};
+                        VkVideoDecodeAV1ProfileInfoKHR av1Profile{};
+                        if (std::strcmp(name, "H.264") == 0) {
+                            h264Profile.sType = static_cast<VkStructureType>(codecSType); h264Profile.pNext = nullptr; h264Profile.stdProfileIdc = static_cast<StdVideoH264ProfileIdc>(profileValue); h264Profile.pictureLayout = VK_VIDEO_DECODE_H264_PICTURE_LAYOUT_PROGRESSIVE_KHR; profile.pNext = &h264Profile;
+                        } else if (std::strcmp(name, "H.265") == 0) {
+                            h265Profile.sType = static_cast<VkStructureType>(codecSType); h265Profile.pNext = nullptr; h265Profile.stdProfileIdc = static_cast<StdVideoH265ProfileIdc>(profileValue); profile.pNext = &h265Profile;
+                        } else if (std::strcmp(name, "VP9") == 0) {
+                            vp9Profile.sType = static_cast<VkStructureType>(codecSType); vp9Profile.pNext = nullptr; vp9Profile.stdProfile = static_cast<StdVideoVP9Profile>(profileValue); profile.pNext = &vp9Profile;
+                        } else {
+                            av1Profile.sType = static_cast<VkStructureType>(codecSType); av1Profile.pNext = nullptr; av1Profile.stdProfile = static_cast<StdVideoAV1Profile>(profileValue); av1Profile.filmGrainSupport = VK_FALSE; profile.pNext = &av1Profile;
+                        }
+                        enumerateVideoFormats(prefix + "VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR", profile, VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR);
+                        enumerateVideoFormats(prefix + "VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR", profile, VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR);
+                    };
+                    auto queryEncodeFormats = [&](const char* name, VkVideoCodecOperationFlagsKHR operation, const char* extension, uint32_t codecSType, uint32_t profileValue) {
+                        const std::string prefix = std::string("Video formats · ") + name + " encode sampled-profile · ";
+                        if (!hasExt(extension) || !hasExt("VK_KHR_video_encode_queue")) {
+                            const std::string value = deviceExtensionsComplete ? "Not applicable: required video encode extension was not enumerated." : "Unknown: device-extension enumeration is incomplete or unavailable, so required video encode extension absence cannot be established.";
+                            addProperty(prefix + "VK_IMAGE_USAGE_VIDEO_ENCODE_SRC_BIT_KHR", value);
+                            addProperty(prefix + "VK_IMAGE_USAGE_VIDEO_ENCODE_DPB_BIT_KHR", value);
+                            return;
+                        }
+                        VkVideoProfileInfoKHR profile = makeBaseProfile(operation);
+                        VkVideoEncodeH264ProfileInfoKHR h264Profile{};
+                        VkVideoEncodeH265ProfileInfoKHR h265Profile{};
+                        VkVideoEncodeAV1ProfileInfoKHR av1Profile{};
+                        if (std::strcmp(name, "H.264") == 0) {
+                            h264Profile.sType = static_cast<VkStructureType>(codecSType); h264Profile.pNext = nullptr; h264Profile.stdProfileIdc = static_cast<StdVideoH264ProfileIdc>(profileValue); profile.pNext = &h264Profile;
+                        } else if (std::strcmp(name, "H.265") == 0) {
+                            h265Profile.sType = static_cast<VkStructureType>(codecSType); h265Profile.pNext = nullptr; h265Profile.stdProfileIdc = static_cast<StdVideoH265ProfileIdc>(profileValue); profile.pNext = &h265Profile;
+                        } else {
+                            av1Profile.sType = static_cast<VkStructureType>(codecSType); av1Profile.pNext = nullptr; av1Profile.stdProfile = static_cast<StdVideoAV1Profile>(profileValue); profile.pNext = &av1Profile;
+                        }
+                        enumerateVideoFormats(prefix + "VK_IMAGE_USAGE_VIDEO_ENCODE_SRC_BIT_KHR", profile, VK_IMAGE_USAGE_VIDEO_ENCODE_SRC_BIT_KHR);
+                        enumerateVideoFormats(prefix + "VK_IMAGE_USAGE_VIDEO_ENCODE_DPB_BIT_KHR", profile, VK_IMAGE_USAGE_VIDEO_ENCODE_DPB_BIT_KHR);
+                    };
+                    queryDecodeFormats("H.264", VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR, "VK_KHR_video_decode_h264", VK_STRUCTURE_TYPE_VIDEO_DECODE_H264_PROFILE_INFO_KHR, STD_VIDEO_H264_PROFILE_IDC_BASELINE);
+                    queryDecodeFormats("H.265", VK_VIDEO_CODEC_OPERATION_DECODE_H265_BIT_KHR, "VK_KHR_video_decode_h265", VK_STRUCTURE_TYPE_VIDEO_DECODE_H265_PROFILE_INFO_KHR, STD_VIDEO_H265_PROFILE_IDC_MAIN);
+                    queryDecodeFormats("VP9", VK_VIDEO_CODEC_OPERATION_DECODE_VP9_BIT_KHR, "VK_KHR_video_decode_vp9", VK_STRUCTURE_TYPE_VIDEO_DECODE_VP9_PROFILE_INFO_KHR, STD_VIDEO_VP9_PROFILE_0);
+                    queryDecodeFormats("AV1", VK_VIDEO_CODEC_OPERATION_DECODE_AV1_BIT_KHR, "VK_KHR_video_decode_av1", VK_STRUCTURE_TYPE_VIDEO_DECODE_AV1_PROFILE_INFO_KHR, STD_VIDEO_AV1_PROFILE_MAIN);
+                    queryEncodeFormats("H.264", VK_VIDEO_CODEC_OPERATION_ENCODE_H264_BIT_KHR, "VK_KHR_video_encode_h264", VK_STRUCTURE_TYPE_VIDEO_ENCODE_H264_PROFILE_INFO_KHR, STD_VIDEO_H264_PROFILE_IDC_MAIN);
+                    queryEncodeFormats("H.265", VK_VIDEO_CODEC_OPERATION_ENCODE_H265_BIT_KHR, "VK_KHR_video_encode_h265", VK_STRUCTURE_TYPE_VIDEO_ENCODE_H265_PROFILE_INFO_KHR, STD_VIDEO_H265_PROFILE_IDC_MAIN);
+                    queryEncodeFormats("AV1", VK_VIDEO_CODEC_OPERATION_ENCODE_AV1_BIT_KHR, "VK_KHR_video_encode_av1", VK_STRUCTURE_TYPE_VIDEO_ENCODE_AV1_PROFILE_INFO_KHR, STD_VIDEO_AV1_PROFILE_MAIN);
+                } else {
+                    addProperty("Video format query", "Unavailable: vkGetPhysicalDeviceVideoFormatPropertiesKHR is unavailable in this Vulkan stack.");
+                }
+            }
+            out << ",\"properties\":[";
+            for (size_t propertyIndex = 0; propertyIndex < videoProperties.size(); ++propertyIndex) {
+                if (propertyIndex) out << ',';
+                out << "{\"section\":\"Vulkan Video\",\"name\":" << jsonString(videoProperties[propertyIndex].first) << ",\"value\":" << jsonString(videoProperties[propertyIndex].second) << '}';
+            }
+            out << "]}";
         } else if (group && std::strcmp(group, "external") == 0) {
             addDevicePrefix(i);
             out << ",\"properties\":[";
             bool firstExternal = true;
-            if (hasExt("VK_KHR_external_memory_fd")) {
-                VkPhysicalDeviceExternalBufferInfo bi{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_BUFFER_INFO, nullptr, 0, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT};
-                VkExternalBufferProperties bp{VK_STRUCTURE_TYPE_EXTERNAL_BUFFER_PROPERTIES, nullptr, {}};
-                api.getPhysicalDeviceExternalBufferProperties(devices[i], &bi, &bp);
-                out << "{\"section\":\"External Capabilities\",\"name\":\"Opaque FD Buffer\",\"value\":" << jsonString("features=0x" + [&](){ std::ostringstream x; x << std::hex << bp.externalMemoryProperties.externalMemoryFeatures; return x.str(); }() + ", export=0x" + [&](){ std::ostringstream x; x << std::hex << bp.externalMemoryProperties.exportFromImportedHandleTypes; return x.str(); }() + ", compatible=0x" + [&](){ std::ostringstream x; x << std::hex << bp.externalMemoryProperties.compatibleHandleTypes; return x.str(); }()) << "}"; firstExternal = false;
-            }
-            if (hasExt("VK_KHR_external_fence_fd")) {
-                if (!firstExternal) out << ','; firstExternal = false;
-                VkPhysicalDeviceExternalFenceInfo fi{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_FENCE_INFO, nullptr, VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT};
-                VkExternalFenceProperties fp{VK_STRUCTURE_TYPE_EXTERNAL_FENCE_PROPERTIES, nullptr, 0, 0, 0};
-                api.getPhysicalDeviceExternalFenceProperties(devices[i], &fi, &fp);
-                out << "{\"section\":\"External Capabilities\",\"name\":\"Opaque FD Fence\",\"value\":\"features=0x" << std::hex << fp.externalFenceFeatures << ", export=0x" << fp.exportFromImportedHandleTypes << ", compatible=0x" << fp.compatibleHandleTypes << "\"}";
-            }
-            if (hasExt("VK_KHR_external_semaphore_fd")) {
+            auto emitExternalState = [&](const char* name, const std::string& value) {
                 if (!firstExternal) out << ',';
-                VkPhysicalDeviceExternalSemaphoreInfo si{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_SEMAPHORE_INFO, nullptr, VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT};
-                VkExternalSemaphoreProperties sp{VK_STRUCTURE_TYPE_EXTERNAL_SEMAPHORE_PROPERTIES, nullptr, 0, 0, 0};
-                api.getPhysicalDeviceExternalSemaphoreProperties(devices[i], &si, &sp);
-                out << "{\"section\":\"External Capabilities\",\"name\":\"Opaque FD Semaphore\",\"value\":\"features=0x" << std::hex << sp.externalSemaphoreFeatures << ", export=0x" << sp.exportFromImportedHandleTypes << ", compatible=0x" << sp.compatibleHandleTypes << "\"}";
-            }
+                firstExternal = false;
+                out << "{\"section\":\"External Capabilities\",\"name\":" << jsonString(name) << ",\"value\":" << jsonString(value) << '}';
+            };
+            const bool deviceExtensionsComplete = std::strcmp(deviceExtensionEnumeration.status, "available") == 0;
+            auto prerequisiteState = [&](const char* extensionName) {
+                return deviceExtensionsComplete ? std::string("Not applicable: ") + extensionName + " was not enumerated for this device." : "Unknown: device-extension enumeration is incomplete or unavailable, so extension absence cannot be established.";
+            };
+            auto queryExternalBuffer = [&](const char* extensionName, VkExternalMemoryHandleTypeFlagBits handleType, const char* handleName) {
+                if (!hasExt(extensionName)) { emitExternalState(handleName, prerequisiteState(extensionName)); return; }
+                if (!api.getPhysicalDeviceExternalBufferProperties) { emitExternalState(handleName, "Unavailable: vkGetPhysicalDeviceExternalBufferProperties entry point is unavailable."); return; }
+                VkPhysicalDeviceExternalBufferInfo info{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_BUFFER_INFO, nullptr, 0, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, handleType};
+                VkExternalBufferProperties properties{VK_STRUCTURE_TYPE_EXTERNAL_BUFFER_PROPERTIES, nullptr, {}};
+                api.getPhysicalDeviceExternalBufferProperties(devices[i], &info, &properties);
+                std::ostringstream value;
+                value << "features=0x" << std::hex << properties.externalMemoryProperties.externalMemoryFeatures << ", export=0x" << properties.externalMemoryProperties.exportFromImportedHandleTypes << ", compatible=0x" << properties.externalMemoryProperties.compatibleHandleTypes;
+                emitExternalState(handleName, value.str());
+            };
+            auto queryExternalFence = [&](VkExternalFenceHandleTypeFlagBits handleType, const char* handleName) {
+                if (!hasExt("VK_KHR_external_fence_fd")) { emitExternalState(handleName, prerequisiteState("VK_KHR_external_fence_fd")); return; }
+                if (!api.getPhysicalDeviceExternalFenceProperties) { emitExternalState(handleName, "Unavailable: vkGetPhysicalDeviceExternalFenceProperties entry point is unavailable."); return; }
+                VkPhysicalDeviceExternalFenceInfo info{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_FENCE_INFO, nullptr, handleType};
+                VkExternalFenceProperties properties{VK_STRUCTURE_TYPE_EXTERNAL_FENCE_PROPERTIES, nullptr, 0, 0, 0};
+                api.getPhysicalDeviceExternalFenceProperties(devices[i], &info, &properties);
+                std::ostringstream value;
+                value << "features=0x" << std::hex << properties.externalFenceFeatures << ", export=0x" << properties.exportFromImportedHandleTypes << ", compatible=0x" << properties.compatibleHandleTypes;
+                emitExternalState(handleName, value.str());
+            };
+            auto queryExternalSemaphore = [&](VkExternalSemaphoreHandleTypeFlagBits handleType, const char* handleName) {
+                if (!hasExt("VK_KHR_external_semaphore_fd")) { emitExternalState(handleName, prerequisiteState("VK_KHR_external_semaphore_fd")); return; }
+                if (!api.getPhysicalDeviceExternalSemaphoreProperties) { emitExternalState(handleName, "Unavailable: vkGetPhysicalDeviceExternalSemaphoreProperties entry point is unavailable."); return; }
+                VkPhysicalDeviceExternalSemaphoreInfo info{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_SEMAPHORE_INFO, nullptr, handleType};
+                VkExternalSemaphoreProperties properties{VK_STRUCTURE_TYPE_EXTERNAL_SEMAPHORE_PROPERTIES, nullptr, 0, 0, 0};
+                api.getPhysicalDeviceExternalSemaphoreProperties(devices[i], &info, &properties);
+                std::ostringstream value;
+                value << "features=0x" << std::hex << properties.externalSemaphoreFeatures << ", export=0x" << properties.exportFromImportedHandleTypes << ", compatible=0x" << properties.compatibleHandleTypes;
+                emitExternalState(handleName, value.str());
+            };
+            queryExternalBuffer("VK_KHR_external_memory_fd", VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT, "VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT");
+            queryExternalBuffer("VK_EXT_external_memory_dma_buf", VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT, "VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT");
+            queryExternalBuffer("VK_ANDROID_external_memory_android_hardware_buffer", VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID, "VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID");
+            queryExternalFence(VK_EXTERNAL_FENCE_HANDLE_TYPE_OPAQUE_FD_BIT, "VK_EXTERNAL_FENCE_HANDLE_TYPE_OPAQUE_FD_BIT");
+            queryExternalFence(VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT, "VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT");
+            queryExternalSemaphore(VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT, "VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT");
+            queryExternalSemaphore(VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT, "VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT");
             out << "]}";
         } else if (group && std::strcmp(group, "sparse") == 0) {
             addDevicePrefix(i);
@@ -3821,45 +4448,46 @@ std::string collectVulkanAdvancedGroup(const char* driverMode, const char* drive
             out << "]}";
         } else if (group && std::strcmp(group, "groups") == 0) {
             addDevicePrefix(i);
-            out << ",\"properties\":[{\"section\":\"Physical Device Groups\",\"name\":\"Group containing device\",\"value\":\"Query performed for this Vulkan instance\"}]" << "}";
+            out << ",\"properties\":[]}";
         } else {
             out << "{\"vendorId\":" << vendorId << ",\"deviceId\":" << deviceId << ",\"name\":" << jsonString(name ? name : "Unknown GPU") << "}";
         }
     }
-    if (group && std::strcmp(group, "groups") == 0 && api.enumeratePhysicalDeviceGroups) {
-        uint32_t gc = 0;
-        if (api.enumeratePhysicalDeviceGroups(instance, &gc, nullptr) == VK_SUCCESS) {
-            if (gc > kMaxDeviceGroupEntries) { api.destroyInstance(instance, nullptr); return "{\"status\":\"unavailable\",\"group\":\"groups\",\"reason\":\"Physical device group count exceeds safety limit.\",\"devices\":[]}"; }
-            std::vector<VkPhysicalDeviceGroupProperties> groups(gc);
-            for (auto& g : groups) { g.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_GROUP_PROPERTIES; g.pNext = nullptr; }
-            const size_t groupCapacity = groups.size();
-            if (gc && api.enumeratePhysicalDeviceGroups(instance, &gc, groups.data()) == VK_SUCCESS && gc <= groupCapacity) {
-                out << "]";
-                std::ostringstream groupJson;
-                for (uint32_t g = 0; g < gc; ++g) {
-                    if (g == 0) out << ",\"groupProperties\":["; else out << ',';
-                    std::ostringstream groupValue;
-                    groupValue << "physicalDeviceCount=" << groups[g].physicalDeviceCount << ", subsetAllocation=" << (groups[g].subsetAllocation == VK_TRUE ? "true" : "false") << ", devices=";
-                    for (uint32_t d = 0; d < groups[g].physicalDeviceCount && d < VK_MAX_DEVICE_GROUP_SIZE; ++d) {
-                        if (d) groupValue << "; ";
-                        VkPhysicalDeviceProperties groupProperties{};
-                        getDevicePropertiesPrimary(api, groups[g].physicalDevices[d], groupProperties);
-                        const uint32_t gpVendor = groupProperties.vendorID;
-                        const uint32_t gpDevice = groupProperties.deviceID;
-                        const char* gpName = groupProperties.deviceName;
-                        groupValue << (gpName ? gpName : "Unknown GPU") << " [0x" << std::hex << gpVendor << ":0x" << gpDevice << std::dec << "]";
-                    }
-                    out << "{\"section\":\"Physical Device Group\",\"name\":\"Group " << g << "\",\"value\":" << jsonString(groupValue.str()) << '}';
+    if (group && std::strcmp(group, "groups") == 0) {
+        out << "]";
+        if (!physicalDeviceGroups.empty()) {
+            out << ",\"groupProperties\":[";
+            for (std::size_t g = 0; g < physicalDeviceGroups.size(); ++g) {
+                if (g) out << ',';
+                std::ostringstream groupValue;
+                groupValue << "physicalDeviceCount=" << physicalDeviceGroups[g].physicalDeviceCount << ", subsetAllocation=" << (physicalDeviceGroups[g].subsetAllocation == VK_TRUE ? "true" : "false") << ", devices=";
+                for (uint32_t d = 0; d < physicalDeviceGroups[g].physicalDeviceCount && d < VK_MAX_DEVICE_GROUP_SIZE; ++d) {
+                    if (d) groupValue << "; ";
+                    VkPhysicalDeviceProperties groupProperties{};
+                    getDevicePropertiesPrimary(api, physicalDeviceGroups[g].physicalDevices[d], groupProperties);
+                    const uint32_t gpVendor = groupProperties.vendorID;
+                    const uint32_t gpDevice = groupProperties.deviceID;
+                    const char* gpName = groupProperties.deviceName;
+                    groupValue << (gpName ? gpName : "Unknown GPU") << " [0x" << std::hex << gpVendor << ":0x" << gpDevice << std::dec << "]";
                 }
-                if (gc) out << "]";
-                out << "}";
-            } else { out << "]}"; }
-        } else { out << "]}"; }
+                out << "{\"section\":\"Physical Device Group\",\"name\":\"Group " << g << "\",\"value\":" << jsonString(groupValue.str()) << '}';
+            }
+            out << "]";
+        }
+        out << ",\"groupEnumerationResult\":" << static_cast<int32_t>(physicalDeviceGroupEnumerationResult) << ",\"groupEnumerationComplete\":" << jsonBool(physicalDeviceGroupEnumerationComplete) << "}";
     } else {
         out << "]}";
     }
     api.destroyInstance(instance, nullptr);
-    return out.str();
+    std::string advancedJson = out.str();
+    auto replaceAdvancedToken = [&](const std::string& token, const std::string& value) {
+        const std::string encodedToken = jsonString(token);
+        const std::size_t position = advancedJson.find(encodedToken);
+        if (position != std::string::npos) advancedJson.replace(position, encodedToken.size(), jsonString(value));
+    };
+    replaceAdvancedToken(advancedStatusToken, advancedEnumerationIncomplete ? "incomplete" : "available");
+    replaceAdvancedToken(advancedReasonToken, advancedEnumerationReason);
+    return advancedJson;
 }
 
 std::string collectVulkanSimpleFeatureGroup(const char* driverMode, const char* driverIcdPath, const char* driverBundlePath, const char* hookLibDir, const char* group) {
@@ -3886,12 +4514,26 @@ std::string collectVulkanSimpleFeatureGroup(const char* driverMode, const char* 
     g_probeStage = 2;
     if (api.createInstanceCompatible(std::min(loaderVersion, VK_API_VERSION_1_3), queryInstanceExtensions, &inst, &selectedInstanceApiVersion) != VK_SUCCESS || !inst || !api.loadInstanceFunctions(inst) || !api.getPhysicalDeviceFeatures2) { if(inst) api.destroyInstance(inst,nullptr); return std::string("{\"status\":\"unavailable\",\"group\":")+jsonString(group)+",\"extension\":"+jsonString(extensionName)+",\"reason\":\"Extended feature query is unavailable.\",\"devices\":[]}"; }
     const auto extensionDevicesResult = enumeratePhysicalDevicesRobust(api, inst);
-    const VkResult extensionDeviceResult = extensionDevicesResult.first;
-    std::vector<VkPhysicalDevice> devs = extensionDevicesResult.second;
+    const VkResult extensionDeviceResult = extensionDevicesResult.result;
+    std::vector<VkPhysicalDevice> devs = extensionDevicesResult.values;
     const uint32_t count = static_cast<uint32_t>(devs.size());
-    if (extensionDeviceResult != VK_SUCCESS || count == 0) { api.destroyInstance(inst,nullptr); return std::string("{\"status\":\"not_applicable\",\"group\":")+jsonString(group)+",\"extension\":"+jsonString(extensionName)+",\"reason\":\"No physical devices.\",\"devices\":[]}"; }
-    std::ostringstream out; out<<"{\"status\":\"available\",\"group\":"<<jsonString(group)<<",\"extension\":"<<jsonString(extensionName)<<",\"reason\":\"\",\"devices\":["; bool first=false;
-    for(uint32_t i=0;i<count;++i){auto extensionEnumeration = enumerateDeviceExtensions(api, devs[i]); auto exts = deviceExtensions(extensionEnumeration); if (extensionEnumeration.status != std::string("available")) { continue; } bool supported = std::any_of(exts.begin(), exts.end(), [&](const VkExtensionProperties& e){ return std::strcmp(e.extensionName, extensionName) == 0; }); if (!supported) continue; VkPhysicalDeviceProperties physicalProperties{}; getDevicePropertiesPrimary(api, devs[i], physicalProperties); uint32_t vendor=physicalProperties.vendorID, deviceId=physicalProperties.deviceID; const char* name=physicalProperties.deviceName; if(first)out<<',';first=true; out<<"{\"vendorId\":"<<vendor<<",\"deviceId\":"<<deviceId<<",\"name\":"<<jsonString(name?name:"Unknown GPU")<<",\"features\":[";
+    const bool physicalDeviceEnumerationComplete = extensionDevicesResult.complete;
+    if (!extensionDevicesResult.resultAvailable || (extensionDevicesResult.safetyRejected && extensionDevicesResult.values.empty())) { api.destroyInstance(inst,nullptr); const std::string reason = extensionDevicesResult.safetyRejected ? std::string("Physical-device enumeration was rejected by a local safety bound. ") + extensionDevicesResult.localReason : extensionDevicesResult.localReason; return std::string("{\"status\":\"unavailable\",\"group\":")+jsonString(group)+",\"extension\":"+jsonString(extensionName)+",\"reason\":"+jsonString(reason)+",\"physicalDeviceEnumerationSafetyRejected\":"+jsonBool(extensionDevicesResult.safetyRejected)+",\"devices\":[]}"; }
+    if (extensionDeviceResult != VK_SUCCESS && extensionDeviceResult != VK_INCOMPLETE && extensionDevicesResult.values.empty()) { api.destroyInstance(inst,nullptr); return std::string("{\"status\":\"unavailable\",\"group\":")+jsonString(group)+",\"extension\":"+jsonString(extensionName)+",\"reason\":"+jsonString(std::string("vkEnumeratePhysicalDevices failed. VkResult=")+std::to_string(extensionDeviceResult))+",\"devices\":[]}"; }
+    if (count == 0) { api.destroyInstance(inst,nullptr); return physicalDeviceEnumerationComplete ? std::string("{\"status\":\"not_applicable\",\"group\":")+jsonString(group)+",\"extension\":"+jsonString(extensionName)+",\"reason\":\"No physical devices.\",\"devices\":[]}" : std::string("{\"status\":\"incomplete\",\"group\":")+jsonString(group)+",\"extension\":"+jsonString(extensionName)+",\"reason\":\"Physical-device enumeration remained VK_INCOMPLETE and returned no bounded partial device handles.\",\"devices\":[]}"; }
+    bool simpleFeatureIncomplete = !physicalDeviceEnumerationComplete;
+    std::string simpleFeatureReason = physicalDeviceEnumerationComplete ? "" : (!extensionDevicesResult.localReason.empty() ? extensionDevicesResult.localReason : "Physical-device enumeration remained VK_INCOMPLETE; bounded partial positive evidence was retained.");
+    auto markSimpleFeatureIncomplete = [&](const std::string& reason) {
+        simpleFeatureIncomplete = true;
+        if (!reason.empty() && simpleFeatureReason.find(reason) == std::string::npos) {
+            if (!simpleFeatureReason.empty()) simpleFeatureReason += " ";
+            simpleFeatureReason += reason;
+        }
+    };
+    const std::string simpleFeatureStatusToken = "__VULKANSCOPE_SIMPLE_FEATURE_STATUS__";
+    const std::string simpleFeatureReasonToken = "__VULKANSCOPE_SIMPLE_FEATURE_REASON__";
+    std::ostringstream out; out<<"{\"status\":"<<jsonString(simpleFeatureStatusToken)<<",\"group\":"<<jsonString(group)<<",\"extension\":"<<jsonString(extensionName)<<",\"reason\":"<<jsonString(simpleFeatureReasonToken)<<",\"physicalDeviceEnumerationResult\":"<<static_cast<int>(extensionDeviceResult)<<",\"physicalDeviceEnumerationComplete\":"<<jsonBool(physicalDeviceEnumerationComplete)<<",\"devices\":["; bool first=false; bool matchedAny=false; bool extensionEnumerationUncertain=false; bool extensionEnumerationIncomplete=false; std::string extensionEnumerationReason;
+    for(uint32_t i=0;i<count;++i){auto extensionEnumeration = enumerateDeviceExtensions(api, devs[i]); const auto& exts = deviceExtensions(extensionEnumeration); if (std::strcmp(extensionEnumeration.status, "available") != 0) { extensionEnumerationUncertain=true; if (std::strcmp(extensionEnumeration.status, "incomplete") == 0) extensionEnumerationIncomplete=true; if (extensionEnumerationReason.empty()) extensionEnumerationReason=extensionEnumeration.reason; markSimpleFeatureIncomplete(extensionEnumeration.reason.empty() ? "Device-extension enumeration was incomplete or unavailable for at least one physical device; extension presence or absence cannot be established there." : extensionEnumeration.reason); } bool supported = std::any_of(exts.begin(), exts.end(), [&](const VkExtensionProperties& e){ return std::strcmp(e.extensionName, extensionName) == 0; }); if (!supported) continue; matchedAny=true; VkPhysicalDeviceProperties physicalProperties{}; getDevicePropertiesPrimary(api, devs[i], physicalProperties); uint32_t vendor=physicalProperties.vendorID, deviceId=physicalProperties.deviceID; const char* name=physicalProperties.deviceName; if(first)out<<',';first=true; out<<"{\"vendorId\":"<<vendor<<",\"deviceId\":"<<deviceId<<",\"name\":"<<jsonString(name?name:"Unknown GPU")<<",\"features\":[";
         if(std::strcmp(group,"maintenance11")==0){VkPhysicalDeviceMaintenance11FeaturesKHR f{static_cast<VkStructureType>(structureType),nullptr,VK_FALSE};VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,&f,{}};api.queryFeatures2(devs[i],&f2);out<<"{\"name\":\"VK_KHR_maintenance11 / maintenance11\",\"supported\":"<<jsonBool(f.maintenance11==VK_TRUE)<<"}";}
         else if(std::strcmp(group,"deviceAddressCommands")==0){VkPhysicalDeviceDeviceAddressCommandsFeaturesKHR f{static_cast<VkStructureType>(structureType),nullptr,VK_FALSE};VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,&f,{}};api.queryFeatures2(devs[i],&f2);out<<"{\"name\":\"VK_KHR_device_address_commands / deviceAddressCommands\",\"supported\":"<<jsonBool(f.deviceAddressCommands==VK_TRUE)<<"}";}
         else if(std::strcmp(group,"shaderUniformBufferUnsizedArray")==0){VkPhysicalDeviceShaderUniformBufferUnsizedArrayFeaturesEXT f{static_cast<VkStructureType>(structureType),nullptr,VK_FALSE};VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,&f,{}};api.queryFeatures2(devs[i],&f2);out<<"{\"name\":\"VK_EXT_shader_uniform_buffer_unsized_array / shaderUniformBufferUnsizedArray\",\"supported\":"<<jsonBool(f.shaderUniformBufferUnsizedArray==VK_TRUE)<<"}";}
@@ -3905,7 +4547,23 @@ std::string collectVulkanSimpleFeatureGroup(const char* driverMode, const char* 
         else {VkPhysicalDeviceShaderOCPMicroscalingTypesFeaturesEXT f{static_cast<VkStructureType>(structureType),nullptr,VK_FALSE,VK_FALSE,VK_FALSE,VK_FALSE};VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,&f,{}};api.queryFeatures2(devs[i],&f2);out<<"{\"name\":\"VK_EXT_shader_ocp_microscaling_types / shaderFloat4\",\"supported\":"<<jsonBool(f.shaderFloat4==VK_TRUE)<<"},{\"name\":\"VK_EXT_shader_ocp_microscaling_types / shaderFloat6\",\"supported\":"<<jsonBool(f.shaderFloat6==VK_TRUE)<<"},{\"name\":\"VK_EXT_shader_ocp_microscaling_types / shaderFloat8UnsignedE8M0\",\"supported\":"<<jsonBool(f.shaderFloat8UnsignedE8M0==VK_TRUE)<<"},{\"name\":\"VK_EXT_shader_ocp_microscaling_types / shaderMXInt8\",\"supported\":"<<jsonBool(f.shaderMXInt8==VK_TRUE)<<"}";}
         out<<"]}";
     }
-    out<<"]}";api.destroyInstance(inst,nullptr);return out.str();
+    if (!matchedAny) {
+        api.destroyInstance(inst,nullptr);
+        if (!physicalDeviceEnumerationComplete) return std::string("{\"status\":\"incomplete\",\"group\":")+jsonString(group)+",\"extension\":"+jsonString(extensionName)+",\"reason\":\"Physical-device enumeration was incomplete, so extension absence cannot be established across all devices.\",\"devices\":[]}";
+        if (extensionEnumerationIncomplete) return std::string("{\"status\":\"incomplete\",\"group\":")+jsonString(group)+",\"extension\":"+jsonString(extensionName)+",\"reason\":"+jsonString(extensionEnumerationReason.empty() ? "Device-extension enumeration remained VK_INCOMPLETE, so extension absence cannot be established." : extensionEnumerationReason)+",\"devices\":[]}";
+        if (extensionEnumerationUncertain) return std::string("{\"status\":\"unavailable\",\"group\":")+jsonString(group)+",\"extension\":"+jsonString(extensionName)+",\"reason\":"+jsonString(extensionEnumerationReason.empty() ? "Device-extension enumeration was unavailable, so extension applicability could not be established." : extensionEnumerationReason)+",\"devices\":[]}";
+        return std::string("{\"status\":\"not_applicable\",\"group\":")+jsonString(group)+",\"extension\":"+jsonString(extensionName)+",\"reason\":\"The extension was not enumerated by any physical device.\",\"devices\":[]}";
+    }
+    out<<"]}";api.destroyInstance(inst,nullptr);
+    std::string simpleFeatureJson = out.str();
+    auto replaceSimpleFeatureToken = [&](const std::string& token, const std::string& value) {
+        const std::string encodedToken = jsonString(token);
+        const std::size_t position = simpleFeatureJson.find(encodedToken);
+        if (position != std::string::npos) simpleFeatureJson.replace(position, encodedToken.size(), jsonString(value));
+    };
+    replaceSimpleFeatureToken(simpleFeatureStatusToken, simpleFeatureIncomplete ? "incomplete" : "available");
+    replaceSimpleFeatureToken(simpleFeatureReasonToken, simpleFeatureReason);
+    return simpleFeatureJson;
 }
 
 
@@ -3924,20 +4582,28 @@ std::string collectVulkanSelfTest(const char* driverMode, const char* driverIcdP
         return "{\"status\":\"unavailable\",\"reason\":\"Required Vulkan self-test entry points are unavailable.\",\"tests\":[]}";
     }
     const auto enumerated = enumeratePhysicalDevicesRobust(api, instance);
-    if (enumerated.first != VK_SUCCESS || enumerated.second.empty()) {
+    const bool physicalDeviceEnumerationComplete = enumerated.complete;
+    if (!enumerated.resultAvailable || enumerated.safetyRejected || (enumerated.result != VK_SUCCESS && enumerated.result != VK_INCOMPLETE) || enumerated.values.empty()) {
         api.destroyInstance(instance, nullptr);
-        return "{\"status\":\"unavailable\",\"reason\":\"No physical Vulkan device was available for self-test.\",\"tests\":[]}";
+        return "{\"status\":\"unavailable\",\"reason\":\"No bounded physical Vulkan device evidence was available for self-test.\",\"tests\":[]}";
     }
-    VkPhysicalDevice physical = VK_NULL_HANDLE;
-    for (VkPhysicalDevice candidate : enumerated.second) {
+    std::vector<VkPhysicalDevice> matchingPhysicalDevices;
+    for (VkPhysicalDevice candidate : enumerated.values) {
         VkPhysicalDeviceProperties properties{};
         getDevicePropertiesPrimary(api, candidate, properties);
-        if (properties.vendorID == targetVendorId && properties.deviceID == targetDeviceId) { physical = candidate; break; }
+        if (properties.vendorID == targetVendorId && properties.deviceID == targetDeviceId) matchingPhysicalDevices.push_back(candidate);
     }
-    if (physical == VK_NULL_HANDLE) {
+    if (matchingPhysicalDevices.size() > 1) {
         api.destroyInstance(instance, nullptr);
-        return "{\"status\":\"unavailable\",\"reason\":\"The selected Vulkan physical device was not found in the isolated self-test process.\",\"tests\":[]}";
+        return "{\"status\":\"unavailable\",\"reason\":\"The selected Vulkan physical-device identity is ambiguous in the isolated self-test process; vendorId/deviceId matches more than one device and no stable cross-process identity is available.\",\"tests\":[]}";
     }
+    if (matchingPhysicalDevices.empty()) {
+        api.destroyInstance(instance, nullptr);
+        return physicalDeviceEnumerationComplete
+            ? "{\"status\":\"unavailable\",\"reason\":\"The selected Vulkan physical device was not found in the isolated self-test process.\",\"tests\":[]}"
+            : "{\"status\":\"unavailable\",\"reason\":\"Physical-device enumeration was incomplete, so absence of the selected Vulkan physical device cannot be established safely.\",\"tests\":[]}";
+    }
+    VkPhysicalDevice physical = matchingPhysicalDevices.front();
     uint32_t queueCount = 0;
     api.getPhysicalDeviceQueueFamilyProperties(physical, &queueCount, nullptr);
     if (queueCount == 0 || queueCount > 4096) {
@@ -4044,7 +4710,7 @@ std::string collectVulkanSelfTest(const char* driverMode, const char* driverIcdP
     return out.str();
 }
 
-extern "C" JNIEXPORT jstring JNICALL
+extern "C" JNIEXPORT jboolean JNICALL
 Java_com_efishell_vulkanscope_VulkanProbeService_collectVulkanData(JNIEnv* env, jobject, jobject surface, jstring driverModeString, jstring driverIcdPathString, jstring driverBundlePathString, jstring hookLibDirString, jstring resultPathString) {
     const char* driverMode = driverModeString ? env->GetStringUTFChars(driverModeString, nullptr) : nullptr;
     const char* driverIcdPath = driverIcdPathString ? env->GetStringUTFChars(driverIcdPathString, nullptr) : nullptr;
@@ -4052,17 +4718,19 @@ Java_com_efishell_vulkanscope_VulkanProbeService_collectVulkanData(JNIEnv* env, 
     const char* hookLibDir = hookLibDirString ? env->GetStringUTFChars(hookLibDirString, nullptr) : nullptr;
     const char* resultPath = resultPathString ? env->GetStringUTFChars(resultPathString, nullptr) : nullptr;
     installProbeCrashGuard(resultPath);
-    const std::string result = collect(surface, env, driverMode, driverIcdPath, driverBundlePath, hookLibDir, resultPath);
+    bool finalPublishedByCollector = false;
+    const std::string result = collect(surface, env, driverMode, driverIcdPath, driverBundlePath, hookLibDir, resultPath, &finalPublishedByCollector);
+    const bool published = finalPublishedByCollector || publishProbeCheckpoint(resultPath, result);
     clearProbeCrashGuard(resultPath);
     if (resultPathString && resultPath) env->ReleaseStringUTFChars(resultPathString, resultPath);
     if (hookLibDirString && hookLibDir) env->ReleaseStringUTFChars(hookLibDirString, hookLibDir);
     if (driverBundlePathString && driverBundlePath) env->ReleaseStringUTFChars(driverBundlePathString, driverBundlePath);
     if (driverIcdPathString && driverIcdPath) env->ReleaseStringUTFChars(driverIcdPathString, driverIcdPath);
     if (driverModeString && driverMode) env->ReleaseStringUTFChars(driverModeString, driverMode);
-    return env->NewStringUTF(result.c_str());
+    return published ? JNI_TRUE : JNI_FALSE;
 }
 
-extern "C" JNIEXPORT jstring JNICALL
+extern "C" JNIEXPORT jboolean JNICALL
 Java_com_efishell_vulkanscope_VulkanProbeService_collectVulkanSurfaceData(JNIEnv* env, jobject, jobject surface, jstring driverModeString, jstring driverIcdPathString, jstring driverBundlePathString, jstring hookLibDirString, jstring resultPathString) {
     const char* driverMode = driverModeString ? env->GetStringUTFChars(driverModeString, nullptr) : nullptr;
     const char* driverIcdPath = driverIcdPathString ? env->GetStringUTFChars(driverIcdPathString, nullptr) : nullptr;
@@ -4071,16 +4739,17 @@ Java_com_efishell_vulkanscope_VulkanProbeService_collectVulkanSurfaceData(JNIEnv
     const char* resultPath = resultPathString ? env->GetStringUTFChars(resultPathString, nullptr) : nullptr;
     installProbeCrashGuard(resultPath);
     const std::string result = collectVulkanSurface(surface, env, driverMode, driverIcdPath, driverBundlePath, hookLibDir);
+    const bool published = publishProbeCheckpoint(resultPath, result);
     clearProbeCrashGuard(resultPath);
     if (resultPathString && resultPath) env->ReleaseStringUTFChars(resultPathString, resultPath);
     if (hookLibDirString && hookLibDir) env->ReleaseStringUTFChars(hookLibDirString, hookLibDir);
     if (driverBundlePathString && driverBundlePath) env->ReleaseStringUTFChars(driverBundlePathString, driverBundlePath);
     if (driverIcdPathString && driverIcdPath) env->ReleaseStringUTFChars(driverIcdPathString, driverIcdPath);
     if (driverModeString && driverMode) env->ReleaseStringUTFChars(driverModeString, driverMode);
-    return env->NewStringUTF(result.c_str());
+    return published ? JNI_TRUE : JNI_FALSE;
 }
 
-extern "C" JNIEXPORT jstring JNICALL
+extern "C" JNIEXPORT jboolean JNICALL
 Java_com_efishell_vulkanscope_VulkanProbeService_collectVulkanQueryData(JNIEnv* env, jobject, jstring groupString, jstring driverModeString, jstring driverIcdPathString, jstring driverBundlePathString, jstring hookLibDirString, jstring resultPathString) {
     const char* group = groupString ? env->GetStringUTFChars(groupString, nullptr) : nullptr;
     const char* driverMode = driverModeString ? env->GetStringUTFChars(driverModeString, nullptr) : nullptr;
@@ -4132,6 +4801,7 @@ Java_com_efishell_vulkanscope_VulkanProbeService_collectVulkanQueryData(JNIEnv* 
     } else {
         result = std::string("{\"status\":\"unavailable\",\"group\":") + jsonString(groupName) + ",\"reason\":\"Registry query descriptor is not executable.\",\"devices\":[]}";
     }
+    const bool published = publishProbeCheckpoint(resultPath, result);
     clearProbeCrashGuard(resultPath);
     if (resultPathString && resultPath) env->ReleaseStringUTFChars(resultPathString, resultPath);
     if (hookLibDirString && hookLibDir) env->ReleaseStringUTFChars(hookLibDirString, hookLibDir);
@@ -4139,5 +4809,5 @@ Java_com_efishell_vulkanscope_VulkanProbeService_collectVulkanQueryData(JNIEnv* 
     if (driverIcdPathString && driverIcdPath) env->ReleaseStringUTFChars(driverIcdPathString, driverIcdPath);
     if (driverModeString && driverMode) env->ReleaseStringUTFChars(driverModeString, driverMode);
     if (groupString && group) env->ReleaseStringUTFChars(groupString, group);
-    return env->NewStringUTF(result.c_str());
+    return published ? JNI_TRUE : JNI_FALSE;
 }

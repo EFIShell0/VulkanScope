@@ -1,5 +1,307 @@
-# VulkanScope 0.41.14
+# Changelog
 
-- Fixed the release-blocking Kotlin compilation failure in `imageFormatQueryGroupState` by using the actual `DeviceReport` model type instead of the nonexistent stale `GpuInfo` type.
-- Preserved all VulkanScope 0.41.13 Image Format Properties2 query-group state, Database submission, schema 2 / technicalReport 3, Vulkan 1.4.360 and three-ABI behavior unchanged.
-- Added a release-verifier regression gate for the helper model type.
+## 0.80.3
+
+- Moves the complete Encyclopedia and Analysis workspace out of Overview into separate Overview-parent destinations; Overview now keeps compact Material 3 Expressive entry cards only.
+- Fixes an Encyclopedia search crash caused by generated registry rows containing literal `\\t` text while the runtime decoder expected tab delimiters.
+- Makes generated symbol decoding fail closed for malformed rows and renders Encyclopedia matches as top-level lazy items.
+- Preserves the locked Vulkan 1.4.361 symbol/reference census, VkResult semantics, runtime evidence, Database schemas and 0.80.0 security/resource hardening.
+
+## 0.80.0
+
+- Full rules-driven security, memory/resource, crash/concurrency, Vulkan specification, Android/toolchain and Material 3 design-integrity re-audit over immutable 0.41.46.
+- Bounded raw user-selected Turnip archive input to 96 MiB before ZIP decompression, in addition to the existing 2048-entry, 32 MiB per-file and 64 MiB decompressed-total limits.
+- Replaced normal changed-checkpoint full `JSONObject` materialization with metadata-only polling; terminal publications are validated with strict streaming JSON while crash/timeout recovery remains bounded. Missing base status no longer defaults to fabricated `unavailable` terminal evidence.
+- Preserved Vulkan 1.4.361/header 361, API 37, NDK r29, report schemas, query coverage, Vulkan Video exact-profile census and the 0.41.46 Material 3 Expressive information architecture.
+
+## 0.41.46
+
+- Vulkan Video page now preserves explicit query failures while presenting retained exact-profile census rows as available query evidence rather than an erroneous Unknown root state.
+
+- Adds a dedicated Vulkan Video page over the existing exact-profile capability, sampled-format and queue evidence, organized into Overview, Decode, Encode, Formats and Queues without broadening support inference.
+- Removes the standalone Analysis destination and quick-access button; all Analysis tools now live as a separate lazy `Analysis workspace` immediately below Capability snapshot on Overview.
+- Adds common Material-consistent up/down boundary indicators to every top-level scrollable page; the corresponding indicator disappears at the absolute top/bottom and both disappear for non-scrollable content.
+- Adds an Info `Libraries` section with exact pinned direct Android/native dependency versions plus a separate build-toolchain section.
+- Preserves Vulkan 1.4.361, the locked `vk.xml` + `video.xml` sources, 302/110/104 query coverage, the 47-query Vulkan Video census, schema 2 / technicalReport 3 and all report/Database evidence semantics.
+
+## 0.41.45
+
+- Adds a SHA-256-locked Khronos `video.xml` source alongside the existing locked `vk.xml` and generates Vulkan Video StdVideo profile/level metadata from both registries.
+- Replaces the single-profile Vulkan Video capability samples with a bounded 47-query exact-profile census over every registry-defined H.264/H.265/VP9/AV1 codec-specific profile member, including all H.264 decode picture layouts and both AV1 film-grain modes.
+- Keeps every capability result scoped to the exact 4:2:0 8-bit profile combination and never infers codec-wide or bit-depth-wide support; non-profile query failures remain Unavailable.
+- Presents returned H.264/H.265/VP9/AV1 maximum levels using canonical `STD_VIDEO_*` names while retaining raw numeric values.
+- Leaves Vulkan Video format enumeration explicitly sampled to avoid an unbounded Cartesian query expansion and preserves Vulkan 1.4.361, 302/110/104 physical-device query coverage, schema 2 and technicalReport 3.
+
+## 0.41.44
+
+- Replaces profile-name/API-only Vulkan Profiles checks with struct-qualified extension, feature, property, format, inheritance and OR-group evaluation for the normalized Android and Khronos Roadmap requirement sets.
+- Corrects Android 15 `subgroupSupportedOperations` to the authoritative BASIC|VOTE|ARITHMETIC|BALLOT|SHUFFLE|SHUFFLE_RELATIVE mask `0x3F`.
+- Evaluates Roadmap 2022/2024/2026 mapped requirements instead of API version alone and preserves Roadmap 2026's exact composition without inheriting Roadmap-2024-only promoted-v1.4/line groups.
+- Makes FAIL require verified negative evidence, UNKNOWN preserve missing/incomplete evidence, and PASS require explicit complete coverage; partial Android 2025, inherited Android 15/16/17, Roadmap mappings and unpinned catalog-only profiles cannot produce a false PASS.
+- Uses one canonical profile-evaluation source across Profiles UI, Analysis, JSON snapshot, TXT and HTML.
+- Preserves Vulkan 1.4.361 query coverage, Surface/driver-generation handling, schema 2, technicalReport 3 and all existing report/database evidence semantics.
+
+## 0.41.43
+
+- Rebinds the hidden Android Surface host to each Vulkan driver generation so a driver change no longer starts the successor collection against the previous Surface identity.
+- Defers the first complete collection for a changed driver until the replacement SurfaceView publishes a live Surface.
+- Binds Surface created/destroyed callbacks to the Surface host generation so late callbacks from the previous driver host cannot become current or clear a newer Surface.
+- Applies the same Surface rebind to forced same-mode Turnip package activation while leaving an unchanged driver selection as a no-op.
+- Preserves ordinary Surface recreation as a Surface-only refresh, the one bounded native-window-in-use retry, 1631 evidence-row semantics, Vulkan 1.4.361 query coverage, schema 2 and technicalReport 3.
+- Coordinates with VulkanScope Database 0.39.18 for current-producer metadata only; no Database evidence semantics or D1 schema changes are required.
+
+## 0.41.42
+
+- Separates HTML report state presentation so `Supported` remains green, `Available` is blue, `Unsupported` remains red, `Unavailable` / `Not available` is amber, `Not applicable` is neutral and `Unknown` remains gray.
+- Corrects HTML badge classification order so `not available` can no longer be mistaken for a negative support result.
+- Renames the registry/query evidence field from the ambiguous `Report schema` label to `Registry report schema` in UI, TXT and HTML without changing Database schema 2 or technicalReport schema 3.
+- Preserves all VulkanScope 0.41.41 Surface/WSI lifecycle, UUID/raw-byte serialization and section-aware property provenance fixes without changing Vulkan query coverage or report payload semantics.
+- Coordinates with VulkanScope Database 0.39.17 for query-state-aware Surface Compare semantics.
+- Keeps Vulkan 1.4.361, 302 Android-queryable providers, 110 implemented physical-device structs, 104 validated query groups, schema 2 and technicalReport 3 unchanged.
+
+## 0.41.41
+
+- Preserves fixed-size Vulkan UUID byte arrays as exact raw bytes instead of streaming `uint8_t` elements as characters.
+- Makes generated property merging section-aware so same-name fields from distinct physical-device property structs retain provenance while equivalent manual extension rows are upgraded to their canonical generated struct section.
+- Adds Surface generation/identity gating so stale `SurfaceView` destruction or delayed Surface probe results cannot overwrite the current Android Surface state.
+- Defers Surface-only refresh while full/background collection is active instead of requesting a second complete report collection.
+- Adds one bounded retry when `vkCreateAndroidSurfaceKHR` reports `VK_ERROR_NATIVE_WINDOW_IN_USE_KHR`; a second failure remains explicit Unavailable evidence.
+- Coordinates with VulkanScope Database 0.39.16 for historical pre-0.41.40 property/feature Compare identity compatibility and correct visible-field metric wording.
+
+## 0.41.40
+
+- Corrects registry-generated field typing so physical-device Properties members are no longer misclassified as Features merely because Vulkan typedefs share the same underlying C++ integer type.
+- Keeps VkBool32 members of Features structs in the Features dataset while VkBool32/numeric members of Properties structs remain detailed property evidence with their actual value semantics.
+- Improves generated array/extent presentation and preserves exact raw evidence for types that do not yet have a canonical formatter.
+- Corrects HTML report status badges: Available/Pass are positive green states, Fail/Unsupported/Not exposed are negative red states, Unavailable is an explicit amber query-failure state, Not applicable is a separate neutral state, and Unknown remains gray.
+- Keeps the clarified detailed-query totals: safety diagnostics are counted separately from property/query rows.
+- Updates the intended companion Database to 0.39.15 for the split Loader API / Base probe instance API report-text contract.
+
+## 0.41.39
+
+- Fixed the base terminal JSON builder so every device object is closed before the devices array/root is closed.
+- Added native JSON-container balance validation before a base result can be logged/published as a terminal checkpoint.
+- Restored the process-owned base-probe teardown contract by removing VkInstance destruction from the one-shot base collector path; the dedicated probe process owns cleanup after terminal handoff.
+- Added failing-before-fix and behavioral regression gates for one-device and multi-device base terminal JSON construction.
+
+## 0.41.38
+
+- Fixed the real-device startup failure where a native pre-return `.done` marker let the consumer treat a still-active writer as terminal, producing `malformed or non-terminal JSON` and racing two separate SIGKILL paths.
+- Terminal ownership is now single-source: native code publishes only bounded atomic result/checkpoint files; `VulkanProbeService` publishes `.done` only after JNI has returned and a streaming terminal-JSON validation has succeeded.
+- Base JNI no longer rewrites an already durable collector final checkpoint. Normal polling never promotes a terminal-shaped checkpoint without the service-owned marker; pre-return final checkpoints remain eligible only for bounded timeout/crash recovery.
+- Hard timeout, normal completion and cancellation now share one atomic process-termination claim, eliminating duplicate service/worker self-SIGKILL.
+- Added bounded post-marker stable reread, terminal JSON streaming validation/fail-closed fallback, a terminal-ownership behavioral state machine, failing-before-fix verification against 0.41.37, and negative mutation controls.
+
+## 0.41.37
+- Re-audited the entire dedicated Vulkan probe lifecycle after 0.41.36 still timed out on-device. The previous behavioral gate covered `.done` only after service return and missed terminal publication that becomes durable before JNI/service return.
+- Native base collection now publishes the exact terminal sidecar immediately after the terminal JSON and before process-owned teardown; service marker publication remains an idempotent fallback.
+- All Vulkan instance/surface/loader cleanup in the dedicated probe process is deferred to process exit for both system and Turnip paths, eliminating driver teardown from the publication/return critical path.
+- The service self-terminates only after a durable terminal marker exists, while the consumer enforces a bounded stale-process teardown barrier before the next query.
+- A service-owned hard-deadline watchdog now terminates a JNI-blocked probe at the exact consumer timeout + 100 ms even if OEM process discovery omits `:vulkan_probe`; the consumer waits a 150 ms settle window at timeout before cleanup/return.
+- Cancellation is now a hard lifecycle boundary: `VulkanProbeService.onDestroy` terminates the dedicated process even when its executor is blocked inside JNI, while `runServiceProbe` drives non-cancellable teardown and a bounded stop settle before deleting request files and rethrowing cancellation.
+- Reduced the base probe ceiling from 45 seconds to 20 seconds and removed automatic retry for terminal unavailable/timeout results; one retry remains only for explicit bounded `incomplete` partial-positive evidence.
+- Added failing-before-fix timeout/handoff state-machine and production-binding gates, negative mutations, false-positive controls and updated resource-budget evidence. Vulkan 1.4.361 capability/reporting semantics and Database schema compatibility are unchanged.
+
+## 0.41.36
+- Repaired the demonstrated Turnip producer/consumer handoff race: the dedicated service no longer self-SIGKILLs before the main process can observe terminal publication.
+- Added an atomic `.done` terminal sidecar; the consumer forces a bounded final reread on that marker and fails fast on missing, malformed or non-terminal terminal JSON instead of waiting for the normal probe timeout.
+- Corrected base-ready checkpoint JSON closure and canonicalized terminal `baseReportComplete` to one root key; publication logs now reflect actual atomic-write success.
+- Added a failing-before-fix handshake verifier, a behavioral state-machine regression with unrelated-marker false-positive control, negative mutation requirements, and package extract/byte-reproducibility verification.
+- Expanded `PROJECT_RULES.md` with the mandatory evidence workflow for all future changes. Vulkan 1.4.361 coverage, Database schema/report compatibility and bounded resource/security contracts are unchanged.
+
+## 0.41.35
+
+- Fixed a real-device Turnip hang after the complete base checkpoint was already atomically published.
+- Turnip Vulkan instance/surface/library cleanup is now reclaimed by one-shot dedicated-process teardown instead of running on the result-publication critical path.
+- Accepted probe publications terminate the previous dedicated probe process before the next query; timeout-boundary publications are recovered instead of discarded.
+- Exhaustive background detail collection now has a 60-second total budget; any remainder is retained as explicit Unavailable evidence rather than silently omitted or keeping collection active indefinitely.
+- Added failing-before-fix lifecycle regressions and a 0.41.34→0.41.35 allowlisted golden contract.
+
+## 0.41.34
+
+- Fixed real Android release native compilation failures by restoring bounded instance-extension evidence used by the base collector before WSI/dependency fields are serialized.
+- Removed the dead extension-group `hasExt` lambda that was promoted to a build error by VulkanScope's `-Werror` policy.
+- Fixed the HTML export Kotlin compile failure by routing Device layer enumeration through the existing `table(...)` helper instead of the nonexistent `kv(...)` helper.
+- Added a failing-before-fix compile-regression verifier and a 0.41.33→0.41.34 allowlisted golden contract.
+- Vulkan 1.4.361 registry/header pins, query coverage, report/database schemas, resource ceilings and timeout/race behavior are unchanged.
+
+## 0.41.33
+- Fixed the Vulkan 1.4.361 CMake configure regression that incorrectly required the Vulkan-Headers repository `registry/vk.xml` bytes to match the separately locked Vulkan-Docs canonical `vk.xml` SHA-256.
+- Kept the bundled canonical Vulkan-Docs 1.4.361 snapshot byte-locked, kept Vulkan-Headers pinned to exact commit `31386378257ac8653ce5b32c93baec385259ebbe`, and changed the fetched-header registry gate to semantic `VK_HEADER_VERSION 361` plus `VK_NV_private_data_base_handle` sentinel validation.
+- Added an allowlisted 0.41.32→0.41.33 regression contract and a targeted CMake registry-lock verifier so the cross-repository byte-hash bug cannot silently return.
+- No Vulkan query/report coverage, Database submission schema, timeout, memory, security, or user-visible capability semantics changed.
+
+## 0.41.32
+- Pinned VulkanScope to the canonical Vulkan 1.4.361 registry snapshot and Vulkan-Headers 1.4.361 contract, with the uploaded `vk.xml` bundled and SHA-256 locked for reproducible offline registry verification.
+- Added Vulkan 1.4.361 `VK_NV_private_data_base_handle` coverage through `VkPhysicalDevicePrivateDataBaseHandleFeaturesNV::privateDataBaseHandle`, increasing validated physical-device provider coverage to 302 and implemented catalog structs to 110.
+- Corrected strict registry accounting to 297 stable plus 5 provisional queryable physical-device providers, with alias-resolved EXT/KHR/core pNext comparison and explicit beta-header requirements for provisional structures.
+- Repaired canonical extension-reference generation and replaced the incomplete 199-entry subset with the complete 474-extension Vulkan 1.4.361 registry census, including registry-derived revision/type/platform/promotion/dependency/deprecation/provisional metadata.
+- Removed full successful native-report duplication through JNI: the dedicated probe process now publishes bounded complete JSON directly to the atomic checkpoint and returns Boolean publication status; the main process reads the opened checkpoint into one exact-size bounded byte array.
+- Added explicit concurrency/resource gates for application mutex serialization, single service worker, fair native probe lock, timeout placement, UID/process-name constrained probe termination, atomic result publication, 64 MiB probe publication ceiling, 2 MiB Database transport ceiling and 8 MiB Analysis snapshot ceiling.
+- Clarified that the `:vulkan_probe` service is a dedicated application process rather than Android `isolatedProcess=true`, avoiding an unsupported security/isolation claim.
+- Added 0.41.31→0.41.32 allowlisted golden regression locking plus targeted Vulkan 1.4.361, registry-snapshot and resource/concurrency verifiers; deliberate negative mutations for unallowlisted runtime drift, missing new-extension coverage and broken probe serialization all fail as expected.
+- Static security, report-completeness, timeout/race, bounded-allocation and package checks found no additional concrete vulnerability or RAM leak requiring speculative production changes. Android Gradle tasks and real-device sanitizer/Validation-Layer runs remain separately unclaimed where the environment could not execute them.
+
+## 0.41.31
+- Corrected format-property eligibility for `VK_FORMAT_A1B5G5R5_UNORM_PACK16` and `VK_FORMAT_A8_UNORM` so Vulkan 1.3 devices exposing `VK_KHR_maintenance5` are queried instead of being incorrectly skipped until core Vulkan 1.4.
+- Added the canonical `VK_IMAGE_LAYOUT_TENSOR_ALIASING_ARM` name to image-layout reporting, preserving raw numeric fallback for genuinely unknown future values.
+- Corrected WSI color-space detail: DCI-P3 now records the presentation-engine XYZ component interpretation, while `VK_COLOR_SPACE_DOLBYVISION_EXT` is explicitly identified as the legacy Vulkan enum and is not presented as proof that Dolby Vision metadata signaling is active.
+- Repaired the locked-registry quality contract so registered provisional physical-device query providers are tracked separately from stable providers; the 301-extension coverage is now 299 stable plus 2 provisional AMDX providers and provisional querying requires explicit beta-header mode.
+- Added a 0.41.30→0.41.31 allowlisted golden regression contract and targeted failing-before-fix spec tests; only `vulkanscope.cpp` is permitted to differ from the predecessor runtime file set.
+- Re-audited report completeness/loss prevention, canonical names, extension/query/report parity, updater and Database networking, Turnip confinement, JNI/native ownership, memory bounds, UI-thread blocking and package hygiene; no additional concrete runtime defect was changed without evidence.
+
+## 0.41.30
+- Introduced a commit-pinned Vulkan registry/header lock for Vulkan 1.4.360, tying the authoritative Vulkan-Docs `vk.xml` revision and canonical Vulkan-Headers commit directly to release verification.
+- Replaced the stale schema-4 registry generator with a reproducible schema-current generator that validates the native catalog and Kotlin runtime extension coverage against locked upstream inputs and can require exact registry-derived extension coverage.
+- Added a golden 0.41.29 predecessor contract that locks unchanged production/build-chain content plus 104 query groups, 301 validated physical-device extensions, 109 implemented catalog structs and 10 instance dependency candidates.
+- Added mandatory regression-contract, strict upstream-registry and combined quality-gate tools; checked-in registry metadata now records exact registry/header provenance and extension coverage.
+- Added CI gates for locked upstream/spec regeneration and Android release lint/unit-test/build execution.
+- Kept the 0.41.29 production runtime byte-identical apart from application version metadata because this audit found tooling/test/reproducibility gaps but no new proven runtime defect requiring a speculative code change.
+
+## 0.41.29
+- Made native `baseReportComplete` require both complete physical-device enumeration and complete device-extension enumeration for every returned GPU; partial/unavailable extension catalogs can no longer unlock complete-report export or Database submission.
+- Added a Kotlin defense-in-depth base coverage gate requiring every device's `deviceExtensionStatus` to be `available` before the base report is accepted as complete.
+- Corrected no-match extension and simple-feature queries so a device-extension `VK_INCOMPLETE` result stays Incomplete rather than being collapsed to Unavailable; completed absence remains Not applicable and true enumeration failure remains Unavailable.
+- Propagated device-extension enumeration uncertainty to extension-dependent advanced groups (`queue2`, `format2`, `imageFormat2`, `external`, `sparse`, `memory2`, `videoCapabilities`) so optional/chained evidence cannot be silently omitted under an Available group root.
+- Replaced Turnip legacy-bundle `walkTopDown().toList()` validation with streaming bounded traversal that validates canonical confinement and rejects symlink-like/special entries before descending, without materializing the whole tree in memory.
+- Switched private Turnip import/backup transaction directory names from wall-clock timestamps to UUIDs and require a newly created import directory, preventing stale-directory reuse if clocks repeat or an old temporary directory survives a prior interruption.
+- Re-audited Vulkan 1.4.360 canonical naming, raw unknown values, `VK_INCOMPLETE` retention, report/export state, update/Database security, JNI/native ownership, dependency pins and release-package hygiene without changing schemas or endpoints.
+
+## 0.41.28
+- Corrected simple extension-backed feature groups so an extension found on one GPU no longer leaves the group Available when another GPU's device-extension enumeration is incomplete or unavailable; the group is now Incomplete while positive per-device evidence is retained.
+- Scoped the release verifier to `collectVulkanSimpleFeatureGroup`, preventing completeness code in another extension collector from masking a regression in the simple-feature path.
+- Made the isolated native crash marker fail fast for advanced, extension, metadata, Surface and self-test probes; base collection keeps its complete-checkpoint recovery behavior.
+- Preserved explicit crash/Incomplete states through existing report merging without fabricating unsupported capability conclusions or changing Database/report schemas.
+- Re-audited Vulkan 1.4.360 naming/enumeration semantics, report/export lifecycle, Turnip synchronization, JNI/native ownership, dependency pins and release-package hygiene.
+
+## 0.41.27
+- Stopped unchanged isolated-probe checkpoints from being re-read and reparsed every 500 ms; polling now parses only when length, modification time or atomic-replacement inode changes.
+- Corrected advanced Tool Properties and Vulkan Video format group status so `VK_INCOMPLETE` is reported as Incomplete at the group level while bounded partial positive evidence remains visible.
+- Corrected extension-query completeness across multi-GPU devices: incomplete/unavailable device-extension enumeration no longer leaves a partially attributable extension group marked Available.
+- Propagated `vkGetPhysicalDeviceCooperativeMatrixProperties2EXT` `VK_INCOMPLETE` to extension-group Incomplete status without discarding returned property rows.
+- Reworked Turnip bundle validation so the 2048-entry safety limit counts the entire visited tree, rejects canonical aliases/symlink-like entries and reuses one validated file set for metadata, declared-driver and read-only checks.
+- Serialized Turnip installation with the isolated-probe mutex and blocked every isolated probe, including optional self-tests, while private driver files are being mutated.
+- Revalidated Vulkan 1.4.360 naming/evidence rules, report/export state, Android 17 native-code hardening, update/Database security, native/JNI ownership and package hygiene without changing schemas or endpoints.
+
+## 0.41.26
+- Moved complete TXT/HTML report serialization and destination I/O off the main thread; exports now persist the exact initiated report snapshot in private cache before SAF/Downloads handling.
+- Made pending SAF exports survive Activity/configuration recreation through small saveable snapshot metadata instead of holding a report-sized transient Compose string.
+- Removed report-sized UTF-8 `toByteArray` duplication from TXT/HTML export writes and added cleanup for temporary snapshots and known partial destination files.
+- Re-enforced the complete-report collection gate at driver picker launch, Activity-result return, import entry and driver-source mutation so stale picker callbacks cannot change collection inputs.
+- Added a separate driver-picker re-entry guard and prevented new full/Surface/ad-hoc Vulkan probes from racing an in-progress private driver import.
+- Moved installed Turnip bundle traversal/read-only hardening out of recomposition and service-call main-thread paths onto `Dispatchers.IO`.
+- Fixed stale reporting after replacing a Turnip ZIP while Turnip was already selected: every successful import now invalidates the previous report and forces a fresh complete collection against the newly installed bundle.
+- Removed the broad release R8 keep rule for the entire `MainActivity` while explicitly retaining the `VulkanProbeService` class/native JNI names required by static JNI lookup.
+- Revalidated Vulkan 1.4.360 canonical naming/evidence semantics, API 37/build pins, update/Database security, Turnip Android 17 hardening, JNI/native ownership and package hygiene without changing report/database schemas.
+
+## 0.41.25
+- Updated the active Material 3 Expressive dependency to 1.5.0-alpha27, the current AndroidX alpha published 2026-08-26, while keeping Compose UI/Foundation/Animation on stable 1.12.0.
+- Updated the Compose compiler Gradle plugin from Kotlin 2.3.21 to current stable Kotlin 2.4.10 while retaining AGP 9 built-in Kotlin and the existing no-`kotlin-android` policy.
+- Updated OkHttp from 5.2.0 to current stable 5.5.0 for current TLS/HTTP fixes while preserving VulkanScope's existing explicit IPv6-first system-DNS policy and approved network endpoints; ECH/alternate DNS remains opt-in and is not enabled.
+- Hardened user-selected Turnip/AdrenoTools native code for Android 17/API 37 by marking every extracted `.so` read-only immediately after opening its destination and before writing package bytes.
+- Added bounded pre-install verification that all imported native libraries remain canonically confined to the private temporary bundle, readable and non-writable before the atomic directory swap.
+- Added fail-closed installed-bundle verification: every Turnip resolution checks/hardens the bounded whole native-library set, including dependent `.so` files even when the selected library was already read-only, and refuses loading if read-only state cannot be established.
+- Moved the complete bounded Turnip ZIP import transaction off the UI thread to cancellable `Dispatchers.IO`, added cleanup on cancellation/failure, blocked concurrent imports, and fsynced native libraries/metadata before atomic installation.
+- Re-audited Vulkan 1.4.360 naming/evidence semantics, complete-report retention, Surface/WSI state, multi-device attribution, updater/Database security, JNI/native ownership, bounds, lazy UI/export behavior and package hygiene without changing capability/report schemas.
+
+## 0.41.24
+- Hardened Surface/WSI enumeration provenance so successful retries replace stale `VK_INCOMPLETE` results, bounded partial format/present-mode evidence survives later retry failures, and completed empty/missing-FIFO results are explicit specification anomalies rather than complete negative evidence.
+- Added runtime fallback from failing `VK_KHR_get_surface_capabilities2`/formats2 queries to the classic `VK_KHR_surface` path without discarding earlier bounded partial formats2 evidence; both attempts retain explicit provenance.
+- Separated local physical-device safety-bound rejection from driver-returned `VkResult` values so VulkanScope no longer fabricates a Vulkan error for an application-side allocation guard.
+- Preserved physical-device safety rejection/reason beside retained partial GPU evidence in base and Surface reports while keeping `baseReportComplete=false` and export/Database submission fail-closed.
+- Generalized bounded partial-evidence retention across instance extensions/layers, per-layer extensions, device layers and device extensions when a later retry fails or exceeds a local bound.
+- Propagated Surface format/present-mode enumeration completeness and specification-anomaly state through UI, Analysis, TXT, HTML and schema-3 technicalReport so missing catalog entries are classified unsupported only after proven-complete enumeration.
+- Restored pre-probe signal handlers after successful isolated native probes, preventing the crash guard from altering signal disposition beyond the probe lifetime.
+- Added additive scope/count provenance to legacy schema-2 single-GPU summary fields on multi-device reports while preserving the all-device schema-3 technicalReport and backward-compatible keys.
+- Re-audited Vulkan naming/result semantics, query-state preservation, multi-device attribution, updater/Turnip/Database security, JNI/native ownership, bounds, lazy presentation, TV navigation and package hygiene.
+
+## 0.41.23
+- Fixed the `videoCapabilities` native routing mismatch so the advanced query now executes its Vulkan Video capability/format implementation instead of silently missing the evidence behind an unreachable extension-collector branch.
+- Made sampled Vulkan Video profile results explicit: registered profile-specific query errors are Unsupported for the exact sampled profile only, while unrelated failures remain Unavailable with raw `VkResult` evidence.
+- Preserved queue-family Vulkan Video operation masks returned with incomplete physical-device enumeration across UI, Analysis, TXT, HTML and technicalReport instead of dropping valid partial positive evidence.
+- Corrected `VK_KHR_video_queue` and codec-extension prerequisite handling so incomplete device-extension enumeration remains Unknown rather than becoming a false Not applicable result.
+- Made missing Vulkan Video format-query entry points explicit and preserved bounded `VK_INCOMPLETE` format evidence without fabricating codec-wide support conclusions.
+- Decoupled Vulkan Video capability and format entry points so an unavailable `vkGetPhysicalDeviceVideoCapabilitiesKHR` no longer suppresses otherwise callable `vkGetPhysicalDeviceVideoFormatPropertiesKHR` evidence, and vice versa.
+- Corrected encode capability valid usage by chaining generic `VkVideoEncodeCapabilitiesKHR` with the required H.264/H.265/AV1 codec-specific capability structure; successful sampled profiles now retain the corresponding codec-specific encode limits.
+- Replaced raw fixed-size sampled-profile storage with typed Vulkan Video profile structures, removing unnecessary size/alignment assumptions and type-punning.
+- Replaced the old generic sampled-image format recipe with separate Vulkan Video decode-output, decode-DPB, encode-input and encode-DPB usage queries for each bounded sampled profile.
+- Restored updater release/version integrity by requiring the validated APK `versionName` to exactly match the selected GitHub release version in addition to the existing package, signer, versionCode, HTTPS, ABI and size checks.
+- Re-audited report-state preservation, multi-device attribution, WSI/external capability rules, Turnip path confinement, Database submission, JNI/native ownership and release/package hygiene.
+
+## 0.41.22
+- Corrected Android HDR evidence so a successful empty HDR-type result is reported as a completed zero-result capability query rather than Unavailable; Unknown and query failure remain separate.
+- Removed the remaining minor-only Vulkan API gates from versioned feature/property collection so future higher-major Vulkan versions cannot be misclassified as older than Vulkan 1.x.
+- Corrected Vulkan Video format and Vulkan Tool zero/`VK_INCOMPLETE` enumeration semantics without fabricating support or absence.
+- Expanded canonical `VkResult` reporting to every distinct result value in the pinned Vulkan 1.4.360 header and added canonical result text beside raw Image Format Properties2 tuple results.
+- Added a physical-device selector so every runtime-enumerated GPU is reachable from device-specific UI pages; multi-device export filenames no longer imply a first-GPU-only report.
+- Made TXT/HTML summary cards multi-device-safe and routed HTML HDR summary through the same state-aware formatter as UI/TXT, preventing first-GPU and empty-HDR semantic drift.
+- Preserved device-layer Unknown/Incomplete/Unavailable states, Turnip tri-state eligibility and Surface presentation state instead of collapsing them into negative capability claims.
+- Hardened Turnip ZIP import against duplicate canonical archive paths and made the isolated probe service consistently use the validated canonical cache result path.
+- Re-audited report serialization, Vulkan naming, update/Database security, native/JNI ownership, bounds, performance/lazy presentation, TV navigation and package hygiene.
+
+## 0.41.21
+- Corrected live Surface/WSI validity and evidence-state handling: dependent non-null-Surface queries now require proven presentation support, per-queue `VkResult` is retained, unattempted queries no longer become fabricated Vulkan errors, and incomplete extension/enumeration evidence remains Unknown/Incomplete rather than false negative support.
+- Added safe classic `VK_KHR_surface` fallback when `VK_KHR_get_surface_capabilities2` is advertised but its required entry points are unavailable, while preserving explicit path provenance.
+- Split external memory, fence and semaphore capability queries into independent evidence paths and corrected/expanded exact OPAQUE_FD, SYNC_FD, DMA_BUF and Android Hardware Buffer handle-type reporting.
+- Corrected Vulkan 1.0 promoted-command compatibility by enabling the advertised device-group/external-capability instance extensions and loading the KHR physical-device-group alias where required.
+- Fixed the Format Properties2 path to use a direct void query only after an entry-point availability gate.
+- Preserved bounded physical-device handles after repeated `VK_INCOMPLETE`; exact enumeration result/completeness now flows through UI, Analysis, TXT, HTML and technicalReport while incomplete base reports remain non-exportable/non-submittable.
+- Extended partial physical-device semantics to isolated core, extension, Vulkan 1.4, advanced and simple feature groups so incomplete device sets cannot prove global absence or Not applicable.
+- Prevented cross-process evidence misattribution on systems with multiple identical vendor/device IDs; ambiguous Surface/advanced/extension/self-test evidence is now Unavailable instead of being assigned to the first matching GPU.
+- Fixed a duplicate Kotlin local declaration in the extension merge path that could block release compilation.
+- Distinguished Android platform-API unavailability and unavailable HDR metadata from proven display capability absence.
+- Re-audited manifest/update/Database/Turnip bounds, JNI/Vulkan/ANativeWindow ownership, query serialization, report generation, UI/TV focus and package hygiene; no new concrete static security vulnerability or resource leak was found in reviewed paths.
+
+## 0.41.20
+- Separated Vulkan loader API, base-probe instance API and physical-device API reporting.
+- Preserved native physical-device-group and Surface-probe provenance that was previously dropped at the Kotlin merge boundary; bounded `VK_INCOMPLETE` group enumeration now retains partial group evidence, exact result and completeness state.
+- Removed the synthetic per-device physical-device-group placeholder so only actual returned group properties describe group membership.
+- Prevented ad-hoc query results and Surface changes from being lost during a still-running full collection; driver changes now clear stale report state, trigger fresh collection and suppress older-driver in-flight probe publication.
+- Made lazy-query blank/error outcomes explicit Unavailable evidence instead of silent completion.
+- Added structured query-safety rejection evidence, raw device ID parity and canonical Surface VkResult text to the schema-3 technical report, and made TXT/HTML report completeness explicit.
+- Corrected profile extension-scope certainty and expanded the Android 16 r.7 lightweight evaluator with directly verified MUST features and safely comparable properties while retaining UNKNOWN for incomplete official coverage.
+- Replaced friendly physical-device-type labels with exact canonical Vulkan enum names and expanded canonical VkResult presentation.
+- Replaced minor-only Vulkan API gates with major+minor comparisons, preventing future higher-major API versions from being misclassified as older Vulkan 1.x devices.
+- Made the checked-in extension-reference catalog explicitly a supplementary subset; blank registry metadata is Unavailable rather than interpreted as absence.
+- Removed the duplicate extension-name catalog and synchronized registry audit metadata to the native 109-struct / 104-query-group / 268-runtime-registry-token-reference catalog; corrected the canonical registry-token metric naming while retaining only a compatibility alias for older structured consumers.
+- Corrected the libadrenotools FetchContent pin to its full immutable commit and disabled shallow cloning for the hash pin, matching CMake requirements without changing the dependency revision.
+- Re-audited update, Database, Turnip, manifest, JNI/native ownership, bounds and UI behavior without finding a new concrete static resource leak or security vulnerability.
+
+## 0.41.19
+- Serialized all isolated Vulkan service probes at the application layer so timeout windows start only when a query owns the native worker slot.
+- Prevented stale Surface refresh results from overwriting newer feature/property/extension evidence collected in parallel.
+- Deferred full recollection while Surface/ad-hoc tasks are pending, preventing mixed-generation report state.
+- Removed forbidden third-party comparison-product naming from shipped source identifiers, runtime evidence labels, tools and rule/audit filenames while preserving validated coverage under neutral terminology.
+- Kept neutral internal coverage prefixes out of user-visible feature/property labels so canonical Vulkan structure/field names remain clean.
+- Removed nested README packaging residue and strengthened source-release hygiene checks.
+- Revalidated Vulkan 1.4.360, Android API 37, AGP 9.3.2 / Gradle 9.7.1, schema 2 / technicalReport 3 and the three required ABIs.
+
+## 0.41.18
+- Removed remaining official-looking synthetic unknown Vulkan names; unknown/future values retain raw evidence.
+- Preserved bounded partial `VK_INCOMPLETE` evidence and explicit status/reason/completeness for instance/device layer-extension enumeration.
+- Propagated per-layer extension-query provenance through UI, Analysis snapshots, TXT, HTML and technicalReport.
+- Made native `baseReportComplete` authoritative so timeout/crash paths cannot publish partial checkpoints as complete reports.
+- Corrected crash-marker, Surface prerequisite and stale Surface/metadata failure semantics.
+- Removed redundant isolated-Surface physical-device-properties work while preserving deterministic cleanup and bounded queries.
+- Fixed release-verifier ordering so the Image Format Properties2 query-recipe gate is enforced before PASS.
+- Cleaned the two inline deprecation-suppression expressions that produced Kotlin block-annotation parsing warnings in TXT/HTML version-code fallback paths.
+- Removed three unused legacy Compose helpers from the active source tree.
+- Revalidated security-sensitive report/update/import paths and native resource ownership without introducing a schema or Database migration.
+
+## 0.41.17
+- Removed the obsolete unused `instanceLayers(VulkanApi&)` native wrapper that failed release builds under `-Werror=-Wunused-function`.
+- Preserved instance-layer provenance by keeping all active collection on `enumerateInstanceLayers`.
+- Preserved 0.41.15 enumeration/HDR semantics and 0.41.16 compile corrections unchanged.
+
+## 0.41.16
+- Fixed native release compilation by comparing device-extension enumeration status by string contents instead of C-string pointer identity.
+- Fixed Kotlin release compilation by moving the shared HDR type formatter to top-level serializer scope.
+- Preserved 0.41.15 Vulkan enumeration and Android HDR provenance semantics unchanged.
+
+## 0.41.15
+- Added canonical names for the current shared-refresh and FIFO-latest-ready Vulkan present modes.
+- Unknown future present-mode, color-space and format values now remain raw unknown evidence instead of synthetic Vulkan symbols.
+- Preserved instance extension/layer enumeration status, reason, partial `VK_INCOMPLETE` evidence and completion state.
+- Corrected failed physical-device and uncertain extension-enumeration paths so they do not become false Not applicable results.
+- Distinguished Android HDR capability-object absence from a genuine empty supported-HDR-type list.
+- Propagated the refined enumeration/HDR provenance through UI, Analysis, TXT, HTML and structured reports.

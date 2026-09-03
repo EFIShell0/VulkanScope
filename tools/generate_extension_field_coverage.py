@@ -15,8 +15,8 @@ registry_path = Path(args.registry)
 out = Path(args.out)
 text = header.read_text(encoding='utf-8', errors='ignore')
 version_match = re.search(r'#define\s+VK_HEADER_VERSION\s+(\d+)\b', text)
-if not version_match or int(version_match.group(1)) != 360:
-    raise SystemExit("Canonical Vulkan-Headers 1.4.360 required for generation")
+if not version_match or int(version_match.group(1)) != 361:
+    raise SystemExit("Canonical Vulkan-Headers 1.4.361 required for generation")
 registry = ET.parse(registry_path).getroot()
 
 structs = re.findall(r'typedef\s+struct\s+(VkPhysicalDevice\w*)\s*\{(.*?)\}\s*\1\s*;', text, re.S)
@@ -209,6 +209,8 @@ def emit_field(lines, typ, name, arr):
         lines.append(f'    generatedEmitString(dst, section, "{esc(name)}", (std::to_string(value.{name}.width) + " × " + std::to_string(value.{name}.height)));')
     elif typ == 'VkExtent3D':
         lines.append(f'    generatedEmitString(dst, section, "{esc(name)}", (std::to_string(value.{name}.width) + " × " + std::to_string(value.{name}.height) + " × " + std::to_string(value.{name}.depth)));')
+    elif typ == 'VkConformanceVersion':
+        lines.append(f'    generatedEmitString(dst, section, "{esc(name)}", (std::to_string(value.{name}.major) + "." + std::to_string(value.{name}.minor) + "." + std::to_string(value.{name}.subminor) + "." + std::to_string(value.{name}.patch)));')
     elif typ == 'VkComponentMapping':
         lines.append(f'    generatedEmitString(dst, section, "{esc(name)}", (std::to_string(value.{name}.r) + "," + std::to_string(value.{name}.g) + "," + std::to_string(value.{name}.b) + "," + std::to_string(value.{name}.a)));')
     elif typ.startswith('Vk'):

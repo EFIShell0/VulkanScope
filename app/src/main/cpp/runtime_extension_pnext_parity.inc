@@ -1176,4 +1176,4 @@ static size_t appendParityExtensionPNext(const char* selectedExtension, const st
     return added;
 }
 
-static constexpr uint32_t kCapsViewerParityStructCount = 295;
+static constexpr uint32_t kValidatedParityStructCount = 295;

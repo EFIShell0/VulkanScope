@@ -4,15 +4,15 @@
 #include <cstdint>
 #include <cstring>
 namespace vulkanscope_registry {
-inline constexpr const char* kBaseline = "Vulkan 1.4.360";
+inline constexpr const char* kBaseline = "Vulkan 1.4.361";
 inline constexpr const char* kMode = "offline registry-driven validated runtime query catalog";
-inline constexpr const char* kHeaderBaseline = "Vulkan 1.4.360 compile headers; validated query catalog Vulkan 1.4.360";
+inline constexpr const char* kHeaderBaseline = "Vulkan 1.4.361 compile headers; validated query catalog Vulkan 1.4.361";
 inline constexpr const char* kReportSchema = "4";
 inline constexpr std::size_t kCatalogSchemaVersion = 6;
-inline constexpr std::size_t kImplementedPhysicalDeviceStructCount = 109;
+inline constexpr std::size_t kImplementedPhysicalDeviceStructCount = 110;
 inline constexpr std::size_t kValidatedRuntimeQueryGroupCount = 104;
-inline constexpr std::size_t kRuntimeExtensionTokenCount = 268;
-inline constexpr std::array<const char*, 109> kImplementedPhysicalDeviceStructs = {
+inline constexpr std::size_t kRuntimeRegistryTokenReferenceCount = 268;
+inline constexpr std::array<const char*, 110> kImplementedPhysicalDeviceStructs = {
     "VkPhysicalDeviceComputeOccupancyPriorityFeaturesNV",
     "VkPhysicalDeviceCooperativeMatrixConversionFeaturesQCOM",
     "VkPhysicalDeviceCooperativeMatrixDecodeVectorFeaturesNV",
@@ -120,6 +120,7 @@ inline constexpr std::array<const char*, 109> kImplementedPhysicalDeviceStructs 
     "VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT",
     "VkPhysicalDeviceInlineUniformBlockFeatures",
     "VkPhysicalDeviceInlineUniformBlockProperties",
+    "VkPhysicalDevicePrivateDataBaseHandleFeaturesNV",
     "VkPhysicalDevicePrivateDataFeatures",
     "VkPhysicalDeviceSynchronization2Features",
 };

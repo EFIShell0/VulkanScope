@@ -1,11 +1,26 @@
 {
-  "baseline": "Vulkan 1.4.360",
+  "baseline": "Vulkan 1.4.361",
+  "registryRef": "1.4.361",
+  "registrySha256": "3ff4984b841932e04eebeb4ce2a6613ebd37c00ffb2e96549785b2c5d7da9e1d",
+  "publishedDate": "2026-08-28",
   "catalogSchemaVersion": 6,
   "engine": "offline registry-driven validated query catalog",
-  "headerBaseline": "Vulkan 1.4.360 / official header baseline",
-  "implementedPhysicalDeviceStructCount": 109,
-  "notes": "Validated native query coverage includes Vulkan 1.4.358 VK_EXT_image_tiling_control and Vulkan 1.4.359 VK_EXT_cooperative_matrix_maintenance1; Vulkan 1.4.360 introduced no additional extension. Unknown registry structures without a validated native path remain unavailable.",
+  "headerBaseline": "Vulkan 1.4.361 / official header baseline",
+  "headerCommit": "31386378257ac8653ce5b32c93baec385259ebbe",
+  "headerVersion": 361,
+  "implementedPhysicalDeviceStructCount": 110,
+  "validatedRuntimeQueryGroupCount": 104,
+  "validatedPhysicalDeviceQueryExtensionCount": 302,
+  "runtimeRegistryTokenReferenceCount": 268,
+  "notes": "Validated native query coverage includes 297 stable and 5 explicitly tracked provisional physical-device extension providers in the SHA-256-locked Vulkan 1.4.361 registry baseline. Vulkan 1.4.361 adds VK_NV_private_data_base_handle to the Android physical-device Features2 coverage. Runtime registry-token count is not an extension-support count.",
   "reportSchema": "4",
-  "runtimeExtensionTokenCount": 268,
-  "validatedRuntimeQueryGroupCount": 104
+  "validatedStablePhysicalDeviceQueryExtensionCount": 297,
+  "validatedProvisionalPhysicalDeviceQueryExtensionCount": 5,
+  "validatedProvisionalPhysicalDeviceQueryExtensions": [
+    "VK_AMDX_dense_geometry_format",
+    "VK_AMDX_shader_enqueue",
+    "VK_KHR_portability_subset",
+    "VK_NV_cuda_kernel_launch",
+    "VK_NV_displacement_micromap"
+  ]
 }

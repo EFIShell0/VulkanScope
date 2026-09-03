@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "vulkanBaseline": "1.4.361",
+  "auditedAt": "2026-09-02",
+  "sources": {
+    "roadmap": {
+      "repository": "KhronosGroup/Vulkan-Headers",
+      "ref": "v1.4.361",
+      "path": "registry/profiles/VP_KHR_roadmap.json",
+      "currentFileHistoryRevision": 12,
+      "currentFileHistoryDate": "2026-05-21"
+    },
+    "android": {
+      "repository": "KhronosGroup/Vulkan-Profiles",
+      "ref": "v1.4.361",
+      "paths": [
+        "profiles/Android/VP_ANDROID_15_requirements.json",
+        "profiles/Android/VP_ANDROID_16_requirements.json",
+        "profiles/Android/VP_ANDROID_17_requirements.json",
+        "profiles/Android/VP_ANDROID_vulkan_profile_2025.json"
+      ]
+    }
+  },
+  "profiles": {
+    "VP_ANDROID_15_requirements": {
+      "revision": 2,
+      "apiVersion": "1.3.273",
+      "requiredProfiles": ["VP_ANDROID_vulkan_profile_2022"],
+      "alternativeGroups": ["primitivesGeneratedQuery|pipelineStatisticsQuery", "swBresenhamLines|hwBresenhamLines"],
+      "subgroupSupportedOperationsMask": "0x3F",
+      "coverage": "direct-complete-parent-unmapped"
+    },
+    "VP_ANDROID_16_requirements": {
+      "revision": 7,
+      "apiVersion": "1.3.276",
+      "requiredProfiles": ["VP_ANDROID_15_requirements"],
+      "alternativeGroups": ["multisampledToSingleSampled|shaderStencilExport"],
+      "coverage": "direct-complete-parent-transitively-incomplete"
+    },
+    "VP_ANDROID_17_requirements": {
+      "revision": 4,
+      "apiVersion": "1.4.335",
+      "requiredProfiles": ["VP_ANDROID_vulkan_profile_2025"],
+      "alternativeGroups": ["primitivesGeneratedQuery|pipelineStatisticsQuery", "multisampledToSingleSampled|shaderStencilExport"],
+      "coverage": "direct-complete-parent-partial"
+    },
+    "VP_ANDROID_vulkan_profile_2025": {
+      "revision": 2,
+      "apiVersion": "1.1.128",
+      "coverage": "partial-property-format-matrix"
+    },
+    "VP_KHR_roadmap_2022": {
+      "revision": 2,
+      "apiVersion": "1.3.204",
+      "coverage": "normalized-mapped-pass-disabled-pending-source-equivalence"
+    },
+    "VP_KHR_roadmap_2024": {
+      "revision": 2,
+      "apiVersion": "1.3.276",
+      "requiredProfiles": ["VP_KHR_roadmap_2022"],
+      "alternativeGroups": ["six-line-rasterization-modes"],
+      "coverage": "normalized-mapped-pass-disabled-pending-source-equivalence"
+    },
+    "VP_KHR_roadmap_2026": {
+      "revision": 2,
+      "apiVersion": "1.4.328",
+      "directComposition": ["roadmap2022", "roadmap2024-base", "roadmap2026"],
+      "excludedInherited2024Capabilities": ["roadmap2024-promoted-vulkan14", "roadmap2024-line-alternatives"],
+      "alternativeGroups": ["six-vulkan14-line-rasterization-modes"],
+      "coverage": "normalized-mapped-pass-disabled-pending-source-equivalence"
+    }
+  },
+  "catalogOnlyProfiles": [
+    "VP_ANDROID_vulkan_profile_2022",
+    "VP_ANDROID_vulkan_profile_2021",
+    "VP_LUNARG_minimum_requirements_1_4",
+    "VP_LUNARG_minimum_requirements_1_3",
+    "VP_LUNARG_minimum_requirements_1_2",
+    "VP_LUNARG_minimum_requirements_1_1",
+    "VP_LUNARG_minimum_requirements_1_0"
+  ],
+  "statusPolicy": {
+    "verifiedRequirementFailure": "FAIL",
+    "missingEvidenceOrCoverage": "UNKNOWN",
+    "passRequiresCompleteCoverage": true,
+    "apiVersionAloneNeverProvesCatalogOnlyProfile": true
+  }
+}
