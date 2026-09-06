@@ -15,8 +15,8 @@ registry_path = Path(args.registry)
 out = Path(args.out)
 text = header.read_text(encoding='utf-8', errors='ignore')
 version_match = re.search(r'#define\s+VK_HEADER_VERSION\s+(\d+)\b', text)
-if not version_match or int(version_match.group(1)) != 361:
-    raise SystemExit("Canonical Vulkan-Headers 1.4.361 required for generation")
+if not version_match or int(version_match.group(1)) != 362:
+    raise SystemExit("Canonical Vulkan-Headers 1.4.362 required for generation")
 registry = ET.parse(registry_path).getroot()
 
 structs = re.findall(r'typedef\s+struct\s+(VkPhysicalDevice\w*)\s*\{(.*?)\}\s*\1\s*;', text, re.S)

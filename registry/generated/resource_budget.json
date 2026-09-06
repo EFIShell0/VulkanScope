@@ -3,7 +3,7 @@
   "probePublicationLimitBytes": 67108864,
   "databaseTransportLimitBytes": 2097152,
   "analysisSnapshotLimitBytes": 8388608,
-  "registeredVulkanExtensionCensus": 474,
+  "registeredVulkanExtensionCensus": 476,
   "nativeExtensionEnumerationEntryLimit": 4096,
   "baseProbeTimeoutMs": 20000,
   "surfaceProbeTimeoutMs": 25000,

@@ -4,9 +4,9 @@
 #include <cstdint>
 #include <cstring>
 namespace vulkanscope_registry {
-inline constexpr const char* kBaseline = "Vulkan 1.4.361";
+inline constexpr const char* kBaseline = "Vulkan 1.4.362";
 inline constexpr const char* kMode = "offline registry-driven validated runtime query catalog";
-inline constexpr const char* kHeaderBaseline = "Vulkan 1.4.361 compile headers; validated query catalog Vulkan 1.4.361";
+inline constexpr const char* kHeaderBaseline = "Vulkan 1.4.362 compile headers; validated query catalog Vulkan 1.4.362";
 inline constexpr const char* kReportSchema = "4";
 inline constexpr std::size_t kCatalogSchemaVersion = 6;
 inline constexpr std::size_t kImplementedPhysicalDeviceStructCount = 110;

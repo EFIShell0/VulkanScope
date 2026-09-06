@@ -13,29 +13,29 @@ args = parser.parse_args()
 errors = []
 gradle = (root / 'app/build.gradle.kts').read_text(encoding='utf-8')
 root_gradle = (root / 'build.gradle.kts').read_text(encoding='utf-8')
-if 'id("com.android.application") version "9.3.2" apply false' not in root_gradle: errors.append('AGP 9.3.2 pin mismatch')
+if 'id("com.android.application") version "9.4.0" apply false' not in root_gradle: errors.append('AGP 9.4.0 pin mismatch')
 if 'id("org.jetbrains.kotlin.plugin.compose") version "2.4.10" apply false' not in root_gradle: errors.append('Kotlin Compose compiler plugin 2.4.10 pin mismatch')
 wrapper_properties = (root / 'gradle/wrapper/gradle-wrapper.properties').read_text(encoding='utf-8')
 if 'gradle-9.7.1-bin.zip' not in wrapper_properties: errors.append('Gradle wrapper 9.7.1 pin mismatch')
 version = re.search(r'versionName\s*=\s*"([^"]+)"', gradle)
 code = re.search(r'versionCode\s*=\s*(\d+)', gradle)
-if not version or version.group(1) != '0.80.3': errors.append('versionName mismatch')
-if not code or code.group(1) != '803': errors.append('versionCode mismatch')
+if not version or version.group(1) != '0.80.15': errors.append('versionName mismatch')
+if not code or code.group(1) != '815': errors.append('versionCode mismatch')
 abi_line = re.search(r'abiFilters \+= listOf\(([^\n]+)\)', gradle)
 if not abi_line or any(x not in abi_line.group(1) for x in ['arm64-v8a', 'armeabi-v7a', 'x86_64']): errors.append('required ABI set is incomplete')
 if '"x86"' in gradle: errors.append('x86 ABI must remain excluded')
 manifest = (root / 'app/src/main/AndroidManifest.xml').read_text(encoding='utf-8')
 if manifest.count('android.permission.INTERNET') != 1: errors.append('exactly one INTERNET permission is required for approved HTTPS runtime paths')
 catalog = (root / 'app/src/main/cpp/registry_query_catalog.h').read_text(encoding='utf-8')
-for needle in ['kCatalogSchemaVersion = 6', 'kBaseline = "Vulkan 1.4.361"', 'findQueryDescriptor']:
+for needle in ['kCatalogSchemaVersion = 6', 'kBaseline = "Vulkan 1.4.362"', 'findQueryDescriptor']:
     if needle not in catalog: errors.append(f'missing catalog requirement: {needle}')
 manifest_json = json.loads((root / 'registry/generated/registry_query_manifest.json').read_text(encoding='utf-8'))
 snapshot = json.loads((root / 'registry/generated/coverage_snapshot.json').read_text(encoding='utf-8'))
-if manifest_json.get('baseline') != 'Vulkan 1.4.361': errors.append('generated manifest baseline mismatch')
-if snapshot.get('baseline') != 'Vulkan 1.4.361': errors.append('coverage snapshot baseline mismatch')
+if manifest_json.get('baseline') != 'Vulkan 1.4.362': errors.append('generated manifest baseline mismatch')
+if snapshot.get('baseline') != 'Vulkan 1.4.362': errors.append('coverage snapshot baseline mismatch')
 
 lock_path = root / 'registry/registry_lock.json'
-contract_path = root / 'tests/golden/0.80.2_regression_contract.json'
+contract_path = root / 'tests/golden/0.80.14_regression_contract.json'
 regression_verifier_path = root / 'tools/verify_regression_contracts.py'
 quality_gate_path = root / 'tools/quality_gate.py'
 upstream_verifier_path = root / 'tools/verify_upstream_registry.py'
@@ -94,6 +94,41 @@ audit_0803_path = root / 'rules/0.80.3_OVERVIEW_TOOLS_SEARCH_CRASH_AUDIT.md'
 overview_tools_0803_verifier_path = root / 'tools/verify_overview_tools_search_0803.py'
 encyclopedia_search_0803_state_machine_path = root / 'tools/test_encyclopedia_search_0803_state_machine.py'
 overview_tools_0803_negative_path = root / 'tools/test_overview_tools_search_0803_negative_mutations.py'
+audit_0804_path = root / 'rules/0.80.4_DETAIL_SCROLL_TV_COLLECTION_AUDIT.md'
+detail_tv_0804_verifier_path = root / 'tools/verify_detail_tv_collection_0804.py'
+detail_tv_0804_state_machine_path = root / 'tools/test_detail_tv_collection_0804_state_machine.py'
+detail_tv_0804_negative_path = root / 'tools/test_detail_tv_collection_0804_negative_mutations.py'
+audit_0805_path = root / 'rules/0.80.5_UPDATE_RELEASE_NOTES_TV_DESIGN_AUDIT.md'
+update_release_0805_verifier_path = root / 'tools/verify_update_release_notes_tv_0805.py'
+update_release_0805_state_machine_path = root / 'tools/test_update_release_notes_tv_0805_state_machine.py'
+update_release_0805_negative_path = root / 'tools/test_update_release_notes_tv_0805_negative_mutations.py'
+audit_0806_path = root / 'rules/0.80.6_TALKBACK_LARGE_TEXT_ACCESSIBILITY_AUDIT.md'
+accessibility_0806_verifier_path = root / 'tools/verify_accessibility_large_text_0806.py'
+accessibility_0806_state_machine_path = root / 'tools/test_accessibility_large_text_0806_state_machine.py'
+accessibility_0806_negative_path = root / 'tools/test_accessibility_large_text_0806_negative_mutations.py'
+audit_0807_path = root / 'rules/0.80.7_SYSTEM_LANGUAGE_FONT_UPDATE_INFO_AUDIT.md'
+system_language_0807_verifier_path = root / 'tools/verify_system_language_font_update_0807.py'
+system_language_0807_state_machine_path = root / 'tools/test_system_language_font_update_0807_state_machine.py'
+system_language_0807_negative_path = root / 'tools/test_system_language_font_update_0807_negative_mutations.py'
+audit_0808_path = root / 'rules/0.80.8_FINAL_AGP_COLLECTION_DATABASE_AUDIT.md'
+final_0808_verifier_path = root / 'tools/verify_final_release_0808.py'
+final_0808_state_machine_path = root / 'tools/test_final_release_0808_state_machine.py'
+final_0808_negative_path = root / 'tools/test_final_release_0808_negative_mutations.py'
+audit_0809_path = root / 'rules/0.80.9_DETAIL_BUTTON_ONLY_DATABASE_0.39.23_AUDIT.md'
+detail_0809_verifier_path = root / 'tools/verify_detail_button_only_0809.py'
+detail_0809_state_machine_path = root / 'tools/test_detail_button_only_0809_state_machine.py'
+detail_0809_negative_path = root / 'tools/test_detail_button_only_0809_negative_mutations.py'
+audit_0813_path = root / 'rules/0.80.13_MATERIAL3_EXPRESSIVE_FULL_UI_AUDIT.md'
+audit_0814_path = root / 'rules/0.80.14_PADDINGVALUES_COMPILE_AUDIT.md'
+audit_0815_path = root / 'rules/0.80.15_RESPONSIVE_OVERLAY_DIALOG_UI_AUDIT.md'
+responsive_0815_verifier_path = root / 'tools/verify_responsive_overlay_ui_0815.py'
+responsive_0815_state_machine_path = root / 'tools/test_responsive_overlay_ui_0815_state_machine.py'
+responsive_0815_negative_path = root / 'tools/test_responsive_overlay_ui_0815_negative_mutations.py'
+paddingvalues_0814_verifier_path = root / 'tools/verify_paddingvalues_compile_0814.py'
+paddingvalues_0814_negative_path = root / 'tools/test_paddingvalues_compile_0814_negative_mutations.py'
+material3_0813_verifier_path = root / 'tools/verify_material3_expressive_ui_0813.py'
+material3_0813_state_machine_path = root / 'tools/test_material3_expressive_ui_0813_state_machine.py'
+material3_0813_negative_path = root / 'tools/test_material3_expressive_ui_0813_negative_mutations.py'
 ui_architecture_verifier_path = root / 'tools/verify_ui_information_architecture_04146.py'
 scroll_indicator_state_machine_path = root / 'tools/test_scroll_boundary_indicators_state_machine.py'
 ui_architecture_negative_path = root / 'tools/test_ui_information_architecture_negative_mutations.py'
@@ -112,31 +147,31 @@ probe_timeout_state_machine_path = root / 'tools/test_probe_timeout_state_machin
 probe_timeout_recovery_path = root / 'tools/verify_probe_timeout_recovery.py'
 probe_cancellation_state_machine_path = root / 'tools/test_probe_cancellation_state_machine.py'
 probe_cancellation_recovery_path = root / 'tools/verify_probe_cancellation_recovery.py'
-for required_path in [lock_path, contract_path, regression_verifier_path, quality_gate_path, upstream_verifier_path, spec_regression_path, spec_361_regression_path, registry_snapshot_path, concurrency_resource_path, cmake_registry_lock_path, compile_regression_path, probe_lifecycle_regression_path, probe_publication_state_machine_path, probe_publication_handshake_path, package_reproducibility_path, resource_budget_path, bundled_registry_path, audit_361_path, audit_4133_path, audit_4134_path, audit_4135_path, audit_4136_path, audit_4137_path, audit_4138_path, audit_4139_path, audit_4140_path, audit_4141_path, audit_4142_path, audit_4143_path, audit_4144_path, profile_lock_path, profile_state_machine_path, profile_requirements_path, profile_negative_path, audit_4145_path, video_registry_lock_path, video_registry_source_path, video_registry_generated_path, video_registry_generator_path, video_registry_verifier_path, video_registry_state_machine_path, video_registry_negative_path, audit_4146_path, audit_0800_path, hardening_0800_verifier_path, hardening_0800_state_machine_path, hardening_0800_negative_path, audit_0801_path, audit_0802_path, encyclopedia_0802_verifier_path, encyclopedia_0802_negative_path, encyclopedia_symbol_generator_path, encyclopedia_symbol_index_path, audit_0803_path, overview_tools_0803_verifier_path, encyclopedia_search_0803_state_machine_path, overview_tools_0803_negative_path, ui_architecture_verifier_path, scroll_indicator_state_machine_path, ui_architecture_negative_path, driver_surface_state_machine_path, driver_surface_rebind_path, driver_surface_negative_path, html_presentation_path, html_presentation_negative_path, report_surface_integrity_path, report_surface_integrity_state_machine_path, report_surface_integrity_negative_path, report_semantics_state_machine_path, report_semantics_path, base_terminal_json_state_machine_path, base_terminal_json_path, probe_timeout_state_machine_path, probe_timeout_recovery_path, probe_cancellation_state_machine_path, probe_cancellation_recovery_path, probe_terminal_ownership_state_machine_path, probe_terminal_ownership_path]:
+for required_path in [lock_path, contract_path, regression_verifier_path, quality_gate_path, upstream_verifier_path, spec_regression_path, spec_361_regression_path, registry_snapshot_path, concurrency_resource_path, cmake_registry_lock_path, compile_regression_path, probe_lifecycle_regression_path, probe_publication_state_machine_path, probe_publication_handshake_path, package_reproducibility_path, resource_budget_path, bundled_registry_path, audit_361_path, audit_4133_path, audit_4134_path, audit_4135_path, audit_4136_path, audit_4137_path, audit_4138_path, audit_4139_path, audit_4140_path, audit_4141_path, audit_4142_path, audit_4143_path, audit_4144_path, profile_lock_path, profile_state_machine_path, profile_requirements_path, profile_negative_path, audit_4145_path, video_registry_lock_path, video_registry_source_path, video_registry_generated_path, video_registry_generator_path, video_registry_verifier_path, video_registry_state_machine_path, video_registry_negative_path, audit_4146_path, audit_0800_path, hardening_0800_verifier_path, hardening_0800_state_machine_path, hardening_0800_negative_path, audit_0801_path, audit_0802_path, encyclopedia_0802_verifier_path, encyclopedia_0802_negative_path, encyclopedia_symbol_generator_path, encyclopedia_symbol_index_path, audit_0803_path, overview_tools_0803_verifier_path, encyclopedia_search_0803_state_machine_path, overview_tools_0803_negative_path, audit_0804_path, detail_tv_0804_verifier_path, detail_tv_0804_state_machine_path, detail_tv_0804_negative_path, audit_0805_path, update_release_0805_verifier_path, update_release_0805_state_machine_path, update_release_0805_negative_path, audit_0806_path, accessibility_0806_verifier_path, accessibility_0806_state_machine_path, accessibility_0806_negative_path, audit_0807_path, system_language_0807_verifier_path, system_language_0807_state_machine_path, system_language_0807_negative_path, audit_0808_path, final_0808_verifier_path, final_0808_state_machine_path, final_0808_negative_path, audit_0809_path, detail_0809_verifier_path, detail_0809_state_machine_path, detail_0809_negative_path, audit_0813_path, audit_0814_path, audit_0815_path, responsive_0815_verifier_path, responsive_0815_state_machine_path, responsive_0815_negative_path, paddingvalues_0814_verifier_path, paddingvalues_0814_negative_path, material3_0813_verifier_path, material3_0813_state_machine_path, material3_0813_negative_path, ui_architecture_verifier_path, scroll_indicator_state_machine_path, ui_architecture_negative_path, driver_surface_state_machine_path, driver_surface_rebind_path, driver_surface_negative_path, html_presentation_path, html_presentation_negative_path, report_surface_integrity_path, report_surface_integrity_state_machine_path, report_surface_integrity_negative_path, report_semantics_state_machine_path, report_semantics_path, base_terminal_json_state_machine_path, base_terminal_json_path, probe_timeout_state_machine_path, probe_timeout_recovery_path, probe_cancellation_state_machine_path, probe_cancellation_recovery_path, probe_terminal_ownership_state_machine_path, probe_terminal_ownership_path]:
     if not required_path.is_file(): errors.append(f'0.41.39 quality-gate artifact missing: {required_path.relative_to(root)}')
 if lock_path.is_file():
     registry_lock = json.loads(lock_path.read_text(encoding='utf-8'))
     for key, expected in {
-        'apiBaseline': 'Vulkan 1.4.361',
-        'publishedDate': '2026-08-28',
-        'registryRef': '1.4.361',
-        'registrySha256': '3ff4984b841932e04eebeb4ce2a6613ebd37c00ffb2e96549785b2c5d7da9e1d',
-        'headerCommit': '31386378257ac8653ce5b32c93baec385259ebbe',
-        'headerVersion': 361
+        'apiBaseline': 'Vulkan 1.4.362',
+        'publishedDate': '2026-09-04',
+        'registryRef': '1.4.362',
+        'registrySha256': 'cf31c965cf6e788697139601da0c7e02a75a9b6c7ac764e7641f5521ffd9da06',
+        'headerCommit': 'ee2ec5fd83dafce291024683b50dc89219333076',
+        'headerVersion': 362
     }.items():
         if registry_lock.get(key) != expected: errors.append(f'0.41.32 registry lock mismatch: {key}')
 for key in ['registryRef', 'registrySha256', 'publishedDate', 'headerCommit', 'headerVersion', 'validatedPhysicalDeviceQueryExtensionCount']:
     if key not in manifest_json: errors.append(f'0.41.32 reproducible registry manifest field missing: {key}')
-if manifest_json.get('validatedPhysicalDeviceQueryExtensionCount') != 302:
-    errors.append('0.41.32 validated physical-device extension coverage count mismatch')
-if snapshot.get('validatedPhysicalDeviceQueryExtensionCount') != 302:
-    errors.append('0.41.32 coverage snapshot extension count mismatch')
-if manifest_json.get('validatedStablePhysicalDeviceQueryExtensionCount') != 297 or manifest_json.get('validatedProvisionalPhysicalDeviceQueryExtensionCount') != 5:
-    errors.append('0.41.32 stable/provisional physical-device extension coverage split mismatch')
+if manifest_json.get('validatedPhysicalDeviceQueryExtensionCount') != 304:
+    errors.append('current validated physical-device extension coverage count mismatch')
+if snapshot.get('validatedPhysicalDeviceQueryExtensionCount') != 304:
+    errors.append('current coverage snapshot extension count mismatch')
+if manifest_json.get('validatedStablePhysicalDeviceQueryExtensionCount') != 299 or manifest_json.get('validatedProvisionalPhysicalDeviceQueryExtensionCount') != 5:
+    errors.append('current stable/provisional physical-device extension coverage split mismatch')
 if manifest_json.get('validatedProvisionalPhysicalDeviceQueryExtensions') != ['VK_AMDX_dense_geometry_format', 'VK_AMDX_shader_enqueue', 'VK_KHR_portability_subset', 'VK_NV_cuda_kernel_launch', 'VK_NV_displacement_micromap']:
     errors.append('0.41.32 provisional extension coverage identity mismatch')
-if snapshot.get('validatedStablePhysicalDeviceQueryExtensionCount') != 297 or snapshot.get('validatedProvisionalPhysicalDeviceQueryExtensionCount') != 5:
-    errors.append('0.41.32 coverage snapshot stable/provisional split mismatch')
+if snapshot.get('validatedStablePhysicalDeviceQueryExtensionCount') != 299 or snapshot.get('validatedProvisionalPhysicalDeviceQueryExtensionCount') != 5:
+    errors.append('current coverage snapshot stable/provisional split mismatch')
 if "'schemaVersion': 4" in (root / 'tools/generate_vk_registry.py').read_text(encoding='utf-8'):
     errors.append('stale schema-4 registry generator remains')
 
@@ -156,8 +191,8 @@ for source_path in list((root / 'app/src/main/java').rglob('*.kt')) + list((root
         if re.search(r'^\s*//|^\s*/\*', source_text, re.MULTILINE): errors.append(f'source-code comment remains: {source_path.relative_to(root)}')
 if 'android:usesCleartextTraffic="false"' not in manifest: errors.append('cleartext traffic must be disabled')
 database_setup = (root / 'DATABASE_SETUP.md').read_text(encoding='utf-8')
-if 'VulkanScope 0.80.3 uses the fixed official VulkanScope Database Worker root:' not in database_setup: errors.append('DATABASE_SETUP current application version mismatch')
-if 'VulkanScope Database 0.39.21 remains schema-compatible with VulkanScope 0.80.3' not in database_setup: errors.append('DATABASE_SETUP current companion mismatch')
+if 'VulkanScope 0.80.15 uses the fixed official VulkanScope Database Worker root:' not in database_setup: errors.append('DATABASE_SETUP current application version mismatch')
+if 'VulkanScope Database 0.39.27 is the companion Database for VulkanScope 0.80.15' not in database_setup: errors.append('DATABASE_SETUP current companion mismatch')
 for needle in ['packageSigningCertificatesMatch', 'archiveVersionCode <= installedVersionCode', 'toHttpUrlOrNull', 'baseUrl.username.isNotEmpty()', 'target.parentFile?.canonicalFile']:
     if needle not in kt: errors.append(f'missing update/network hardening: {needle}')
 if 'private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverMode, collectionStatus: CollectionStatus, onCheckForUpdates: () -> Unit, directUpdatesEnabled: Boolean)' not in kt or 'Page.Info -> InfoPage(report, display, driverMode, collectionStatus, onCheckForUpdates, directUpdatesEnabled)' not in kt:
@@ -217,11 +252,11 @@ if kt.count('ExpressiveActionButton("Check for updates"') != 1:
     errors.append('manual update action must appear exactly once in Info')
 
 cmake = (root / 'app/src/main/cpp/CMakeLists.txt').read_text(encoding='utf-8')
-for needle in ['GIT_TAG 31386378257ac8653ce5b32c93baec385259ebbe', '#define VK_HEADER_VERSION[ \\t]+361', '-Wl,-z,relro', '-Wl,-z,now']:
+for needle in ['GIT_TAG ee2ec5fd83dafce291024683b50dc89219333076', '#define VK_HEADER_VERSION[ \\t]+362', '-Wl,-z,relro', '-Wl,-z,now']:
     if needle not in cmake: errors.append(f'missing current native build/security baseline: {needle}')
 for needle in ['technicalReport', 'schemaVersion", 3', 'ExpressiveActionButton', 'meta.json', 'canonicalEntry.path.startsWith(rootPrefix)']:
     if needle not in kt: errors.append(f'missing 0.32.x report/UI/runtime hardening: {needle}')
-if 'Vulkan 1.4.361 compile headers; validated query catalog Vulkan 1.4.361' not in catalog:
+if 'Vulkan 1.4.362 compile headers; validated query catalog Vulkan 1.4.362' not in catalog:
     errors.append('compile-header/query-catalog baseline distinction is missing')
 
 for needle in [
@@ -251,7 +286,7 @@ for needle in [
 
 coverage_kt = (root / 'app/src/main/java/com/efishell/vulkanscope/ValidatedExtensionCoverage.kt').read_text(encoding='utf-8')
 coverage_extensions = set(re.findall(r'\"(VK_[A-Za-z0-9_]+)\"', coverage_kt))
-if len(coverage_extensions) != 302: errors.append(f'legacy reference 4.12 physical-device extension coverage mismatch: {len(coverage_extensions)}')
+if len(coverage_extensions) != 304: errors.append(f'current physical-device extension coverage mismatch: {len(coverage_extensions)}')
 
 if '\"Sparse Image Format Properties2\",\"name\":\"' in cpp:
     errors.append('sparse image safety fallback must emit valid JSON without an extra name quote')
@@ -432,7 +467,7 @@ if 'kMaxSparseImageFormatEntries' not in cpp:
 if re.search(r'^\s*/[/*]', cpp, re.MULTILINE) or re.search(r'^\s*/[/*]', kt, re.MULTILINE):
     errors.append('source-code comments are forbidden by PROJECT_RULES')
 if 'GIT_TAG master' in cmake: errors.append('libadrenotools dependency must be pinned to an immutable commit')
-if '31386378257ac8653ce5b32c93baec385259ebbe' not in cmake: errors.append('canonical Vulkan-Headers 1.4.361 commit is not pinned')
+if 'ee2ec5fd83dafce291024683b50dc89219333076' not in cmake: errors.append('canonical Vulkan-Headers 1.4.362 commit is not pinned')
 if '#include <vulkan/vulkan.h>' not in cpp: errors.append('canonical Vulkan header is not used')
 if '#define VK_ENABLE_BETA_EXTENSIONS 1' not in cpp: errors.append('provisional Vulkan extensions must be explicitly enabled before vulkan.h')
 if 'VK_USE_PLATFORM_ANDROID_KHR' not in cpp: errors.append('Android Vulkan platform macro missing')
@@ -583,7 +618,7 @@ if not (root / 'rules/0.40.2_FULL_APPLICATION_AUDIT.md').is_file():
     errors.append('0.40.2 full-audit record is missing')
 
 ext_ref = json.loads((root / 'registry/generated/extension_reference.json').read_text(encoding='utf-8'))
-if ext_ref.get('baseline') != 'Vulkan 1.4.361': errors.append('0.41.0 extension-reference baseline mismatch')
+if ext_ref.get('baseline') != 'Vulkan 1.4.362': errors.append('0.41.0 extension-reference baseline mismatch')
 reference_names = {x.get('name') for x in ext_ref.get('entries', []) if isinstance(x, dict)}
 if 'private val EMBEDDED_EXTENSION_REFERENCE_NAMES = VULKAN_EXTENSION_REFERENCE.keys' not in kt:
     errors.append('0.41.20 embedded extension-reference subset must derive from the checked-in reference map')
@@ -749,8 +784,8 @@ for needle in [
         errors.append(f'missing 0.41.2 bounded enumeration hardening: {needle}')
 if '"vulkanRegistryVersion":"1.4.357"' in cpp:
     errors.append('obsolete Vulkan 1.4.357 provenance remains in active native source')
-if cpp.count('vulkanRegistryVersion\\":\\"1.4.361') < 3:
-    errors.append('all active native checkpoint provenance paths must report Vulkan 1.4.361')
+if cpp.count('vulkanRegistryVersion\\":\\"1.4.362') < 3:
+    errors.append('all active native checkpoint provenance paths must report Vulkan 1.4.362')
 for needle in [
     'private fun resolveInstalledTurnipLibrary(filesDir: File): File?',
     'metadataFiles.size != 1',
@@ -794,8 +829,8 @@ for needle in [
     if needle not in gradle:
         errors.append(f'missing 0.41.2 dependency baseline: {needle}')
 field_generator = (root / 'tools/generate_extension_field_coverage.py').read_text(encoding='utf-8')
-if "int(version_match.group(1)) != 361" not in field_generator or "r'#define\\s+VK_HEADER_VERSION\\s+(\\d+)\\b'" not in field_generator:
-    errors.append('current extension field generator must validate VK_HEADER_VERSION 361 with a valid word boundary')
+if "int(version_match.group(1)) != 362" not in field_generator or "r'#define\\s+VK_HEADER_VERSION\\s+(\\d+)\\b'" not in field_generator:
+    errors.append('current extension field generator must validate VK_HEADER_VERSION 362 with a valid word boundary')
 for stale in ['vulkanscope.cpp.pre0412audit', 'MainActivity.kt.pre0412audit']:
     if list(root.rglob(stale)):
         errors.append(f'release package contains stale source backup: {stale}')
@@ -843,7 +878,7 @@ for needle in [
     'databaseHttpClient.newCall(request).execute()',
     'put("videoCodecOperations", if (queueVideoCodecEvidenceRetained(q)) q.videoCodecOperations else JSONObject.NULL)',
     'put("videoCodecOperationsU64", if (queueVideoCodecEvidenceRetained(q)) q.videoCodecOperations.toULong().toString() else JSONObject.NULL)',
-    'Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(7.dp)',
+    'verticalScroll(scrollState)',
     'unique diagnostics'
 ]:
     if needle not in kt:
@@ -1077,8 +1112,8 @@ for needle in [
         errors.append(f'Analysis snapshot is missing per-layer extension provenance: {needle}')
 if 'the published specification is Vulkan 1.4.358' in rules_text:
     errors.append('PROJECT_RULES contains stale current-spec wording for Vulkan 1.4.358')
-if 'published specification is Vulkan 1.4.361 dated 2026-08-28' not in rules_text:
-    errors.append('PROJECT_RULES does not state the current published Vulkan 1.4.361 baseline')
+if 'published specification is Vulkan 1.4.362 dated 2026-09-04' not in rules_text:
+    errors.append('PROJECT_RULES does not state the current published Vulkan 1.4.362 baseline')
 if 'baseReportReady' in kt:
     errors.append('legacy heuristic baseReportReady acceptance remains')
 if 'partialCandidate ?:' in kt or 'value = partialCandidate' in kt:
@@ -1139,7 +1174,7 @@ for needle in [
     'private fun requestQueryGroup(group: String) {\n        if (driverImportInFlight) {\n            collectionPending = true\n            return\n        }\n        if (collectionInFlight) return',
     'prefs.edit().putString("driver_mode", mode.name).apply()',
     'private val EMBEDDED_EXTENSION_REFERENCE_NAMES = VULKAN_EXTENSION_REFERENCE.keys',
-    'checked-in Vulkan 1.4.361 registry census',
+    'checked-in Vulkan 1.4.362 registry census',
     'runtime enumeration and registry registration remain separate evidence',
     'VK_EXT_swapchain_colorspace',
     'val complete = if (extension in PROFILE_INSTANCE_EXTENSIONS) report?.instanceExtensionStatus == "available" else device.deviceExtensionStatus == "available"',
@@ -1990,10 +2025,80 @@ for verifier_path, label in [(overview_tools_0803_verifier_path, 'overview-tools
         result = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         if result.returncode != 0: errors.append(f'0.80.3 {label} verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
 
+if '## Release 0.80.4 detail affordance, scroll/TV and collection-outcome requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 0.80.4 detail/scroll/TV/collection contract')
+if audit_0804_path.is_file():
+    audit_0804 = audit_0804_path.read_text(encoding='utf-8')
+    for token in ['04a1c45804d1d1ecc13f1b5cf70729d42e551313be091540f3f981cac5c73807', 'Details', 'Android TV', 'FAILED', 'ScrollState', 'NOT EXECUTED']:
+        if token.lower() not in audit_0804.lower(): errors.append(f'0.80.4 audit evidence missing: {token}')
+for verifier_path, label in [(detail_tv_0804_verifier_path, 'detail-tv-collection'), (detail_tv_0804_state_machine_path, 'detail-tv-collection-state-machine'), (detail_tv_0804_negative_path, 'detail-tv-collection-negative-mutations')]:
+    if verifier_path.is_file() and not args.skip_nested_verifiers:
+        command = [sys.executable, str(verifier_path)]
+        if verifier_path == detail_tv_0804_verifier_path:
+            command += ['--root', str(root)]
+        result = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if result.returncode != 0: errors.append(f'0.80.4 {label} verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
+
+if '## Release 0.80.5 update release-notes Android TV and design-integrity requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 0.80.5 update release-notes TV/design contract')
+if audit_0805_path.is_file():
+    audit_0805 = audit_0805_path.read_text(encoding='utf-8')
+    for token in ['90dfed09e3026c923da3adb4ac888c3c1c7738fc001a8b2f6d03b8ba557802fd', 'LazyListState', 'Android TV', 'boundary', 'Material 3 Expressive', 'failing', 'NOT EXECUTED']:
+        if token.lower() not in audit_0805.lower(): errors.append(f'0.80.5 audit evidence missing: {token}')
+for verifier_path, label in [(update_release_0805_verifier_path, 'update-release-notes'), (update_release_0805_state_machine_path, 'update-release-notes-state-machine'), (update_release_0805_negative_path, 'update-release-notes-negative-mutations')]:
+    if verifier_path.is_file() and not args.skip_nested_verifiers:
+        command = [sys.executable, str(verifier_path)]
+        if verifier_path == update_release_0805_verifier_path:
+            command += ['--root', str(root)]
+        result = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if result.returncode != 0: errors.append(f'0.80.5 {label} verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
+
+if '## Release 0.80.6 TalkBack and large-text/display-size accessibility requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 0.80.6 accessibility/large-text contract')
+if audit_0806_path.is_file():
+    audit_0806 = audit_0806_path.read_text(encoding='utf-8')
+    for token in ['92a2ea2e853c6b01a65e1a2076d737c8e9595b06b3db28b3ee5e86a0ae538a43', 'TalkBack', '200%', 'live-region', 'RadioButton', 'NOT EXECUTED']:
+        if token.lower() not in audit_0806.lower(): errors.append(f'0.80.6 audit evidence missing: {token}')
+for verifier_path, label in [(accessibility_0806_verifier_path, 'accessibility-large-text'), (accessibility_0806_state_machine_path, 'accessibility-large-text-state-machine'), (accessibility_0806_negative_path, 'accessibility-large-text-negative-mutations')]:
+    if verifier_path.is_file() and not args.skip_nested_verifiers:
+        command = [sys.executable, str(verifier_path)]
+        if verifier_path == accessibility_0806_verifier_path:
+            command += ['--root', str(root)]
+        result = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if result.returncode != 0: errors.append(f'0.80.6 {label} verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
+
+if '## Release 0.80.7 system-language, bidi, system-font and update-information requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 0.80.7 system-language/font/update-info contract')
+if audit_0807_path.is_file():
+    audit_0807 = audit_0807_path.read_text(encoding='utf-8')
+    for token in ['8cb67397f76ba5a1a1ada0c5d8f1046895161d754a9a2f5654da4ce52b9f9b69', 'ContentOrLtr', 'system font', 'Arabic', 'blue', 'ic_info', 'NOT EXECUTED']:
+        if token.lower() not in audit_0807.lower(): errors.append(f'0.80.7 audit evidence missing: {token}')
+for verifier_path, label in [(system_language_0807_verifier_path, 'system-language-font-update-info'), (system_language_0807_state_machine_path, 'system-language-font-update-info-state-machine'), (system_language_0807_negative_path, 'system-language-font-update-info-negative-mutations')]:
+    if verifier_path.is_file() and not args.skip_nested_verifiers:
+        command = [sys.executable, str(verifier_path)]
+        if verifier_path == system_language_0807_verifier_path:
+            command += ['--root', str(root)]
+        result = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if result.returncode != 0: errors.append(f'0.80.7 {label} verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
+
+if '## Release 0.80.8 final collection-status, AGP and Database companion requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 0.80.8 final release contract')
+if audit_0808_path.is_file():
+    audit_0808 = audit_0808_path.read_text(encoding='utf-8')
+    for token in ['7fdbca8843a581be4b7b6d64917716e01e4273bc9871e20fdaf8c0578c1ed8a0', 'AGP 9.4.0', 'persistent', '0.39.22', '0.80.1']:
+        if token.lower() not in audit_0808.lower(): errors.append(f'0.80.8 audit evidence missing: {token}')
+for verifier_path, label in [(final_0808_verifier_path, 'final-release'), (final_0808_state_machine_path, 'final-release-state-machine'), (final_0808_negative_path, 'final-release-negative-mutations')]:
+    if verifier_path.is_file() and not args.skip_nested_verifiers:
+        command = [sys.executable, str(verifier_path)]
+        if verifier_path == final_0808_verifier_path:
+            command += ['--root', str(root)]
+        result = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if result.returncode != 0: errors.append(f'0.80.8 {label} verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
+
 if not args.skip_regression_contracts and not args.skip_nested_verifiers and regression_verifier_path.is_file():
     result = subprocess.run([sys.executable, str(regression_verifier_path)], cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if result.returncode != 0:
-        errors.append('0.80.3 regression-contract verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
+        errors.append('0.80.8 regression-contract verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
 
 
 
@@ -2002,4 +2107,4 @@ if errors:
     raise SystemExit(1)
 print('VulkanScope release verification: PASS')
 
-print(f'version={version.group(1)} code={code.group(1)} baseline=Vulkan 1.4.361 schema=6 compileHeaders=31386378257ac8653ce5b32c93baec385259ebbe')
+print(f'version={version.group(1)} code={code.group(1)} baseline=Vulkan 1.4.362 schema=6 compileHeaders=ee2ec5fd83dafce291024683b50dc89219333076')

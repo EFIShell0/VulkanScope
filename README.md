@@ -4,7 +4,7 @@
 
 Database: https://efishell0.github.io/VulkanScope_database/
 
-**Current version: 0.80.3**
+**Current version: 0.80.15**
 
 This app supports **Obtainium**; the project/release URL can be used for update tracking.
 
@@ -13,7 +13,7 @@ This app supports **Obtainium**; the project/release URL can be used for update 
 ## Highlights
 
 - Vulkan 1.0–1.4 core capability inspection
-- Query coverage validated against **Vulkan-Headers 1.4.361**
+- Query coverage validated against **Vulkan-Headers 1.4.362**
 - Extensive Khronos and vendor-specific feature/property queries
 - Runtime instance and device extension enumeration with `specVersion`
 - Detailed physical-device properties and limits
@@ -44,7 +44,9 @@ VulkanScope uses a dark Material 3 Expressive design focused on dense technical 
 
 The interface is organized into dedicated inspection areas for device information, properties, features, extensions, memory, queues, formats, Surface/WSI, display/HDR, Vulkan Video, Profiles, settings, and application information. **Encyclopedia** and **Analysis workspace** appear on Overview as compact destination cards and open as separate Overview-parent pages instead of embedding their complete contents directly in Overview. Analysis-only state is created only while the Analysis page is active, and Encyclopedia search/index work stays on the Encyclopedia page.
 
-Top-level scrollable pages use the same lazy-page structure and scroll-boundary indicators: the up indicator disappears at the top, the down indicator disappears at the bottom, and both disappear when a page is not scrollable.
+Top-level scrollable pages, bounded detail dialogs, and bounded update release notes use the same activity-aware scroll-boundary hints. The indicators overlay content instead of permanently reserving a side lane: at the absolute top only the Down hint is eligible, in the middle both Up and Down are eligible, at the absolute bottom only Up is eligible, and non-scrollable content shows neither. The hints fade out after scrolling becomes idle and fade back in when gesture, fling, or programmatic scrolling resumes.
+
+Overview `Explore` and `Quick access` use width-aware wrapping layouts so destinations remain usable on narrow phones, enlarged display sizes, large text, and landscape layouts. Format and Extension detail dialogs use bounded Material 3 Expressive surfaces with compact grouped evidence cards; long labels, values, translated strings, and large-text layouts stack responsively instead of being forced into cramped columns.
 
 Status values are kept semantically distinct where applicable:
 
@@ -107,11 +109,11 @@ Coverage includes:
 - Extension-specific property structures
 - Khronos, EXT, and vendor-specific capability structures
 
-The bundled query catalog is validated against the **Vulkan 1.4.361** registry/header baseline and the pinned Vulkan-Headers revision. The validated Android-queryable physical-device coverage contains **302 provider extensions** (**297 stable + 5 provisional**), **110 implemented physical-device structures**, and **104 validated query groups**. The bundled extension reference contains the complete **474-extension** Vulkan 1.4.361 registry census. Unknown or unreviewed structures are not queried using guessed `sType` values, layouts, or field definitions.
+The bundled query catalog is validated against the **Vulkan 1.4.362** registry/header baseline and the pinned Vulkan-Headers revision. The validated Android-queryable physical-device coverage contains **304 provider extensions** (**299 stable + 5 provisional**), **110 implemented physical-device structures**, and **104 validated query groups**. The bundled extension reference contains the complete **476-extension** Vulkan 1.4.362 registry census. Unknown or unreviewed structures are not queried using guessed `sType` values, layouts, or field definitions.
 
-### Vulkan 1.4.361 baseline additions
+### Vulkan 1.4.362 baseline additions
 
-The current query set includes the validated additions required by the 1.4.361 baseline, including:
+The current query set includes the validated additions carried through the Vulkan 1.4.361 and 1.4.362 baselines, including:
 
 - `VK_NV_private_data_base_handle`
   - `VkPhysicalDevicePrivateDataBaseHandleFeaturesNV`
@@ -124,6 +126,12 @@ The current query set includes the validated additions required by the 1.4.361 b
   - `vkGetPhysicalDeviceCooperativeMatrixProperties2EXT`
   - cooperative-matrix property records
   - canonical component-type names with raw enum values
+- `VK_KHR_pipeline_library_group_handles`
+  - validated provider coverage through the canonical KHR structure path
+  - KHR/EXT alias-equivalent coverage remains represented without fabricating duplicate capabilities
+- `VK_VALVE_buffer_device_address_allocation_alignment`
+  - `bufferDeviceAddressAllocationAlignment`
+  - `maxBufferDeviceAddressAllocationAlignment`
 
 Extension-specific queries are run only when their requirements are actually exposed by the runtime. Provisional registry providers remain explicitly separated from stable providers and are not queried as normal stable capability structures without the required beta-header conditions.
 
@@ -369,24 +377,24 @@ The included profile catalog can cover profiles such as Android Baseline and Vul
 
 ## Encyclopedia
 
-VulkanScope 0.80.3 includes a separate **Encyclopedia** page opened from a compact Overview destination card. It is a local Vulkan reference surface and does not make runtime support claims from registry presence alone.
+VulkanScope includes a separate **Encyclopedia** page opened from a compact Overview destination card. It is a local Vulkan reference surface and does not make runtime support claims from registry presence alone.
 
 The default glossary explains VulkanScope evidence states and major Vulkan concepts, including instances, physical/logical devices, queues, command buffers, features, properties, limits, formats, layers, extensions, Surface/WSI, swapchains, `pNext`, `sType`, loader/device/driver version separation, and Vulkan naming conventions.
 
 ### `VkResult` reference
 
-The Encyclopedia includes all **50 canonical Vulkan 1.4.361 `VkResult` values** with numeric values, concise command-outcome meanings, and aliases where applicable. Examples include `VK_SUCCESS`, `VK_INCOMPLETE`, `VK_ERROR_DEVICE_LOST`, `VK_ERROR_FORMAT_NOT_SUPPORTED`, WSI results, Vulkan Video query results, deferred-operation statuses, and current KHR result values.
+The Encyclopedia includes all **50 canonical Vulkan 1.4.362 `VkResult` values** with numeric values, concise command-outcome meanings, and aliases where applicable. Examples include `VK_SUCCESS`, `VK_INCOMPLETE`, `VK_ERROR_DEVICE_LOST`, `VK_ERROR_FORMAT_NOT_SUPPORTED`, WSI results, Vulkan Video query results, deferred-operation statuses, and current KHR result values.
 
 `VK_SUCCESS` is interpreted only as success of the command that returned it; it is not treated as global device-support evidence. `VK_INCOMPLETE` remains partial-result evidence and cannot prove absence.
 
 ### Offline registry-symbol search
 
-A deterministic build-time index generated from the locked Vulkan 1.4.361 `vk.xml` provides bounded local search across:
+A deterministic build-time index generated from the locked Vulkan 1.4.362 `vk.xml` provides bounded local search across:
 
 - **842** registered `vk*` command names
-- **6241** registered `VK_*` tokens/enumerants/macros
-- **2457** registered `Vk*` API types
-- **474** registered extensions through the extension-reference catalog
+- **6248** registered `VK_*` tokens/enumerants/macros
+- **2461** registered `Vk*` API types
+- **476** registered extensions through the extension-reference catalog
 
 Search categories are **All**, **VkResult**, **Commands**, **VK_***, **Types**, and **Extensions**. Large symbol indexes are not searched until at least two characters are entered, and visible results are capped at **24**. Result rows are lazy-list items rather than one eagerly composed result block.
 
@@ -396,7 +404,7 @@ Vulkan naming families such as `vkCmd*`, `vkQueue*`, `vkCreate*`, `vkDestroy*`, 
 
 ## Analysis
 
-VulkanScope 0.80.3 exposes the **Analysis workspace** as a separate Overview-parent page opened from a compact Overview destination card. Its complete contents are no longer embedded directly in Overview, and Analysis-only state is created only while the Analysis page is active. The workspace remains local and evidence-based and does not change the canonical Vulkan capability report.
+VulkanScope exposes the **Analysis workspace** as a separate Overview-parent page opened from a compact Overview destination card. Its complete contents are no longer embedded directly in Overview, and Analysis-only state is created only while the Analysis page is active. The workspace remains local and evidence-based and does not change the canonical Vulkan capability report.
 
 ### Snapshot comparison
 
@@ -526,7 +534,9 @@ Submission keeps the distinction between:
 
 The report is not intentionally truncated to make it fit a transport limit; an oversized submission fails rather than silently dropping capability data.
 
-VulkanScope 0.80.3 can also present the official Database permalink and generate a QR code locally for a submitted report. QR encoding is performed on-device; no remote QR-generation service, analytics endpoint, or automatic report upload is introduced. Report identifiers are validated as lowercase SHA-256 hexadecimal identifiers.
+VulkanScope **0.80.15** uses **VulkanScope Database 0.39.27** as its companion Database. Submission remains **schema 2 / technicalReport 3**. New submissions require VulkanScope **0.80.3 or newer**; historical stored reports remain readable.
+
+VulkanScope can also present the official Database permalink and generate a QR code locally for a submitted report. QR encoding is performed on-device; no remote QR-generation service, analytics endpoint, or automatic report upload is introduced. Report identifiers are validated as lowercase SHA-256 hexadecimal identifiers.
 
 ## Update system
 
@@ -585,19 +595,19 @@ Native builds are provided for:
 
 ## Android and build baseline
 
-VulkanScope 0.80.3 uses the current project baseline:
+VulkanScope 0.80.15 uses the current project baseline:
 
 - **Compile SDK:** Android API 37
 - **Target SDK:** Android API 37
 - **Minimum SDK:** Android API 24
-- **Android Gradle Plugin:** 9.3.2
+- **Android Gradle Plugin:** 9.4.0
 - **Kotlin Compose plugin:** 2.4.10
 - **Gradle wrapper:** 9.7.1
 - **JDK:** 17+
 - **NDK:** 29.0.14206865 (r29)
 - **CMake minimum:** 3.22.1
 - **Native language level:** C++20
-- **Vulkan-Headers:** 1.4.361, pinned commit `31386378257ac8653ce5b32c93baec385259ebbe`
+- **Vulkan-Headers:** 1.4.362, pinned commit `ee2ec5fd83dafce291024683b50dc89219333076`
 
 The project uses CMake for the native Vulkan collector.
 
@@ -647,7 +657,7 @@ Bug reports, testing feedback, and contributions are welcome.
 
 ## Third-party components
 
-VulkanScope 0.80.3 reports its direct application/native library identities in the in-app **Info → Libraries** section. Current release pins include:
+VulkanScope 0.80.15 reports its direct application/native library identities in the in-app **Info → Libraries** section. Current release pins include:
 
 - AndroidX Core KTX **1.19.0**
 - AndroidX Activity Compose **1.13.0**
@@ -656,7 +666,7 @@ VulkanScope 0.80.3 reports its direct application/native library identities in t
 - Lifecycle Runtime Compose **2.11.0**
 - OkHttp **5.5.0**
 - ZXing Core **3.5.4**
-- Vulkan-Headers **1.4.361**, pinned commit `31386378257ac8653ce5b32c93baec385259ebbe`
+- Vulkan-Headers **1.4.362**, pinned commit `ee2ec5fd83dafce291024683b50dc89219333076`
 - libadrenotools pinned commit `8fae8ce254dfc1344527e05301e43f37dea2df80` for `arm64-v8a` driver-loading integration
 
 Build-tool identities are displayed separately in Info and are not presented as runtime libraries. Each third-party component remains subject to its own license, copyright notice, and upstream terms.

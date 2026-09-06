@@ -101,14 +101,17 @@ for needle in [
 ]:
     if needle not in build:
         errors.append(f'validated Android/runtime pin drift: {needle}')
+version_match = re.search(r'versionName\s*=\s*"([^"]+)"', build)
+current_version = version_match.group(1) if version_match else ''
+agp_pin = '9.4.0' if current_version in {'0.80.8', '0.80.9', '0.80.10', '0.80.12', '0.80.13', '0.80.14', '0.80.15'} else '9.3.2'
 for needle in [
-    'id("com.android.application") version "9.3.2" apply false',
+    f'id("com.android.application") version "{agp_pin}" apply false',
     'id("org.jetbrains.kotlin.plugin.compose") version "2.4.10" apply false'
 ]:
     if needle not in root_build:
         errors.append(f'validated build-tool pin drift: {needle}')
-if lock.get('apiBaseline') != 'Vulkan 1.4.361' or lock.get('registryRef') != '1.4.361' or lock.get('headerVersion') != 361:
-    errors.append('Vulkan 1.4.361/header 361 release lock drifted')
+if lock.get('apiBaseline') != 'Vulkan 1.4.362' or lock.get('registryRef') != '1.4.362' or lock.get('headerVersion') != 362:
+    errors.append('Vulkan 1.4.362/header 362 release lock drifted')
 if 'JsonReader' not in service or 'reader.isLenient = false' not in service:
     errors.append('probe service strict streaming JSON validation regressed')
 if errors:

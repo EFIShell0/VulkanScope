@@ -2406,7 +2406,7 @@ std::string collect(jobject surfaceObject, JNIEnv* env, const char* driverMode, 
     std::ostringstream checkpoint;
     checkpoint << "{\"status\":" << jsonString(baseEnumerationStatus) << ",\"reason\":" << jsonString(baseEnumerationReason) << ",\"baseReportComplete\":false,\"physicalDeviceEnumerationResult\":" << static_cast<int>(deviceEnumerationResult) << ",\"physicalDeviceEnumerationComplete\":" << jsonBool(deviceEnumerationComplete) << ",\"physicalDeviceEnumerationSafetyRejected\":" << jsonBool(baseDevicesResult.safetyRejected) << ",\"physicalDeviceEnumerationReason\":" << jsonString(baseDevicesResult.localReason) << ",\"loaderVersion\":" << jsonString(versionString(loaderVersion));
     checkpoint << ",\"instanceApiVersion\":" << jsonString(versionString(instanceApiVersion));
-    checkpoint << ",\"vulkanRegistryVersion\":\"1.4.361\",\"deviceCount\":" << deviceCount << ",\"devices\":[";
+    checkpoint << ",\"vulkanRegistryVersion\":\"1.4.362\",\"deviceCount\":" << deviceCount << ",\"devices\":[";
     for (uint32_t deviceIndex = 0; deviceIndex < deviceCount; ++deviceIndex) {
         if (deviceIndex) checkpoint << ',';
         __android_log_print(ANDROID_LOG_INFO, "VulkanProbe", "base preflight device[%u] properties begin", deviceIndex);
@@ -2431,7 +2431,7 @@ std::string collect(jobject surfaceObject, JNIEnv* env, const char* driverMode, 
     std::ostringstream out;
     out << "{\"status\":" << jsonString(baseEnumerationStatus) << ",\"reason\":" << jsonString(baseEnumerationReason) << ",\"baseReportComplete\":false,\"physicalDeviceEnumerationResult\":" << static_cast<int>(deviceEnumerationResult) << ",\"physicalDeviceEnumerationComplete\":" << jsonBool(deviceEnumerationComplete) << ",\"physicalDeviceEnumerationSafetyRejected\":" << jsonBool(baseDevicesResult.safetyRejected) << ",\"physicalDeviceEnumerationReason\":" << jsonString(baseDevicesResult.localReason) << ",\"loaderVersion\":" << jsonString(versionString(loaderVersion));
     out << ",\"instanceApiVersion\":" << jsonString(versionString(instanceApiVersion));
-    out << ",\"vulkanRegistryVersion\":\"1.4.361\"";
+    out << ",\"vulkanRegistryVersion\":\"1.4.362\"";
     out << ",\"surfaceColorSpaceExtensionAvailable\":" << jsonBool(swapchainColorspaceAvailable);
     out << ",\"surfaceExtensionAvailable\":" << jsonBool(surfaceExtensionAvailable);
     out << ",\"androidSurfaceExtensionAvailable\":" << jsonBool(androidSurfaceExtensionAvailable);
@@ -2474,7 +2474,7 @@ std::string collect(jobject surfaceObject, JNIEnv* env, const char* driverMode, 
             std::ostringstream extensionSnapshot;
             extensionSnapshot << "{\"status\":" << jsonString(baseEnumerationStatus) << ",\"reason\":" << jsonString(baseEnumerationReason) << ",\"baseReportComplete\":false,\"physicalDeviceEnumerationResult\":" << static_cast<int>(deviceEnumerationResult) << ",\"physicalDeviceEnumerationComplete\":" << jsonBool(deviceEnumerationComplete) << ",\"physicalDeviceEnumerationSafetyRejected\":" << jsonBool(baseDevicesResult.safetyRejected) << ",\"physicalDeviceEnumerationReason\":" << jsonString(baseDevicesResult.localReason) << ",\"loaderVersion\":" << jsonString(versionString(loaderVersion))
                 << ",\"instanceApiVersion\":" << jsonString(versionString(instanceApiVersion))
-                << ",\"vulkanRegistryVersion\":\"1.4.361\",\"deviceCount\":" << deviceCount << ",\"devices\":[{\"name\":" << jsonString(deviceName)
+                << ",\"vulkanRegistryVersion\":\"1.4.362\",\"deviceCount\":" << deviceCount << ",\"devices\":[{\"name\":" << jsonString(deviceName)
                 << ",\"apiVersion\":" << jsonString(versionString(apiVersion))
                 << ",\"driverVersion\":" << jsonString(std::to_string(driverVersion))
                 << ",\"driverVersionText\":" << jsonString(driverVersionText(vendorId, driverVersion))
@@ -4010,7 +4010,7 @@ std::string collectVulkanAdvancedGroup(const char* driverMode, const char* drive
                     return std::string(unsupported ? "Unsupported for exact 4:2:0 8-bit profile (VkResult=" : "Unavailable (VkResult=") + std::to_string(result) + ")";
                 };
                 addProperty("videoRegistry", std::string("Khronos video.xml SHA-256 ") + kVideoRegistrySha256 + "; Vulkan registry SHA-256 " + kVideoRegistryVulkanSha256);
-                addProperty("queryRecipe", "Registry-driven codec-profile census. Codec-specific profile member values come from the locked Vulkan 1.4.361 vk.xml and are cross-checked against locked Khronos video.xml StdVideo enums. Capability queries use one exact general profile: VK_VIDEO_CHROMA_SUBSAMPLING_420_BIT_KHR with 8-bit luma/chroma. H.264 decode includes every registry-defined pictureLayout value and AV1 decode includes both filmGrainSupport values. Results apply only to each exact 4:2:0 8-bit profile combination and are not codec-wide or bit-depth-wide claims. Video format enumeration remains separately labelled sampled-profile evidence.");
+                addProperty("queryRecipe", "Registry-driven codec-profile census. Codec-specific profile member values come from the locked Vulkan 1.4.362 vk.xml and are cross-checked against locked Khronos video.xml StdVideo enums. Capability queries use one exact general profile: VK_VIDEO_CHROMA_SUBSAMPLING_420_BIT_KHR with 8-bit luma/chroma. H.264 decode includes every registry-defined pictureLayout value and AV1 decode includes both filmGrainSupport values. Results apply only to each exact 4:2:0 8-bit profile combination and are not codec-wide or bit-depth-wide claims. Video format enumeration remains separately labelled sampled-profile evidence.");
                 if (!api.getPhysicalDeviceVideoCapabilitiesKHR) {
                     addProperty("Video capability query", "Unavailable: vkGetPhysicalDeviceVideoCapabilitiesKHR is unavailable in this Vulkan stack.");
                 } else {

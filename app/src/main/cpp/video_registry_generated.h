@@ -269,4 +269,4 @@ inline constexpr VideoRegistryValue kVideoAV1FilmGrainModes[] = {
 };
 
 inline constexpr const char* kVideoRegistrySha256 = "d018b914014c06605e367a3b929670511e6f6de2f225c405a8b5e2d912408b76";
-inline constexpr const char* kVideoRegistryVulkanSha256 = "3ff4984b841932e04eebeb4ce2a6613ebd37c00ffb2e96549785b2c5d7da9e1d";
+inline constexpr const char* kVideoRegistryVulkanSha256 = "cf31c965cf6e788697139601da0c7e02a75a9b6c7ac764e7641f5521ffd9da06";

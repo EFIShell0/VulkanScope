@@ -75,7 +75,7 @@ missing=sorted(set(canonical)-set(pnext_hits))
 validated_missing=sorted(set(canonical)&set(validated)-set(pnext_hits))
 
 report={
-    'canonicalHeader':'Vulkan 1.4.361',
+    'canonicalHeader':'Vulkan 1.4.362',
     'canonicalPNextCandidates':len(canonical),
     'generatedPNextTypes':len(pnext_hits),
     'fullCoverageCount':len(full),

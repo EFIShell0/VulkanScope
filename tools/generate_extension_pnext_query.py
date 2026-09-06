@@ -22,6 +22,16 @@ for node in root.findall('./types/type'):
     if name:
         types[name] = node
 
+def canonical_type_name(name):
+    seen = set()
+    while name and name in types and name not in seen:
+        seen.add(name)
+        alias = types[name].get('alias')
+        if not alias:
+            return name
+        name = alias
+    return name
+
 ext_providers = {}
 ext_protect = {}
 for ext in root.findall('./extensions/extension'):
@@ -33,9 +43,10 @@ for ext in root.findall('./extensions/extension'):
         for t in req.findall('type'):
             type_name = t.get('name')
             if type_name and type_name.startswith('VkPhysicalDevice'):
-                ext_providers.setdefault(type_name, set()).add(name)
+                canonical_name = canonical_type_name(type_name)
+                ext_providers.setdefault(canonical_name, set()).add(name)
                 if protect:
-                    ext_protect.setdefault(type_name, set()).add(protect)
+                    ext_protect.setdefault(canonical_name, set()).add(protect)
 
 header_structs = set(re.findall(r'typedef\s+struct\s+(VkPhysicalDevice\w*)\s*\{', header))
 header_structs = {n.replace('ShaderOcpMicroscalingTypes', 'ShaderOCPMicroscalingTypes') for n in header_structs}

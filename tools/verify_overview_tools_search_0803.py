@@ -24,7 +24,8 @@ def body(name):
             d-=1
             if d==0:return kt[m.start():i+1]
     return ''
-req('versionName = "0.80.3"' in gd and 'versionCode = 803' in gd,'0.80.3 identity missing')
+vm = re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"', gd); vc = re.search(r'versionCode\s*=\s*(\d+)', gd)
+req(bool(vm and vc and tuple(map(int, vm.groups())) >= (0, 80, 3) and int(vc.group(1)) >= 803), '0.80.3+ compatible identity missing')
 req('Encyclopedia("Encyclopedia")' in kt and 'Analysis("Analysis workspace")' in kt,'separate Encyclopedia/Analysis Page destinations missing')
 ov=body('OverviewPage')
 req(ov,'OverviewPage missing')

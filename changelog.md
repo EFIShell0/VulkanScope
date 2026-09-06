@@ -1,4 +1,86 @@
+# VulkanScope 0.80.15
+
+- Moves shared scroll-boundary hints back over page content instead of permanently reserving a right-side lane, restoring full content width on phone layouts.
+- Enlarges the shared up/down arrows and makes them activity-aware: the Up hint overlays the viewport top, the Down hint overlays the viewport bottom; top=Down, middle=Up+Down, bottom=Up. Hints fade after scrolling stops and return when scrolling resumes.
+- Reworks Extension/Format detail dialogs into compact grouped Material 3 Expressive evidence cards with responsive stacked rows on narrow/large-text/long-string layouts and a bounded sticky Close action.
+- Replaces the horizontally clipped Overview Explore strip and fixed four-column Quick access phone grid with width-aware wrapping grids.
+- Preserves Vulkan 1.4.362/header 362, 304/110/104 registry-query coverage, 47 Vulkan Video profile combinations, schema 2 / technicalReport 3, Database 0.39.27 compatibility and all report/security/privacy semantics.
+
+# VulkanScope 0.80.14
+
+- Fixed the release-blocking Kotlin compile regression introduced in 0.80.13 by removing invalid package-level imports for `calculateTopPadding` and `calculateBottomPadding`.
+- Preserved the existing `PaddingValues` member calls and all 0.80.13 Material 3 Expressive UI behavior.
+- No Vulkan, report, Database schema, native query, security, privacy or capability-state behavior changed.
+
+# VulkanScope 0.80.13
+
+- Reworks long Format/Extension evidence dialogs into responsive custom Material 3 Expressive modal surfaces with a dedicated title/body/action hierarchy and height-aware bounded scrolling.
+- Replaces cramped right-aligned key/value columns with width-aware adaptive rows: long labels/values stack and remain left-aligned, while short values retain a compact two-column presentation on sufficient width.
+- Flattens detail-dialog evidence rows into one calm divided list instead of nested rounded boxes, while keeping ordinary capability pages on the shared tonal key/value surface.
+- Reserves a dedicated edge lane for top-level and modal scroll-boundary indicators so the arrows no longer overlap technical content.
+- Moves Details to the shared expressive morphing TextButton treatment, normalizes Format/Extension cards to the common capability-card hierarchy and removes the remaining direct Analysis Switch bypass.
+- Extends the Material 3 1.5.0-alpha27 shape scale with largeIncreased, extraLargeIncreased and extraExtraLarge, and routes major shared cards/dialogs through the application shape system.
+- Reworks startup loading and empty states into the same dark-neutral / Vulkan-red Material 3 Expressive hierarchy and allows action-card titles/subtitles to wrap instead of truncating important labels.
+- Preserves Vulkan 1.4.362/header 362, 304 provider extensions, 110 structs / 104 query groups, the Encyclopedia/Vulkan Video corpora, schema 2 / technicalReport 3, Database endpoint/privacy/security/resource behavior and explicit Details-only activation semantics. Companion Database metadata advances to 0.39.27 without a schema change.
+
+# VulkanScope 0.80.12
+
+- Fixed the release Kotlin compilation failure at the explicit button semantics assignment by importing the Compose `SemanticsPropertyReceiver.role` extension required by `Modifier.semantics { role = Role.Button }`.
+- Preserved Vulkan 1.4.362/header 362, Database 0.39.24 compatibility, runtime query/report behavior, UI behavior and existing accessibility roles; this release changes production runtime bytes only for the missing import plus version metadata.
+
+# VulkanScope 0.80.10
+
+- Updates the locked Vulkan registry and Vulkan-Headers baseline to Vulkan 1.4.362 / header 362.
+- Adds registry-driven provider coverage for VK_KHR_pipeline_library_group_handles and VK_VALVE_buffer_device_address_allocation_alignment.
+- Regenerates the offline Encyclopedia to 842 commands, 6248 VK_* tokens, 2461 Vk* types and 476 registered extensions.
+- Keeps explicit native query catalog counts at 110 structs / 104 groups and Vulkan Video at 47 exact profile combinations.
+- Updates the companion Database identity to 0.39.24.
+
 # Changelog
+
+## 0.80.9
+- Makes Format and Extension detail dialogs open only from the explicit Details button; surrounding cards remain non-actionable browse surfaces.
+- Updates the companion Database contract to 0.39.23 with a VulkanScope 0.80.3+ new-submission floor and a Database-native Vulkan Encyclopedia sourced from the same locked Vulkan 1.4.361 reference corpus.
+- Preserves the 0.80.8 persistent failed-collection state, AGP 9.4.0, Vulkan query/report semantics, TalkBack/large-text/RTL/TV behavior and security/resource bounds.
+
+## 0.80.8
+- Keeps a terminal Failed information-collection banner visible until a new collection replaces it.
+- Updates Android Gradle Plugin to stable 9.4.0 while retaining Gradle 9.7.1 and API 37.
+- Updates the companion Database contract to 0.39.22 with a VulkanScope 0.80.1+ new-submission floor.
+
+## 0.80.7
+
+- Adds content-aware `TextDirection.ContentOrLtr` to every Material typography role so Latin/Vulkan identifiers remain LTR under RTL system locales while Arabic/Hebrew content can resolve RTL naturally.
+- Retains `android:supportsRtl=true`, relative Start/End layout behavior and exact raw Vulkan/report strings without injecting bidi control characters into evidence.
+- Keeps the Android platform/default sans family and system glyph fallback; no bundled/downloadable/custom Compose font family is introduced, preserving OEM/user system-font substitution.
+- Adds a blue circular Info (`i`) icon to the update-available banner in the same status position used by collection result icons and removes the older green UPDATE badge for that state.
+- Preserves 0.80.6 TalkBack/large-text behavior, Vulkan 1.4.361/header 361, 302/110/104 query coverage, the 47-query Vulkan Video census, schema 2 / technicalReport 3 and all prior security/report/TV semantics.
+
+## 0.80.6
+
+- Improves TalkBack semantics by removing redundant decorative announcements, adding section/release-note headings, merging read-only key/value rows and exposing collection/update state changes through accessibility live regions.
+- Makes Direct GitHub updates one Switch semantic target and driver source choices one RadioButton semantic target instead of duplicate parent/nested actions.
+- Adds large-text/narrow-screen adaptive presentation for Android 14+ font scaling and enlarged display-size settings: Overview metrics stack, Quick Access drops from four to two columns, key/value metadata stacks and Info metadata pills stack.
+- Replaces clipping-prone fixed Quick Access/navigation-rail heights with growable minimum heights; large-text rail labels can use two lines, paired Info export actions stack vertically, and collection status text can wrap.
+- Uses a scalable textual app-header title under expanded text and reserves update-dialog space with a 220dp release-note viewport while retaining the normal 360dp ceiling otherwise.
+- Preserves Vulkan 1.4.361/header 361, 302/110/104 query coverage, the 47-query Vulkan Video census, schema 2 / technicalReport 3 and all prior security/report/TV semantics.
+
+## 0.80.5
+
+- Adds shared up/down scroll-boundary indicators to the update dialog release-notes panel.
+- Makes every meaningful release-note row an Android TV read-only focus/BringIntoView target so D-pad traversal drives the standard Compose Foundation LazyColumn scroll path.
+- Keeps touch scrolling explicitly enabled and preserves the existing bounded 360dp release-notes viewport.
+- Retains the existing Material 3 Expressive update hierarchy: 24dp update banner, 32dp dialog, matching 20dp inner cards and Review / Download APK / Cancel actions.
+- Preserves Vulkan 1.4.361/header 361, 302/110/104 query coverage, the 47-query Vulkan Video census, schema 2 / technicalReport 3 and all 0.80.4 collection/detail/security semantics.
+
+## 0.80.4
+
+- Adds a visible `Details` affordance to Format and Extension rows that open full detail views.
+- Makes Format and Extension detail dialogs vertically scrollable and adds the same upper/lower boundary indicators used by top-level pages.
+- Explicitly preserves touch scrolling on shared lazy pages and makes detail-capable Format/Extension rows participate in the Android TV focus/BringIntoView browse path.
+- Removes the `Collecting information...` label from the compact in-progress chip while retaining the activity icon and adjacent status text.
+- Adds a distinct failed collection state: timeout/fatal error, incomplete base report, no devices or all-unknown/all-empty device evidence now show an X and `Failed` instead of the successful `Completed` state.
+- Preserves Vulkan 1.4.361/header 361, 302/110/104 query coverage, the 47-query Vulkan Video census, schema 2 / technicalReport 3 and existing security/resource/report semantics.
 
 ## 0.80.3
 

@@ -617,8 +617,8 @@ static size_t appendParityExtensionPNext(const char* selectedExtension, const st
         storage.add<VkPhysicalDevicePipelineExecutablePropertiesFeaturesKHR>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_EXECUTABLE_PROPERTIES_FEATURES_KHR, true, false);
         ++added;
     }
-    if (std::strcmp(selectedExtension, "VK_EXT_pipeline_library_group_handles") == 0) {
-        storage.add<VkPhysicalDevicePipelineLibraryGroupHandlesFeaturesEXT>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_LIBRARY_GROUP_HANDLES_FEATURES_EXT, true, false);
+    if (std::strcmp(selectedExtension, "VK_EXT_pipeline_library_group_handles") == 0 || std::strcmp(selectedExtension, "VK_KHR_pipeline_library_group_handles") == 0) {
+        storage.add<VkPhysicalDevicePipelineLibraryGroupHandlesFeaturesKHR>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_LIBRARY_GROUP_HANDLES_FEATURES_KHR, true, false);
         ++added;
     }
     if (std::strcmp(selectedExtension, "VK_EXT_pipeline_properties") == 0) {
@@ -1173,7 +1173,12 @@ static size_t appendParityExtensionPNext(const char* selectedExtension, const st
         storage.add<VkPhysicalDeviceMaintenance4Features>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES, true, false);
         ++added;
     }
+    if (std::strcmp(selectedExtension, "VK_VALVE_buffer_device_address_allocation_alignment") == 0) {
+        storage.add<VkPhysicalDeviceBufferDeviceAddressAllocationAlignmentFeaturesVALVE>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_ALLOCATION_ALIGNMENT_FEATURES_VALVE, true, false);
+        storage.add<VkPhysicalDeviceBufferDeviceAddressAllocationAlignmentPropertiesVALVE>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_ALLOCATION_ALIGNMENT_PROPERTIES_VALVE, false, true);
+        added += 2;
+    }
     return added;
 }
 
-static constexpr uint32_t kValidatedParityStructCount = 295;
+static constexpr uint32_t kValidatedParityStructCount = 297;

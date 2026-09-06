@@ -19,12 +19,12 @@ if f'VK_HEADER_VERSION[ \\t]+{lock["headerVersion"]}' not in cmake:
     errors.append("fetched Vulkan header semantic version gate is missing")
 if f'<name>VK_HEADER_VERSION</name> {lock["headerVersion"]}' not in cmake:
     errors.append("fetched Vulkan-Headers registry semantic version gate is missing")
-if 'VK_NV_private_data_base_handle' not in cmake:
-    errors.append("Vulkan 1.4.361 registry sentinel gate is missing")
+if 'VK_VALVE_buffer_device_address_allocation_alignment' not in cmake:
+    errors.append("Vulkan 1.4.362 registry sentinel gate is missing")
 if 'VULKANSCOPE_PROJECT_ROOT' not in cmake or 'registry/upstream/vk.xml' not in cmake:
     errors.append("bundled canonical registry path is not anchored to the project root")
 if errors:
     for error in errors:
         print(f"FAIL: {error}")
     raise SystemExit(1)
-print("PASS CMake Vulkan 1.4.361 lock: canonical Vulkan-Docs snapshot byte-locked; fetched Vulkan-Headers exact-commit and semantic-version locked")
+print("PASS CMake Vulkan 1.4.362 lock: canonical Vulkan-Docs snapshot byte-locked; fetched Vulkan-Headers exact-commit and semantic-version locked")

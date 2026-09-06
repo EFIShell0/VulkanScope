@@ -12,7 +12,8 @@ def need(cond,msg):
 if not ktp.is_file(): raise SystemExit('FAIL MainActivity.kt missing')
 kt=ktp.read_text(encoding='utf-8')
 gradle=gradlep.read_text(encoding='utf-8') if gradlep.is_file() else ''
-need(('versionName = "0.41.44"' in gradle and 'versionCode = 454' in gradle) or ('versionName = "0.41.45"' in gradle and 'versionCode = 455' in gradle) or ('versionName = "0.41.46"' in gradle and 'versionCode = 456' in gradle) or ('versionName = "0.80.0"' in gradle and 'versionCode = 800' in gradle) or ('versionName = "0.80.1"' in gradle and 'versionCode = 801' in gradle) or ('versionName = "0.80.2"' in gradle and 'versionCode = 802' in gradle) or ('versionName = "0.80.3"' in gradle and 'versionCode = 803' in gradle),'0.41.44+ compatible version metadata missing')
+vm=re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"',gradle); vc=re.search(r'versionCode\s*=\s*(\d+)',gradle)
+need(bool(vm and vc and (tuple(map(int, vm.groups())) >= (0, 80, 0) or tuple(map(int, vm.groups())) >= (0, 41, 44)) and int(vc.group(1)) >= 454),'0.41.44+ compatible version metadata missing')
 need(lockp.is_file(),'profile source lock missing')
 lock={}
 if lockp.is_file():

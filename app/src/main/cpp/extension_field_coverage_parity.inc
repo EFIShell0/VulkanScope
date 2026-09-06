@@ -1138,9 +1138,9 @@ static void appendParityStructFields(std::vector<GeneratedField>& dst, uint32_t 
             generatedEmitBool(dst, section, "pipelineExecutableInfo", value.pipelineExecutableInfo);
             break;
         }
-        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_LIBRARY_GROUP_HANDLES_FEATURES_EXT: {
-            const auto& value = *reinterpret_cast<const VkPhysicalDevicePipelineLibraryGroupHandlesFeaturesEXT*>(ptr);
-            const char* section = "Validated extension coverage · VkPhysicalDevicePipelineLibraryGroupHandlesFeaturesEXT";
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_LIBRARY_GROUP_HANDLES_FEATURES_KHR: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDevicePipelineLibraryGroupHandlesFeaturesKHR*>(ptr);
+            const char* section = "Validated extension coverage · VkPhysicalDevicePipelineLibraryGroupHandlesFeaturesKHR";
             generatedEmitBool(dst, section, "pipelineLibraryGroupHandles", value.pipelineLibraryGroupHandles);
             break;
         }
@@ -2212,8 +2212,20 @@ static void appendParityStructFields(std::vector<GeneratedField>& dst, uint32_t 
             generatedEmitBool(dst, section, "blockMatchExtendedClampToEdge", value.blockMatchExtendedClampToEdge);
             break;
         }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_ALLOCATION_ALIGNMENT_FEATURES_VALVE: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceBufferDeviceAddressAllocationAlignmentFeaturesVALVE*>(ptr);
+            const char* section = "Validated extension coverage · VkPhysicalDeviceBufferDeviceAddressAllocationAlignmentFeaturesVALVE";
+            generatedEmitBool(dst, section, "bufferDeviceAddressAllocationAlignment", value.bufferDeviceAddressAllocationAlignment);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_ALLOCATION_ALIGNMENT_PROPERTIES_VALVE: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceBufferDeviceAddressAllocationAlignmentPropertiesVALVE*>(ptr);
+            const char* section = "Validated extension coverage · VkPhysicalDeviceBufferDeviceAddressAllocationAlignmentPropertiesVALVE";
+            generatedEmitNumeric(dst, section, "maxBufferDeviceAddressAllocationAlignment", value.maxBufferDeviceAddressAllocationAlignment);
+            break;
+        }
         default: break;
     }
 }
 
-static constexpr uint32_t kValidatedParitySerializerCount = 297;
+static constexpr uint32_t kValidatedParitySerializerCount = 299;

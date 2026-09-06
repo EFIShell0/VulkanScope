@@ -1,6 +1,6 @@
 {
   "schema": 2,
-  "baseline": "Vulkan 1.4.361",
+  "baseline": "Vulkan 1.4.362",
   "source": "Khronos vk.xml",
   "entries": [
     {
@@ -3907,7 +3907,7 @@
       "specVersion": "1",
       "type": "device",
       "platform": "",
-      "promotedTo": "",
+      "promotedTo": "VK_KHR_pipeline_library_group_handles",
       "depends": "VK_KHR_ray_tracing_pipeline+VK_KHR_pipeline_library",
       "requires": "",
       "deprecatedBy": "",
@@ -8387,6 +8387,28 @@
       ],
       "queryGroup": "",
       "specUrl": "https://registry.khronos.org/vulkan/specs/latest/man/html/VK_KHR_pipeline_library.html"
+    },
+    {
+      "name": "VK_KHR_pipeline_library_group_handles",
+      "authorTag": "KHR",
+      "author": "Khronos",
+      "specVersion": "1",
+      "type": "device",
+      "platform": "",
+      "promotedTo": "",
+      "depends": "VK_KHR_ray_tracing_pipeline+VK_KHR_pipeline_library",
+      "requires": "",
+      "deprecatedBy": "",
+      "obsoletedBy": "",
+      "provisional": false,
+      "commands": [],
+      "enums": [
+        "VK_KHR_PIPELINE_LIBRARY_GROUP_HANDLES_EXTENSION_NAME",
+        "VK_KHR_PIPELINE_LIBRARY_GROUP_HANDLES_SPEC_VERSION",
+        "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_LIBRARY_GROUP_HANDLES_FEATURES_KHR"
+      ],
+      "queryGroup": "",
+      "specUrl": "https://registry.khronos.org/vulkan/specs/latest/man/html/VK_KHR_pipeline_library_group_handles.html"
     },
     {
       "name": "VK_KHR_portability_enumeration",
@@ -13309,6 +13331,30 @@
       ],
       "queryGroup": "",
       "specUrl": "https://registry.khronos.org/vulkan/specs/latest/man/html/VK_SEC_ubm_surface.html"
+    },
+    {
+      "name": "VK_VALVE_buffer_device_address_allocation_alignment",
+      "authorTag": "VALVE",
+      "author": "Valve Corporation",
+      "specVersion": "1",
+      "type": "device",
+      "platform": "",
+      "promotedTo": "",
+      "depends": "VK_KHR_buffer_device_address,VK_VERSION_1_2",
+      "requires": "",
+      "deprecatedBy": "",
+      "obsoletedBy": "",
+      "provisional": false,
+      "commands": [],
+      "enums": [
+        "VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_ALIGNMENT_ALLOCATE_INFO_VALVE",
+        "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_ALLOCATION_ALIGNMENT_FEATURES_VALVE",
+        "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_ALLOCATION_ALIGNMENT_PROPERTIES_VALVE",
+        "VK_VALVE_BUFFER_DEVICE_ADDRESS_ALLOCATION_ALIGNMENT_EXTENSION_NAME",
+        "VK_VALVE_BUFFER_DEVICE_ADDRESS_ALLOCATION_ALIGNMENT_SPEC_VERSION"
+      ],
+      "queryGroup": "",
+      "specUrl": "https://registry.khronos.org/vulkan/specs/latest/man/html/VK_VALVE_buffer_device_address_allocation_alignment.html"
     },
     {
       "name": "VK_VALVE_descriptor_set_host_mapping",

@@ -64,7 +64,7 @@ def main():
     ap.add_argument('--registry', required=True)
     ap.add_argument('--output', required=True)
     ap.add_argument('--kotlin-output')
-    ap.add_argument('--baseline', default='Vulkan 1.4.361')
+    ap.add_argument('--baseline', default='Vulkan 1.4.362')
     args = ap.parse_args()
     root = ET.parse(args.registry).getroot()
     authors = {x.get('name', ''): x.get('author', '') for x in root.findall('./tags/tag')}

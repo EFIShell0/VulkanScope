@@ -58,7 +58,7 @@ else:
 require('private fun VulkanVideoPage(' in kt and 'Page.Video -> VulkanVideoPage(' in kt, 'dedicated Vulkan Video page routing missing')
 require('Page.Video -> listOf("queue2", "videoCapabilities")' in kt, 'Vulkan Video page does not request existing video/queue evidence groups')
 require('QuickAccessCard("Analysis"' not in kt, 'Overview Analysis quick-access button remains')
-require('QuickAccessCard("Vulkan Video", Page.Video' in kt, 'Overview Vulkan Video quick access missing')
+require('QuickAccessCard("Vulkan Video", Page.Video' in kt or '"Vulkan Video" to Page.Video' in kt, 'Overview Vulkan Video quick access missing')
 require('listOf(Page.Features, Page.Memory, Page.Queues, Page.Video, Page.Formats, Page.Properties)' in kt, 'Explore information architecture does not include Vulkan Video')
 
 overview = function_body('OverviewPage')
@@ -112,7 +112,7 @@ library_pins = [
     ('Lifecycle Runtime Compose', '2.11.0'),
     ('OkHttp', '5.5.0'),
     ('ZXing Core', '3.5.4'),
-    ('Vulkan-Headers', '1.4.361'),
+    ('Vulkan-Headers', '1.4.362'),
     ('libadrenotools', '8fae8ce254dfc1344527e05301e43f37dea2df80'),
 ]
 require('CapabilitySectionCard("Libraries")' in function_body('InfoPage'), 'Info Libraries section missing')
@@ -133,7 +133,7 @@ build_pins = {
 for coordinate in build_pins:
     require(coordinate in gradle, f'build dependency pin drifted: {coordinate}')
 cmake = (root / 'app/src/main/cpp/CMakeLists.txt').read_text(encoding='utf-8')
-require('GIT_TAG 31386378257ac8653ce5b32c93baec385259ebbe' in cmake, 'Vulkan-Headers commit pin drifted')
+require('GIT_TAG ee2ec5fd83dafce291024683b50dc89219333076' in cmake, 'Vulkan-Headers commit pin drifted')
 require('GIT_TAG 8fae8ce254dfc1344527e05301e43f37dea2df80' in cmake, 'libadrenotools commit pin drifted')
 
 for resource in ['ic_scroll_up.xml', 'ic_scroll_down.xml', 'ic_video.xml']:

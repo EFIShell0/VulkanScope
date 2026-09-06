@@ -68,8 +68,11 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -83,12 +86,14 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -126,14 +131,17 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -144,15 +152,25 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
@@ -185,12 +203,35 @@ private val VulkanTextSecondary = ComposeColor(0xFFB6ACAE)
 private val VulkanTextMuted = ComposeColor(0xFF968D8F)
 private val VulkanOutline = ComposeColor(0xFF494244)
 private val VulkanOutlineVariant = ComposeColor(0xFF2A2527)
+private val LocalDetailKeyValuePresentation = staticCompositionLocalOf { false }
 private val VulkanExpressiveShapes = Shapes(
     extraSmall = RoundedCornerShape(12.dp),
     small = RoundedCornerShape(16.dp),
     medium = RoundedCornerShape(22.dp),
     large = RoundedCornerShape(28.dp),
-    extraLarge = RoundedCornerShape(32.dp)
+    extraLarge = RoundedCornerShape(32.dp),
+    largeIncreased = RoundedCornerShape(32.dp),
+    extraLargeIncreased = RoundedCornerShape(36.dp),
+    extraExtraLarge = RoundedCornerShape(40.dp)
+)
+
+private val VulkanBaseTypography = Typography()
+private val VulkanTypography = Typography(
+    displayLarge = VulkanBaseTypography.displayLarge.copy(textDirection = TextDirection.ContentOrLtr),
+    displayMedium = VulkanBaseTypography.displayMedium.copy(textDirection = TextDirection.ContentOrLtr),
+    displaySmall = VulkanBaseTypography.displaySmall.copy(textDirection = TextDirection.ContentOrLtr),
+    headlineLarge = VulkanBaseTypography.headlineLarge.copy(textDirection = TextDirection.ContentOrLtr),
+    headlineMedium = VulkanBaseTypography.headlineMedium.copy(textDirection = TextDirection.ContentOrLtr),
+    headlineSmall = VulkanBaseTypography.headlineSmall.copy(textDirection = TextDirection.ContentOrLtr),
+    titleLarge = VulkanBaseTypography.titleLarge.copy(textDirection = TextDirection.ContentOrLtr),
+    titleMedium = VulkanBaseTypography.titleMedium.copy(textDirection = TextDirection.ContentOrLtr),
+    titleSmall = VulkanBaseTypography.titleSmall.copy(textDirection = TextDirection.ContentOrLtr),
+    bodyLarge = VulkanBaseTypography.bodyLarge.copy(textDirection = TextDirection.ContentOrLtr),
+    bodyMedium = VulkanBaseTypography.bodyMedium.copy(textDirection = TextDirection.ContentOrLtr),
+    bodySmall = VulkanBaseTypography.bodySmall.copy(textDirection = TextDirection.ContentOrLtr),
+    labelLarge = VulkanBaseTypography.labelLarge.copy(textDirection = TextDirection.ContentOrLtr),
+    labelMedium = VulkanBaseTypography.labelMedium.copy(textDirection = TextDirection.ContentOrLtr),
+    labelSmall = VulkanBaseTypography.labelSmall.copy(textDirection = TextDirection.ContentOrLtr)
 )
 
 
@@ -464,10 +505,29 @@ private enum class DriverMode(val label: String) {
 }
 
 private enum class TurnipSupport { UNKNOWN, SUPPORTED, UNSUPPORTED }
-private enum class CollectionStatus { IDLE, COLLECTING, COMPLETED }
+private enum class CollectionStatus { IDLE, COLLECTING, COMPLETED, FAILED }
 
 private fun isCompleteReportReady(report: VulkanReport, collectionStatus: CollectionStatus): Boolean =
     report.baseReportComplete && report.devices.isNotEmpty() && report.error == null && collectionStatus != CollectionStatus.COLLECTING
+
+private fun collectionFinishedSuccessfully(report: VulkanReport?): Boolean {
+    if (report == null || report.error != null || !report.baseReportComplete || report.devices.isEmpty()) return false
+    val unavailableValues = setOf("", "unknown", "unknown gpu", "unavailable", "not available", "not reported", "not applicable", "n/a")
+    fun meaningful(value: String): Boolean = value.trim().lowercase() !in unavailableValues
+    return report.devices.any { device ->
+        meaningful(device.name) ||
+            Regex("^\\d+\\.\\d+(?:\\.\\d+)?$").matches(device.apiVersion.trim()) ||
+            device.vendorIdRaw != 0L ||
+            device.deviceIdRaw != 0L ||
+            device.extensions.isNotEmpty() ||
+            device.features.isNotEmpty() ||
+            device.queues.isNotEmpty() ||
+            device.heaps.isNotEmpty() ||
+            device.memoryTypes.isNotEmpty() ||
+            device.formats.isNotEmpty() ||
+            device.limits.isNotEmpty()
+    }
+}
 private data class AppUpdate(
     val version: String,
     val assetName: String,
@@ -1299,7 +1359,8 @@ class MainActivity : ComponentActivity() {
     private fun finishCollectionStatusSoon(delayMillis: Long = 2000L) {
         if (collectionInFlight || pendingCollectionTasks.isNotEmpty()) return
         collectionCompletionJob?.cancel()
-        collectionStatus = CollectionStatus.COMPLETED
+        collectionStatus = if (collectionFinishedSuccessfully(latestReport)) CollectionStatus.COMPLETED else CollectionStatus.FAILED
+        if (collectionStatus == CollectionStatus.FAILED) return
         collectionCompletionJob = activityScope.launch {
             delay(delayMillis)
             if (!collectionInFlight && pendingCollectionTasks.isEmpty()) {
@@ -2963,6 +3024,7 @@ private fun VulkanScopeApp(
             outline = VulkanOutline,
             outlineVariant = VulkanOutlineVariant
         ),
+        typography = VulkanTypography,
         shapes = VulkanExpressiveShapes,
         motionScheme = MotionScheme.expressive()
     ) {
@@ -2988,7 +3050,7 @@ private fun VulkanScopeApp(
                             ShortNavigationBarItem(
                                 selected = selectedNavigationPage(page) == item.page,
                                 onClick = { page = item.page },
-                                icon = { Icon(painterResource(item.icon), contentDescription = item.label, modifier = Modifier.size(24.dp)) },
+                                icon = { Icon(painterResource(item.icon), contentDescription = null, modifier = Modifier.size(24.dp)) },
                                 label = { Text(item.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                 colors = ShortNavigationBarItemDefaults.colors(
                                     selectedIconColor = VulkanAccentSoft,
@@ -3138,15 +3200,22 @@ private fun VulkanLazyPage(
     content: LazyListScope.() -> Unit
 ) {
     val listState = rememberLazyListState()
+    val navigationPadding = WindowInsets.navigationBars.asPaddingValues()
     Box(modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
-            contentPadding = WindowInsets.navigationBars.asPaddingValues(),
-            modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                start = 18.dp,
+                top = navigationPadding.calculateTopPadding(),
+                end = 18.dp,
+                bottom = navigationPadding.calculateBottomPadding()
+            ),
+            modifier = Modifier.fillMaxSize().focusGroup(),
             verticalArrangement = Arrangement.spacedBy(verticalSpacing),
+            userScrollEnabled = true,
             content = content
         )
-        ScrollBoundaryIndicators(listState, Modifier.align(Alignment.CenterEnd).padding(end = 5.dp))
+        ScrollBoundaryIndicators(listState, Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp))
     }
 }
 
@@ -3154,37 +3223,71 @@ private fun VulkanLazyPage(
 private fun ScrollBoundaryIndicators(listState: LazyListState, modifier: Modifier = Modifier) {
     val showUp by remember(listState) { derivedStateOf { listState.canScrollBackward } }
     val showDown by remember(listState) { derivedStateOf { listState.canScrollForward } }
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        AnimatedVisibility(visible = showUp, enter = fadeIn(), exit = fadeOut()) {
-            Surface(
-                shape = RoundedCornerShape(999.dp),
-                color = VulkanSurface.copy(alpha = 0.92f),
-                tonalElevation = 3.dp,
-                shadowElevation = 2.dp
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_scroll_up),
-                    contentDescription = "More content above",
-                    tint = VulkanAccentSoft,
-                    modifier = Modifier.padding(6.dp).size(18.dp)
-                )
+    val visible = rememberScrollIndicatorVisibility(listState.isScrollInProgress, showUp || showDown)
+    ScrollBoundaryIndicatorColumn(showUp, showDown, visible, modifier)
+}
+
+@Composable
+private fun ScrollBoundaryIndicators(scrollState: ScrollState, modifier: Modifier = Modifier) {
+    val showUp by remember(scrollState) { derivedStateOf { scrollState.value > 0 } }
+    val showDown by remember(scrollState) { derivedStateOf { scrollState.value < scrollState.maxValue } }
+    val visible = rememberScrollIndicatorVisibility(scrollState.isScrollInProgress, showUp || showDown)
+    ScrollBoundaryIndicatorColumn(showUp, showDown, visible, modifier)
+}
+
+@Composable
+private fun rememberScrollIndicatorVisibility(isScrollInProgress: Boolean, hasScrollableDirection: Boolean): Boolean {
+    var visible by remember { mutableStateOf(hasScrollableDirection) }
+    LaunchedEffect(isScrollInProgress, hasScrollableDirection) {
+        if (!hasScrollableDirection) {
+            visible = false
+        } else {
+            visible = true
+            if (!isScrollInProgress) {
+                delay(900)
+                visible = false
             }
         }
-        AnimatedVisibility(visible = showDown, enter = fadeIn(), exit = fadeOut()) {
-            Surface(
-                shape = RoundedCornerShape(999.dp),
-                color = VulkanSurface.copy(alpha = 0.92f),
-                tonalElevation = 3.dp,
-                shadowElevation = 2.dp
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_scroll_down),
-                    contentDescription = "More content below",
-                    tint = VulkanAccentSoft,
-                    modifier = Modifier.padding(6.dp).size(18.dp)
-                )
-            }
+    }
+    return visible
+}
+
+@Composable
+private fun ScrollBoundaryIndicatorColumn(showUp: Boolean, showDown: Boolean, visible: Boolean, modifier: Modifier = Modifier) {
+    Box(modifier) {
+        AnimatedVisibility(
+            visible = visible && showUp,
+            modifier = Modifier.align(Alignment.TopCenter),
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            ScrollBoundaryIndicatorBubble(up = true)
         }
+        AnimatedVisibility(
+            visible = visible && showDown,
+            modifier = Modifier.align(Alignment.BottomCenter),
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            ScrollBoundaryIndicatorBubble(up = false)
+        }
+    }
+}
+
+@Composable
+private fun ScrollBoundaryIndicatorBubble(up: Boolean) {
+    Surface(
+        shape = MaterialTheme.shapes.extraLarge,
+        color = VulkanSurface.copy(alpha = 0.90f),
+        tonalElevation = 4.dp,
+        shadowElevation = 3.dp
+    ) {
+        Icon(
+            painter = painterResource(if (up) R.drawable.ic_scroll_up else R.drawable.ic_scroll_down),
+            contentDescription = null,
+            tint = VulkanAccentSoft,
+            modifier = Modifier.padding(8.dp).size(24.dp)
+        )
     }
 }
 
@@ -3215,6 +3318,7 @@ private fun PageContent(page: Page, report: VulkanReport, display: DisplayReport
 
 @Composable
 private fun OverviewPage(report: VulkanReport, device: DeviceReport?, display: DisplayReport, driverMode: DriverMode, navigate: (Page) -> Unit) {
+    val expandedTextLayout = preferExpandedTextLayout()
     VulkanLazyPage(verticalSpacing = 14.dp) {
         item {
             HeroCard(device, report, driverMode)
@@ -3235,30 +3339,58 @@ private fun OverviewPage(report: VulkanReport, device: DeviceReport?, display: D
             ExploreCard { destination -> navigate(destination) }
         }
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MetricCard("Vulkan", device?.apiVersion ?: "Unknown", Modifier.weight(1f))
-                MetricCard("Display", display.refreshRate, Modifier.weight(1f))
+            if (expandedTextLayout) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    MetricCard("Vulkan", device?.apiVersion ?: "Unknown", Modifier.fillMaxWidth())
+                    MetricCard("Display", display.refreshRate, Modifier.fillMaxWidth())
+                }
+            } else {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    MetricCard("Vulkan", device?.apiVersion ?: "Unknown", Modifier.weight(1f))
+                    MetricCard("Display", display.refreshRate, Modifier.weight(1f))
+                }
             }
         }
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MetricCard("HDR", when (display.hdrCapabilityStatus) { "available" -> "${display.hdrTypes.size} types"; "unknown" -> "Unknown"; else -> "Unavailable" }, Modifier.weight(1f))
-                MetricCard("Wide gamut", when (display.wideGamut) { true -> "Supported"; false -> "Unsupported"; null -> "Unavailable" }, Modifier.weight(1f))
+            if (expandedTextLayout) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    MetricCard("HDR", when (display.hdrCapabilityStatus) { "available" -> "${display.hdrTypes.size} types"; "unknown" -> "Unknown"; else -> "Unavailable" }, Modifier.fillMaxWidth())
+                    MetricCard("Wide gamut", when (display.wideGamut) { true -> "Supported"; false -> "Unsupported"; null -> "Unavailable" }, Modifier.fillMaxWidth())
+                }
+            } else {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    MetricCard("HDR", when (display.hdrCapabilityStatus) { "available" -> "${display.hdrTypes.size} types"; "unknown" -> "Unknown"; else -> "Unavailable" }, Modifier.weight(1f))
+                    MetricCard("Wide gamut", when (display.wideGamut) { true -> "Supported"; false -> "Unsupported"; null -> "Unavailable" }, Modifier.weight(1f))
+                }
             }
         }
         item { CapabilitySectionCard("Quick access") {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    QuickAccessCard("Vulkan", Page.Vulkan, navigate, Modifier.weight(1f))
-                    QuickAccessCard("Surface", Page.Surface, navigate, Modifier.weight(1f))
-                    QuickAccessCard("Display", Page.Display, navigate, Modifier.weight(1f))
-                    QuickAccessCard("HDR & Color", Page.Display, navigate, Modifier.weight(1f))
+            val quickAccessItems = listOf(
+                "Vulkan" to Page.Vulkan,
+                "Surface" to Page.Surface,
+                "Display" to Page.Display,
+                "HDR & Color" to Page.Display,
+                "Extensions" to Page.Extensions,
+                "Profiles" to Page.Profiles,
+                "Vulkan Video" to Page.Video,
+                "More" to Page.Features
+            )
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val quickAccessColumns = when {
+                    expandedTextLayout || maxWidth < 300.dp -> 1
+                    maxWidth < 540.dp -> 2
+                    maxWidth < 780.dp -> 3
+                    else -> 4
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    QuickAccessCard("Extensions", Page.Extensions, navigate, Modifier.weight(1f))
-                    QuickAccessCard("Profiles", Page.Profiles, navigate, Modifier.weight(1f))
-                    QuickAccessCard("Vulkan Video", Page.Video, navigate, Modifier.weight(1f))
-                    QuickAccessCard("More", Page.Features, navigate, Modifier.weight(1f))
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    quickAccessItems.chunked(quickAccessColumns).forEach { rowItems ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            rowItems.forEach { (title, destination) ->
+                                QuickAccessCard(title, destination, navigate, Modifier.weight(1f))
+                            }
+                            repeat(quickAccessColumns - rowItems.size) { Spacer(Modifier.weight(1f)) }
+                        }
+                    }
                 }
             }
         } }
@@ -3604,11 +3736,11 @@ private fun EncyclopediaPage() {
         item {
             CapabilitySectionCard("Encyclopedia") {
                 Text(
-                    "Offline Vulkan reference built from the locked Vulkan 1.4.361 registry plus curated VulkanScope interpretation rules. Search exact symbols such as VK_SUCCESS, vkGetPhysicalDeviceFeatures2, VkPhysicalDeviceProperties2 or VK_KHR_swapchain.",
+                    "Offline Vulkan reference built from the locked Vulkan 1.4.362 registry plus curated VulkanScope interpretation rules. Search exact symbols such as VK_SUCCESS, vkGetPhysicalDeviceFeatures2, VkPhysicalDeviceProperties2 or VK_KHR_swapchain.",
                     color = VulkanTextSecondary,
                     style = MaterialTheme.typography.bodySmall
                 )
-                CapabilityKeyValue("Registry symbol census", "$VULKAN_COMMAND_SYMBOL_COUNT vk* commands · $VULKAN_TOKEN_SYMBOL_COUNT VK_* tokens · $VULKAN_TYPE_SYMBOL_COUNT Vk* types · 474 registered extensions")
+                CapabilityKeyValue("Registry symbol census", "$VULKAN_COMMAND_SYMBOL_COUNT vk* commands · $VULKAN_TOKEN_SYMBOL_COUNT VK_* tokens · $VULKAN_TYPE_SYMBOL_COUNT Vk* types · 476 registered extensions")
                 Text("Runtime evidence and registry/reference symbols are separate evidence classes.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
                 ExpressiveSearchField(
                     value = query,
@@ -3625,7 +3757,7 @@ private fun EncyclopediaPage() {
                     when {
                         (category == "Commands" || category == "VK_*" || category == "Types") && query.trim().length < 2 -> "Type at least 2 characters to search this large registry symbol family. Results are capped at $ENCYCLOPEDIA_VISIBLE_RESULT_LIMIT; refine the query for a specific symbol."
                         category == "Extensions" && query.isBlank() -> "Showing the first $ENCYCLOPEDIA_VISIBLE_RESULT_LIMIT registered extensions. Search by exact extension, command, token, dependency or promotion to narrow the local reference."
-                        category == "VkResult" && query.isBlank() -> "${VULKAN_VK_RESULT_REFERENCE.size} canonical VkResult values from the Vulkan 1.4.361 reference are listed below; compatibility aliases are shown with their canonical result."
+                        category == "VkResult" && query.isBlank() -> "${VULKAN_VK_RESULT_REFERENCE.size} canonical VkResult values from the Vulkan 1.4.362 reference are listed below; compatibility aliases are shown with their canonical result."
                         category == "All" && query.isBlank() -> "Core concepts, naming rules and VulkanScope evidence semantics are shown below. Search to resolve registry symbols."
                         entries.size >= ENCYCLOPEDIA_VISIBLE_RESULT_LIMIT -> "Showing the first $ENCYCLOPEDIA_VISIBLE_RESULT_LIMIT matches. Refine the query for a narrower result."
                         else -> "${entries.size} matching reference entr${if (entries.size == 1) "y" else "ies"}."
@@ -3826,7 +3958,7 @@ private fun VulkanPage(report: VulkanReport, device: DeviceReport?, turnipSuppor
 
 @Composable
 private fun HeroCard(device: DeviceReport?, report: VulkanReport, driverMode: DriverMode) {
-    Surface(color = ComposeColor(0xFF181516), shape = RoundedCornerShape(32.dp), modifier = Modifier.fillMaxWidth()) {
+    Surface(color = VulkanSurfaceRaised, shape = MaterialTheme.shapes.extraLargeIncreased, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 VendorLogo(device?.vendorIdRaw, Modifier.size(82.dp))
@@ -3845,7 +3977,7 @@ private fun HeroCard(device: DeviceReport?, report: VulkanReport, driverMode: Dr
 
 @Composable
 private fun OverviewDestinationCard(title: String, subtitle: String, destination: Page, navigate: (Page) -> Unit) {
-    val shape = RoundedCornerShape(26.dp)
+    val shape = MaterialTheme.shapes.large
     Card(
         onClick = { navigate(destination) },
         colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF181516)),
@@ -3864,7 +3996,7 @@ private fun OverviewDestinationCard(title: String, subtitle: String, destination
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = VulkanTextPrimary)
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = VulkanTextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
-            Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = "Open $title", tint = VulkanTextMuted, modifier = Modifier.size(20.dp))
+            Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null, tint = VulkanTextMuted, modifier = Modifier.size(20.dp))
         }
     }
 }
@@ -3874,11 +4006,11 @@ private fun QuickAccessCard(title: String, destination: Page, navigate: (Page) -
     Card(
         onClick = { navigate(destination) },
         colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF1A1718)),
-        shape = RoundedCornerShape(22.dp),
-        modifier = modifier.height(72.dp)
+        shape = MaterialTheme.shapes.medium,
+        modifier = modifier.heightIn(min = 72.dp)
     ) {
         Column(
-            Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 7.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 9.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically)
         ) {
@@ -3890,10 +4022,10 @@ private fun QuickAccessCard(title: String, destination: Page, navigate: (Page) -
             )
             Text(
                 title,
-                fontSize = 11.sp,
-                lineHeight = 12.sp,
+                style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
         }
@@ -3905,9 +4037,10 @@ private fun QuickAccessCard(title: String, destination: Page, navigate: (Page) -
 @Composable
 private fun CompactNavigationRail(selectedPage: Page, onPageSelected: (Page) -> Unit, requestInitialFocus: Boolean) {
     val firstFocusRequester = remember { FocusRequester() }
+    val expandedTextLayout = preferExpandedTextLayout()
     LaunchedEffect(requestInitialFocus) { if (requestInitialFocus) firstFocusRequester.requestFocus() }
     Surface(
-        modifier = Modifier.width(80.dp),
+        modifier = Modifier.width(if (expandedTextLayout) 104.dp else 80.dp),
         color = ComposeColor(0xFF101010)
     ) {
         Column(
@@ -3933,7 +4066,7 @@ private fun CompactNavigationRail(selectedPage: Page, onPageSelected: (Page) -> 
                     shape = shape,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(54.dp)
+                        .heightIn(min = 54.dp)
                         .then(if (index == 0) Modifier.focusRequester(firstFocusRequester) else Modifier)
                         .bringIntoViewRequester(bringIntoViewRequester)
                         .onFocusChanged { state ->
@@ -3943,23 +4076,23 @@ private fun CompactNavigationRail(selectedPage: Page, onPageSelected: (Page) -> 
                         .border(if (focused) 2.dp else 0.dp, if (focused) ComposeColor(0xFFE2676A) else ComposeColor.Transparent, shape)
                 ) {
                     Column(
-                        Modifier.fillMaxSize().padding(horizontal = 2.dp, vertical = 4.dp),
+                        Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 4.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(1.dp, Alignment.CenterVertically)
                     ) {
                         Icon(
                             painterResource(item.icon),
-                            contentDescription = item.label,
+                            contentDescription = null,
                             modifier = Modifier.size(21.dp),
                             tint = if (selected) VulkanAccentSoft else ComposeColor(0xFFB8B8B8)
                         )
                         Text(
                             item.label,
                             color = if (selected) VulkanTextPrimary else ComposeColor(0xFFB8B8B8),
-                            fontSize = 9.sp,
-                            lineHeight = 10.sp,
+                            fontSize = if (expandedTextLayout) 11.sp else 9.sp,
+                            lineHeight = if (expandedTextLayout) 13.sp else 10.sp,
                             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                            maxLines = 1,
+                            maxLines = if (expandedTextLayout) 2 else 1,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
@@ -3971,26 +4104,56 @@ private fun CompactNavigationRail(selectedPage: Page, onPageSelected: (Page) -> 
 
 
 @Composable
+private fun ExploreDestinationTile(page: Page, onNavigate: (Page) -> Unit, modifier: Modifier = Modifier) {
+    val shape = MaterialTheme.shapes.medium
+    Card(
+        onClick = { onNavigate(page) },
+        colors = CardDefaults.cardColors(containerColor = VulkanSurfaceTonal),
+        shape = shape,
+        modifier = modifier.heightIn(min = 52.dp).then(tvBrowseModifier(shape))
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 11.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp)
+        ) {
+            Surface(shape = MaterialTheme.shapes.small, color = VulkanAccentContainer) {
+                Icon(painterResource(pageIcon(page)), contentDescription = null, tint = VulkanAccentSoft, modifier = Modifier.padding(7.dp).size(18.dp))
+            }
+            Text(page.title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = VulkanTextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
 private fun ExploreCard(onNavigate: (Page) -> Unit) {
+    val expandedTextLayout = preferExpandedTextLayout()
+    val pages = listOf(Page.Features, Page.Memory, Page.Queues, Page.Video, Page.Formats, Page.Properties)
     CapabilitySectionCard("Explore") {
         Text("Detailed Vulkan inspection areas", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(Page.Features, Page.Memory, Page.Queues, Page.Video, Page.Formats, Page.Properties).forEach { page ->
-                ExpressiveAssistChip(
-                    label = page.title,
-                    leadingIcon = pageIcon(page),
-                    onClick = { onNavigate(page) }
-                )
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val columns = when {
+                expandedTextLayout || maxWidth < 300.dp -> 1
+                maxWidth < 620.dp -> 2
+                else -> 3
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                pages.chunked(columns).forEach { rowPages ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        rowPages.forEach { page -> ExploreDestinationTile(page, onNavigate, Modifier.weight(1f)) }
+                        repeat(columns - rowPages.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                }
             }
         }
     }
 }
 
 
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AppHeader(page: Page, onBack: () -> Unit, onSettings: () -> Unit, onInfo: () -> Unit) {
+    val expandedTextLayout = preferExpandedTextLayout()
     TopAppBar(
         navigationIcon = {
             if (page != Page.Overview) {
@@ -3998,14 +4161,26 @@ private fun AppHeader(page: Page, onBack: () -> Unit, onSettings: () -> Unit, on
             }
         },
         title = {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Image(
-                    painter = painterResource(R.drawable.vulkanscope_logo_horizontal),
-                    contentDescription = "VulkanScope",
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.width(148.dp).height(28.dp)
+            if (expandedTextLayout) {
+                Text(
+                    "VulkanScope · ${page.title}",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = VulkanTextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.semantics { heading() }
                 )
-                Text(page.title, style = MaterialTheme.typography.labelMedium, color = ComposeColor(0xFF9E9E9E), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Image(
+                        painter = painterResource(R.drawable.vulkanscope_logo_horizontal),
+                        contentDescription = "VulkanScope",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.width(148.dp).height(28.dp)
+                    )
+                    Text(page.title, style = MaterialTheme.typography.labelMedium, color = ComposeColor(0xFF9E9E9E), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.semantics { heading() })
+                }
             }
         },
         actions = {
@@ -5167,7 +5342,17 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
             ExpressiveActionButton("Import analysis snapshot", "Select a VulkanScope JSON analysis snapshot", R.drawable.ic_action_text) { model.importSnapshot() }
             ExpressiveActionButton("Export analysis snapshot", "Portable local JSON for system-driver, Turnip or device comparison", R.drawable.ic_action_html) { model.exportSnapshot() }
             if (state.baseline != null) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) { Switch(checked = state.includeUnchanged, onCheckedChange = { state.includeUnchanged = it }); Text("Show unchanged", style = MaterialTheme.typography.bodySmall) }
+                Row(
+                    Modifier.fillMaxWidth().toggleable(value = state.includeUnchanged, role = Role.Switch, onValueChange = { state.includeUnchanged = it }).padding(vertical = 4.dp).semantics(mergeDescendants = true) { },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    ExpressiveSwitch(checked = state.includeUnchanged, onCheckedChange = null)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("Show unchanged", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                        Text("Include evidence rows whose canonical value is unchanged.", style = MaterialTheme.typography.labelSmall, color = VulkanTextSecondary)
+                    }
+                }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("All", "Added", "Removed", "Changed", "Regression").forEach { value -> ExpressiveFilterChip(selected = state.diffStateFilter == value, label = value, onClick = { state.diffStateFilter = value }) } }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("All", "extension", "feature", "format", "property", "limit", "memory", "queue", "surface", "display", "profile", "query", "safety").forEach { value -> ExpressiveFilterChip(selected = state.diffKindFilter == value, label = value, onClick = { state.diffKindFilter = value }) } }
                 ExpressiveSearchField(value = state.diffQuery, onValueChange = { state.diffQuery = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "Search · state:changed kind:feature vendor:KHR core:1.4 changed:true")
@@ -5192,7 +5377,7 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
     } else if (state.tab == 1) {
         item { CapabilitySectionCard("Specification/profile minimum comparison") {
             Text("The evaluator uses struct-qualified runtime evidence, required-profile inheritance and explicit OR capability groups from audited normalized official definitions. Catalog-only or coverage-limited definitions remain UNKNOWN rather than becoming API-only PASS claims.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-            CapabilityKeyValue("Published Vulkan baseline", report.registryCoverage.baseline.ifBlank { "Vulkan 1.4.361" })
+            CapabilityKeyValue("Published Vulkan baseline", report.registryCoverage.baseline.ifBlank { "Vulkan 1.4.362" })
             ExpressiveSearchField(value = state.profileQuery, onValueChange = { state.profileQuery = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "Search profiles…")
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("All", "FAIL", "UNKNOWN", "PASS").forEach { value -> ExpressiveFilterChip(selected = state.profileStatusFilter == value, label = value, onClick = { state.profileStatusFilter = value }) } }
         } }
@@ -5284,7 +5469,7 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
             Text("Active tests are isolated from capability collection. FAIL means the test failed; it does not rewrite the reported feature as unsupported.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
             CapabilityKeyValue("Target GPU", device?.let { "${it.name} · ${it.vendorId}:${it.deviceId}" } ?: "Unavailable")
             ExpressiveActionButton("Run Vulkan self-tests", "Selected GPU only · VkDevice, minimal SPIR-V shader-module, pipeline-layout and compute-pipeline creation", R.drawable.ic_action_update, enabled = !state.testRunning && model.selfTestsAvailable) { model.runSelfTests() }
-            if (state.testRunning) LoadingIndicator()
+            if (state.testRunning) LoadingIndicator(color = VulkanAccentSoft, modifier = Modifier.size(32.dp))
         } }
         val result = state.testResult
         if (result != null) {
@@ -5300,6 +5485,69 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
 }
 
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun DetailAffordance(onClick: () -> Unit) {
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.semantics { role = Role.Button },
+        shapes = ButtonDefaults.shapes(
+            shape = RoundedCornerShape(18.dp),
+            pressedShape = RoundedCornerShape(24.dp)
+        ),
+        colors = ButtonDefaults.textButtonColors(
+            containerColor = VulkanAccentContainer,
+            contentColor = VulkanAccentSoft
+        )
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text("Details", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null, modifier = Modifier.size(16.dp))
+        }
+    }
+}
+
+@Composable
+private fun ScrollableDetailDialog(title: String, onDismiss: () -> Unit, content: @Composable () -> Unit) {
+    val scrollState = rememberScrollState()
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val horizontalMargin = if (configuration.screenWidthDp < 360) 10.dp else 18.dp
+    val verticalMargin = if (configuration.screenHeightDp < 520) 8.dp else 16.dp
+    val bodyMaxHeight = minOf(540.dp, maxOf(140.dp, (configuration.screenHeightDp - 200).dp))
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(Modifier.fillMaxSize().padding(horizontal = horizontalMargin, vertical = verticalMargin), contentAlignment = Alignment.Center) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().widthIn(max = 560.dp),
+                shape = MaterialTheme.shapes.extraLarge,
+                color = VulkanSurfaceRaised,
+                tonalElevation = 4.dp,
+                shadowElevation = 8.dp
+            ) {
+                Column(Modifier.fillMaxWidth()) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = VulkanTextPrimary)
+                        Text("Detailed Vulkan evidence", style = MaterialTheme.typography.labelMedium, color = VulkanTextSecondary)
+                    }
+                    HorizontalDivider(color = VulkanOutlineVariant)
+                    Box(Modifier.fillMaxWidth().heightIn(max = bodyMaxHeight).padding(horizontal = 14.dp, vertical = 12.dp)) {
+                        Column(
+                            Modifier.fillMaxWidth().verticalScroll(scrollState).focusGroup(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            CompositionLocalProvider(LocalDetailKeyValuePresentation provides true) { content() }
+                        }
+                        ScrollBoundaryIndicators(scrollState, Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 6.dp))
+                    }
+                    HorizontalDivider(color = VulkanOutlineVariant)
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 9.dp), horizontalArrangement = Arrangement.End) {
+                        ExpressiveTextButton("Close") { onDismiss() }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun FormatsPage(device: DeviceReport?) {
     var query by remember { mutableStateOf("") }
@@ -5311,17 +5559,18 @@ private fun FormatsPage(device: DeviceReport?) {
             CapabilitySectionCard("Format explorer") {
             Text("Implementation-reported format capabilities. Bitmasks are expanded to canonical Vulkan feature names; unknown bits remain visible in hexadecimal.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
             ExpressiveSearchField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), placeholderText = "Search · supported:true feature:SAMPLED name:R16")
-            Text("${filtered.size} formats · select an entry for full decoded/raw detail", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(vertical = 6.dp))
+            Text("${filtered.size} formats · use Details for full decoded/raw detail", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(vertical = 6.dp))
             }
         }
         itemsIndexed(filtered, key = { index, format -> "format:${format.name}:$index" }) { _, format ->
-            Card(onClick = { selected = format }, colors = CardDefaults.cardColors(containerColor = VulkanSurfaceRaised), shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
+            CapabilityItemCard(containerColor = VulkanSurfaceRaised) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(format.name, fontWeight = FontWeight.Medium)
                     CapabilityKeyValue("Status", if (format.supported) "SUPPORTED" else "NOT SUPPORTED")
                     CapabilityKeyValue("Linear", formatFeatureFlags(format.linear))
                     CapabilityKeyValue("Optimal", formatFeatureFlags(format.optimal))
                     CapabilityKeyValue("Buffer", formatFeatureFlags(format.buffer))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { DetailAffordance { selected = format } }
                 }
             }
         }
@@ -5333,10 +5582,10 @@ private fun FormatsPage(device: DeviceReport?) {
         val imageQueryOutcomes = remember(device?.imageFormatQueryResults, format.name) {
             device?.imageFormatQueryResults.orEmpty().filter { it.name == format.name || it.name.startsWith(format.name + " · ") }
         }
-        AlertDialog(
-            onDismissRequest = { selected = null },
-            title = { Text(format.name, style = MaterialTheme.typography.titleMedium) },
-            text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        ScrollableDetailDialog(
+            title = format.name,
+            onDismiss = { selected = null }
+        ) {
                 CapabilityKeyValue("Runtime status", if (format.supported) "SUPPORTED" else "NOT SUPPORTED")
                 CapabilityKeyValue("Linear decoded", formatFeatureFlags(format.linear))
                 CapabilityKeyValue("Linear raw", "${java.lang.Long.toUnsignedString(format.linear)} · 0x${java.lang.Long.toUnsignedString(format.linear, 16).uppercase()}")
@@ -5359,9 +5608,7 @@ private fun FormatsPage(device: DeviceReport?) {
                     )
                 }
                 Text("VkFormatProperties3 64-bit Flags2 evidence is authoritative when available; legacy 32-bit values are fallback-only. Image Format Properties2 uses a fixed VulkanScope query recipe: VK_IMAGE_TYPE_2D, TRANSFER_SRC | TRANSFER_DST | SAMPLED usage and flags=0. Successful property payloads remain in normal detailed-property evidence. A separate exact tuple-state ledger records Available, Unsupported, Unavailable and Not applicable query outcomes without inflating the Properties & Limits totals. Missing prerequisite external-memory extensions are represented as Not applicable rather than ambiguous Not reported evidence.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-            } },
-            confirmButton = { ExpressiveTextButton("Close") { selected = null } }
-        )
+        }
     }
 }
 
@@ -6195,13 +6442,14 @@ private val VULKANSCOPE_LIBRARY_VERSIONS = listOf(
     LibraryVersionInfo("Lifecycle Runtime Compose", "2.11.0", "Lifecycle-aware Compose state"),
     LibraryVersionInfo("OkHttp", "5.5.0", "Explicit network requests"),
     LibraryVersionInfo("ZXing Core", "3.5.4", "Local QR code generation"),
-    LibraryVersionInfo("Vulkan-Headers", "1.4.361", "Pinned commit 31386378257ac8653ce5b32c93baec385259ebbe"),
+    LibraryVersionInfo("Vulkan-Headers", "1.4.362", "Pinned commit ee2ec5fd83dafce291024683b50dc89219333076"),
     LibraryVersionInfo("libadrenotools", "8fae8ce254dfc1344527e05301e43f37dea2df80", "arm64-v8a driver-loading integration · pinned commit")
 )
 
 @Composable
 private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverMode, collectionStatus: CollectionStatus, onCheckForUpdates: () -> Unit, directUpdatesEnabled: Boolean) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val expandedTextLayout = preferExpandedTextLayout()
     val uriHandler = LocalUriHandler.current
     val scope = rememberCoroutineScope()
     val installedAbi = remember { detectInstalledAbi(context) }
@@ -6345,7 +6593,7 @@ private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverM
         }
         item {
             CapabilitySectionCard("Build toolchain") {
-                CapabilityKeyValue("Android Gradle Plugin", "9.3.2")
+                CapabilityKeyValue("Android Gradle Plugin", "9.4.0")
                 CapabilityKeyValue("Kotlin Compose plugin", "2.4.10")
                 CapabilityKeyValue("Gradle wrapper", "9.7.1")
                 CapabilityKeyValue("Android NDK", "29.0.14206865")
@@ -6400,9 +6648,16 @@ private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverM
         item {
             CapabilitySectionCard("Export complete report") {
                 Text("Export the complete currently collected Vulkan, Android display/HDR and surface report. Phones and tablets use Android's Storage Access Framework; Android TV or document-provider launch failure falls back to Downloads.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    ExpressiveActionButton("Export TXT", if (exportBusy) "Preparing or saving the report" else if (completeReportReady) "Plain-text complete report" else "Waiting for complete Vulkan collection", R.drawable.ic_action_text, Modifier.weight(1f), completeReportReady && !exportBusy, true) { if (completeReportReady && !exportBusy) exportDocument("$exportStem.txt", "text/plain", textLauncher) { reportToText(context, report, display, mode) } }
-                    ExpressiveActionButton("Export HTML", if (exportBusy) "Preparing or saving the report" else if (completeReportReady) "Styled offline complete report" else "Waiting for complete Vulkan collection", R.drawable.ic_action_html, Modifier.weight(1f), completeReportReady && !exportBusy, true) { if (completeReportReady && !exportBusy) exportDocument("$exportStem.html", "text/html", htmlLauncher) { reportToHtml(context, report, display, mode) } }
+                if (expandedTextLayout) {
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        ExpressiveActionButton("Export TXT", if (exportBusy) "Preparing or saving the report" else if (completeReportReady) "Plain-text complete report" else "Waiting for complete Vulkan collection", R.drawable.ic_action_text, Modifier.fillMaxWidth(), completeReportReady && !exportBusy, true) { if (completeReportReady && !exportBusy) exportDocument("$exportStem.txt", "text/plain", textLauncher) { reportToText(context, report, display, mode) } }
+                        ExpressiveActionButton("Export HTML", if (exportBusy) "Preparing or saving the report" else if (completeReportReady) "Styled offline complete report" else "Waiting for complete Vulkan collection", R.drawable.ic_action_html, Modifier.fillMaxWidth(), completeReportReady && !exportBusy, true) { if (completeReportReady && !exportBusy) exportDocument("$exportStem.html", "text/html", htmlLauncher) { reportToHtml(context, report, display, mode) } }
+                    }
+                } else {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        ExpressiveActionButton("Export TXT", if (exportBusy) "Preparing or saving the report" else if (completeReportReady) "Plain-text complete report" else "Waiting for complete Vulkan collection", R.drawable.ic_action_text, Modifier.weight(1f), completeReportReady && !exportBusy, true) { if (completeReportReady && !exportBusy) exportDocument("$exportStem.txt", "text/plain", textLauncher) { reportToText(context, report, display, mode) } }
+                        ExpressiveActionButton("Export HTML", if (exportBusy) "Preparing or saving the report" else if (completeReportReady) "Styled offline complete report" else "Waiting for complete Vulkan collection", R.drawable.ic_action_html, Modifier.weight(1f), completeReportReady && !exportBusy, true) { if (completeReportReady && !exportBusy) exportDocument("$exportStem.html", "text/html", htmlLauncher) { reportToHtml(context, report, display, mode) } }
+                    }
                 }
                 if (!completeReportReady) Text("TXT and HTML export remain disabled until the complete Vulkan collection pass has finished, matching the Database completeness gate.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
             }
@@ -6467,12 +6722,16 @@ private fun SettingsPage(report: VulkanReport, mode: DriverMode, turnipSupport: 
     VulkanLazyPage(verticalSpacing = 14.dp) {
         item {
             CapabilitySectionCard("Updates") {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(
+                    Modifier.fillMaxWidth().toggleable(value = directUpdatesEnabled, role = Role.Switch, onValueChange = onDirectUpdatesChanged).padding(vertical = 4.dp).semantics(mergeDescendants = true) { },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("Direct GitHub updates", fontWeight = FontWeight.SemiBold)
                         Text(if (directUpdatesEnabled) "Enabled · update checks use the official VulkanScope GitHub Releases channel" else "Disabled · recommended when Obtainium manages updates", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
                     }
-                    ExpressiveSwitch(checked = directUpdatesEnabled, onCheckedChange = onDirectUpdatesChanged)
+                    ExpressiveSwitch(checked = directUpdatesEnabled, onCheckedChange = null)
                 }
                 Text("Direct GitHub updates are enabled by default so new installations receive update checks. When disabled, VulkanScope performs no startup update check and will not download update APKs. Obtainium can track the universal APK from the official GitHub Releases channel without enabling the built-in updater.", color = ComposeColor(0xFF777777), style = MaterialTheme.typography.bodySmall)
             }
@@ -6501,9 +6760,13 @@ private fun SettingsPage(report: VulkanReport, mode: DriverMode, turnipSupport: 
 @Composable
 private fun DriverOption(option: DriverMode, selected: Boolean, description: String, enabled: Boolean, onClick: () -> Unit) {
     val textColor = if (enabled) ComposeColor(0xFFFFFFFF) else ComposeColor(0xFF666666)
-    Card(onClick = onClick, enabled = enabled, colors = CardDefaults.cardColors(containerColor = if (selected) VulkanAccentContainer else VulkanSurfaceLow), shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = if (selected) VulkanAccentContainer else VulkanSurfaceLow),
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxWidth().selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick).semantics(mergeDescendants = true) { }
+    ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            ExpressiveRadioButton(selected = selected, enabled = enabled, onClick = onClick)
+            ExpressiveRadioButton(selected = selected, enabled = enabled, onClick = null)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(option.label, color = textColor, fontWeight = FontWeight.SemiBold)
                 Text(description, color = if (enabled) ComposeColor(0xFF8F8F8F) else ComposeColor(0xFF555555), style = MaterialTheme.typography.bodySmall)
@@ -6553,18 +6816,20 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
             }
         }
         items(filteredSupported, key = { "supported:${it.scope}:${it.name}:${it.specVersion}" }) { extension ->
-            Card(onClick = { selectedSupported = extension }, colors = CardDefaults.cardColors(containerColor = VulkanSurfaceRaised), shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
+            CapabilityItemCard(containerColor = VulkanSurfaceRaised) {
                 Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(extension.name, fontWeight = FontWeight.SemiBold)
                     Text("SUPPORTED · ${extension.scope} · spec ${extension.specVersion}", color = ComposeColor(0xFF73C991), style = MaterialTheme.typography.labelSmall)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { DetailAffordance { selectedSupported = extension } }
                 }
             }
         }
         items(filteredCatalog, key = { "catalog:$it" }) { name ->
-            Card(onClick = { selectedCatalog = name }, colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF211B12)), shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
+            CapabilityItemCard(containerColor = ComposeColor(0xFF211B12)) {
                 Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(name, fontWeight = FontWeight.SemiBold)
                     Text("NOT ENUMERATED · registry reference only", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.labelSmall)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { DetailAffordance { selectedCatalog = name } }
                 }
             }
         }
@@ -6572,16 +6837,16 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
     }
     selectedSupported?.let { extension ->
         val group = vulkanExtensionQueryGroup(extension.name)
-        AlertDialog(
-            onDismissRequest = { selectedSupported = null },
-            title = { Text(extension.name, style = MaterialTheme.typography.titleMedium) },
-            text = { Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        ScrollableDetailDialog(
+            title = extension.name,
+            onDismiss = { selectedSupported = null }
+        ) {
                 val ref = vulkanExtensionReference(extension.name)
                 CapabilityKeyValue("Runtime evidence", "Exact extension token enumerated")
                 CapabilityKeyValue("Scope", extension.scope)
                 CapabilityKeyValue("Runtime specVersion", extension.specVersion.toString())
                 CapabilityKeyValue("Registry author tag", ref.author)
-                CapabilityKeyValue("Registry baseline", "Vulkan 1.4.361")
+                CapabilityKeyValue("Registry baseline", "Vulkan 1.4.362")
                 CapabilityKeyValue("Embedded registry revision", ref.specVersion.ifBlank { "Unavailable in checked-in reference asset" })
                 CapabilityKeyValue("Registry status", if (ref.provisional) "Provisional / beta" else "Registered")
                 CapabilityKeyValue("Extension type", ref.type.ifBlank { "Unavailable in checked-in reference asset" })
@@ -6595,20 +6860,18 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
                 CapabilityKeyValue("Related commands", ref.commands.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "See authoritative Khronos extension page")
                 CapabilityKeyValue("Related enums/tokens", ref.enums.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "See authoritative Khronos extension page")
                 ExpressiveTextButton("Open Khronos specification") { uriHandler.openUri(ref.specUrl) }
-                Text("Runtime enumeration, registry metadata and dedicated feature/property query evidence remain separate. The checked-in metadata is generated from the locked Vulkan 1.4.361 registry; the Khronos link remains authoritative for the complete interface definition.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-            } },
-            confirmButton = { ExpressiveTextButton("Close") { selectedSupported = null } }
-        )
+                Text("Runtime enumeration, registry metadata and dedicated feature/property query evidence remain separate. The checked-in metadata is generated from the locked Vulkan 1.4.362 registry; the Khronos link remains authoritative for the complete interface definition.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+        }
     }
     selectedCatalog?.let { name ->
-        AlertDialog(
-            onDismissRequest = { selectedCatalog = null },
-            title = { Text(name, style = MaterialTheme.typography.titleMedium) },
-            text = { Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        ScrollableDetailDialog(
+            title = name,
+            onDismiss = { selectedCatalog = null }
+        ) {
                 val ref = vulkanExtensionReference(name)
                 CapabilityKeyValue("Runtime evidence", "Not enumerated in the completed runtime extension set")
                 CapabilityKeyValue("Registry author tag", ref.author)
-                CapabilityKeyValue("Registry baseline", "Vulkan 1.4.361")
+                CapabilityKeyValue("Registry baseline", "Vulkan 1.4.362")
                 CapabilityKeyValue("Embedded registry revision", ref.specVersion.ifBlank { "Unavailable in checked-in reference asset" })
                 CapabilityKeyValue("Registry status", if (ref.provisional) "Provisional / beta" else "Registered")
                 CapabilityKeyValue("Extension type", ref.type.ifBlank { "Unavailable in checked-in reference asset" })
@@ -6622,10 +6885,8 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
                 CapabilityKeyValue("Related commands", ref.commands.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "See authoritative Khronos extension page")
                 CapabilityKeyValue("Related enums/tokens", ref.enums.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "See authoritative Khronos extension page")
                 ExpressiveTextButton("Open Khronos specification") { uriHandler.openUri(ref.specUrl) }
-                Text("This entry comes from the checked-in Vulkan 1.4.361 registry census. Runtime absence is not an Unsupported claim; runtime enumeration and registry registration remain separate evidence.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-            } },
-            confirmButton = { ExpressiveTextButton("Close") { selectedCatalog = null } }
-        )
+                Text("This entry comes from the checked-in Vulkan 1.4.362 registry census. Runtime absence is not an Unsupported claim; runtime enumeration and registry registration remain separate evidence.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+        }
     }
 }
 
@@ -7437,13 +7698,31 @@ private fun vendorInfo(vendorId: Long): VendorInfo = when (vendorId) {
 @Composable
 private fun VendorLogo(vendorId: Long?, modifier: Modifier) {
     val info = vendorInfo(vendorId ?: -1L)
-    Card(colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF111111)), shape = RoundedCornerShape(18.dp), modifier = modifier) {
+    Card(colors = CardDefaults.cardColors(containerColor = VulkanSurfaceLow), shape = MaterialTheme.shapes.medium, modifier = modifier) {
         Image(
             painter = painterResource(info.logo),
-            contentDescription = info.name,
+            contentDescription = null,
             modifier = Modifier.fillMaxSize().padding(8.dp),
             contentScale = ContentScale.Fit
         )
+    }
+}
+
+@Composable
+private fun UpdateInfoIcon() {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = ComposeColor(0xFF16344F),
+        modifier = Modifier.size(30.dp)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                painter = painterResource(R.drawable.ic_info),
+                contentDescription = null,
+                tint = ComposeColor(0xFF5CA9FF),
+                modifier = Modifier.size(18.dp)
+            )
+        }
     }
 }
 
@@ -7462,9 +7741,9 @@ private fun UpdateStatusBanner(status: UpdateStatus, onInstallUpdate: (AppUpdate
         exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(360)) + shrinkVertically(animationSpec = androidx.compose.animation.core.tween(360))
     ) {
         Surface(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).semantics { liveRegion = LiveRegionMode.Polite },
             color = VulkanSurfaceRaised,
-            shape = RoundedCornerShape(24.dp),
+            shape = MaterialTheme.shapes.large,
             tonalElevation = 0.dp
         ) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -7472,7 +7751,7 @@ private fun UpdateStatusBanner(status: UpdateStatus, onInstallUpdate: (AppUpdate
                     UpdateStatus.Checking -> { ExpressiveLinearProgressIndicator(Modifier.width(72.dp)); Text("Checking for updates…", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)) }
                     UpdateStatus.UpToDate -> { UpdateStatusBadge("UP TO DATE"); Text("VulkanScope is up to date.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)) }
                     UpdateStatus.DirectUpdatesDisabledIntro -> { UpdateStatusBadge("INFO"); Text("Direct GitHub updates are currently disabled. Obtainium can manage updates externally, or direct updates can be enabled in Settings.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)) }
-                    is UpdateStatus.Available -> { UpdateStatusBadge("UPDATE"); Text("VulkanScope ${status.update.version} available", modifier = Modifier.weight(1f)); ExpressiveTextButton("Review") { onInstallUpdate(status.update) } }
+                    is UpdateStatus.Available -> { UpdateInfoIcon(); Text("VulkanScope ${status.update.version} available", color = ComposeColor(0xFF9CCBFF), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)); ExpressiveTextButton("Review") { onInstallUpdate(status.update) } }
                     is UpdateStatus.Downloading -> { ExpressiveLinearProgressIndicator(Modifier.width(72.dp)); Text("Downloading update…", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)) }
                     is UpdateStatus.Failed -> Text(status.message, color = ComposeColor(0xFFFF8A8A), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
                     UpdateStatus.Hidden -> Unit
@@ -7484,10 +7763,21 @@ private fun UpdateStatusBanner(status: UpdateStatus, onInstallUpdate: (AppUpdate
 
 @Composable
 private fun UpdateDialogKeyValue(key: String, value: String) {
-    val shape = RoundedCornerShape(12.dp)
-    Row(Modifier.fillMaxWidth().then(tvBrowseModifier(shape)), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-        Text(key, color = ComposeColor(0xFF8F8F8F), modifier = Modifier.weight(0.9f), style = MaterialTheme.typography.bodySmall)
-        Text(value.ifBlank { "Unavailable" }, modifier = Modifier.weight(1.1f), textAlign = TextAlign.End, style = MaterialTheme.typography.bodySmall)
+    val expandedTextLayout = preferExpandedTextLayout()
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val stacked = expandedTextLayout || maxWidth < 360.dp || key.length > 24 || value.length > 32 || value.contains("\n")
+        val modifier = Modifier.fillMaxWidth().then(tvBrowseModifier(RoundedCornerShape(12.dp))).semantics(mergeDescendants = true) { }
+        if (stacked) {
+            Column(modifier.padding(vertical = 3.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(key, color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                Text(value.ifBlank { "Unavailable" }, color = VulkanTextPrimary, style = MaterialTheme.typography.bodySmall)
+            }
+        } else {
+            Row(modifier.padding(vertical = 3.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
+                Text(key, color = VulkanTextMuted, modifier = Modifier.weight(0.82f), style = MaterialTheme.typography.labelSmall)
+                Text(value.ifBlank { "Unavailable" }, modifier = Modifier.weight(1.18f), color = VulkanTextPrimary, style = MaterialTheme.typography.bodySmall)
+            }
+        }
     }
 }
 
@@ -7496,7 +7786,7 @@ private fun UpdateDialogKeyValue(key: String, value: String) {
 private fun DirectUpdatesConsentDialog(appName: String, releaseSource: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(32.dp),
+        shape = MaterialTheme.shapes.extraLarge,
         containerColor = VulkanSurfaceRaised,
         tonalElevation = 0.dp,
         title = { Text("Enable direct GitHub updates?", fontWeight = FontWeight.SemiBold) },
@@ -7513,9 +7803,11 @@ private fun DirectUpdatesConsentDialog(appName: String, releaseSource: String, o
 
 @Composable
 private fun UpdateConfirmationDialog(update: AppUpdate, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    val expandedTextLayout = preferExpandedTextLayout()
+    val releaseNotesMaxHeight = if (expandedTextLayout) 220.dp else 360.dp
     AlertDialog(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(32.dp),
+        shape = MaterialTheme.shapes.extraLarge,
         containerColor = VulkanSurfaceRaised,
         tonalElevation = 0.dp,
         title = {
@@ -7526,7 +7818,7 @@ private fun UpdateConfirmationDialog(update: AppUpdate, onDismiss: () -> Unit, o
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Surface(shape = RoundedCornerShape(20.dp), color = ComposeColor(0xFF1A1718)) {
+                Surface(shape = MaterialTheme.shapes.medium, color = ComposeColor(0xFF1A1718)) {
                     Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                         UpdateDialogKeyValue("Installed version", "${update.installedVersion} (versionCode ${update.installedVersionCode})")
                         UpdateDialogKeyValue("Available release", update.version)
@@ -7537,8 +7829,8 @@ private fun UpdateConfirmationDialog(update: AppUpdate, onDismiss: () -> Unit, o
                     }
                 }
                 Text("Release notes", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                Surface(shape = RoundedCornerShape(20.dp), color = ComposeColor(0xFF0D0D0D)) {
-                    ReleaseNotesContent(update.releaseNotes, Modifier.fillMaxWidth().heightIn(max = 360.dp))
+                Surface(shape = MaterialTheme.shapes.medium, color = ComposeColor(0xFF0D0D0D)) {
+                    ReleaseNotesContent(update.releaseNotes, Modifier.fillMaxWidth().heightIn(max = releaseNotesMaxHeight))
                 }
                 Text("The APK is validated for official release provenance, package identity, signing certificate, versionCode and versionName before Android's installer is opened.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelSmall)
             }
@@ -7551,20 +7843,70 @@ private fun UpdateConfirmationDialog(update: AppUpdate, onDismiss: () -> Unit, o
 @Composable
 private fun ReleaseNotesContent(markdown: String, modifier: Modifier = Modifier) {
     val lines = remember(markdown) { markdown.lines() }
-    LazyColumn(modifier = modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        items(lines) { raw ->
-            val line = raw.trimEnd()
-            when {
-                line.isBlank() -> Spacer(Modifier.height(3.dp))
-                line.startsWith("### ") -> Text(line.removePrefix("### "), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = ComposeColor(0xFFF3EDEF))
-                line.startsWith("## ") -> Text(line.removePrefix("## "), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = ComposeColor(0xFFF7F2F3))
-                line.startsWith("# ") -> Text(line.removePrefix("# "), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = ComposeColor.White)
-                line.startsWith("- ") || line.startsWith("* ") -> Text("• " + line.drop(2), color = ComposeColor(0xFFD3CBCD), style = MaterialTheme.typography.bodySmall)
-                line.startsWith("> ") -> Text(line.drop(2), color = ComposeColor(0xFFFFB4BC), style = MaterialTheme.typography.bodySmall)
-                line.startsWith("```") -> Spacer(Modifier.height(1.dp))
-                else -> Text(line, color = ComposeColor(0xFFBEB6B8), style = MaterialTheme.typography.bodySmall)
+    val listState = rememberLazyListState()
+    Box(modifier.padding(14.dp)) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxWidth().focusGroup(),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
+            userScrollEnabled = true
+        ) {
+            itemsIndexed(lines, key = { index, _ -> "release-note:$index" }) { _, raw ->
+                ReleaseNoteLine(raw)
             }
         }
+        ScrollBoundaryIndicators(listState, Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 6.dp))
+    }
+}
+
+@Composable
+private fun ReleaseNoteLine(raw: String) {
+    val line = raw.trimEnd()
+    if (line.isBlank() || line.startsWith("```")) {
+        Spacer(Modifier.height(if (line.isBlank()) 3.dp else 1.dp))
+        return
+    }
+    val shape = RoundedCornerShape(10.dp)
+    val isHeading = line.startsWith("# ") || line.startsWith("## ") || line.startsWith("### ")
+    val text = when {
+        line.startsWith("### ") -> line.removePrefix("### ")
+        line.startsWith("## ") -> line.removePrefix("## ")
+        line.startsWith("# ") -> line.removePrefix("# ")
+        line.startsWith("- ") || line.startsWith("* ") -> "• " + line.drop(2)
+        line.startsWith("> ") -> line.drop(2)
+        else -> line
+    }
+    val style = when {
+        line.startsWith("### ") -> MaterialTheme.typography.titleSmall
+        line.startsWith("## ") -> MaterialTheme.typography.titleMedium
+        line.startsWith("# ") -> MaterialTheme.typography.titleLarge
+        else -> MaterialTheme.typography.bodySmall
+    }
+    val weight = when {
+        line.startsWith("# ") -> FontWeight.Bold
+        line.startsWith("## ") || line.startsWith("### ") -> FontWeight.SemiBold
+        else -> FontWeight.Normal
+    }
+    val color = when {
+        line.startsWith("# ") -> ComposeColor.White
+        line.startsWith("## ") -> ComposeColor(0xFFF7F2F3)
+        line.startsWith("### ") -> ComposeColor(0xFFF3EDEF)
+        line.startsWith("> ") -> ComposeColor(0xFFFFB4BC)
+        line.startsWith("- ") || line.startsWith("* ") -> ComposeColor(0xFFD3CBCD)
+        else -> ComposeColor(0xFFBEB6B8)
+    }
+    Surface(
+        color = ComposeColor.Transparent,
+        shape = shape,
+        modifier = Modifier.fillMaxWidth().then(tvBrowseModifier(shape)).semantics(mergeDescendants = true) { if (isHeading) heading() }
+    ) {
+        Text(
+            text,
+            color = color,
+            style = style,
+            fontWeight = weight,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+        )
     }
 }
 
@@ -7576,10 +7918,11 @@ private fun CollectionStatusBanner(status: CollectionStatus) {
         exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(420)) + shrinkVertically(animationSpec = androidx.compose.animation.core.tween(420))
     ) {
         val collecting = status == CollectionStatus.COLLECTING
+        val failed = status == CollectionStatus.FAILED
         Surface(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
             color = VulkanSurfaceRaised,
-            shape = RoundedCornerShape(24.dp),
+            shape = MaterialTheme.shapes.large,
             tonalElevation = 0.dp
         ) {
             Column(Modifier.fillMaxWidth()) {
@@ -7589,42 +7932,53 @@ private fun CollectionStatusBanner(status: CollectionStatus) {
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     if (collecting) {
-                        ExpressiveAssistChip(label = "Collecting information…", leadingIcon = R.drawable.ic_action_update, enabled = false, onClick = {})
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = VulkanAccentContainer,
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_action_update),
+                                    contentDescription = null,
+                                    tint = VulkanAccentSoft,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
                         Text(
                             "VulkanScope is collecting Vulkan information in the background.",
                             color = ComposeColor(0xFF9E9E9E),
                             style = MaterialTheme.typography.labelMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
                     } else {
+                        val stateColor = if (failed) ComposeColor(0xFFFF7676) else ComposeColor(0xFF55D98A)
+                        val stateContainer = if (failed) ComposeColor(0xFF431C20) else ComposeColor(0xFF163D24)
                         Surface(
                             shape = RoundedCornerShape(50),
-                            color = ComposeColor(0xFF163D24),
+                            color = stateContainer,
                             modifier = Modifier.size(30.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
-                                    painter = painterResource(R.drawable.ic_check),
+                                    painter = painterResource(if (failed) R.drawable.ic_close else R.drawable.ic_check),
                                     contentDescription = null,
-                                    tint = ComposeColor(0xFF55D98A),
+                                    tint = stateColor,
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
                         }
                         Text(
-                            "Completed",
-                            color = ComposeColor(0xFF55D98A),
+                            if (failed) "Failed" else "Completed",
+                            color = stateColor,
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            "Vulkan information updated.",
+                            if (failed) "No complete Vulkan information was collected." else "Vulkan information updated.",
                             color = ComposeColor(0xFF9E9E9E),
                             style = MaterialTheme.typography.labelMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -7638,17 +7992,43 @@ private fun CollectionStatusBanner(status: CollectionStatus) {
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun LoadingView() {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            LoadingIndicator(color = VulkanAccentSoft, modifier = Modifier.size(48.dp))
-            Text("Inspecting Vulkan…", color = VulkanTextSecondary, style = MaterialTheme.typography.bodyMedium)
+    VulkanLazyPage(verticalSpacing = 12.dp, modifier = Modifier.background(VulkanBlack).semantics { liveRegion = LiveRegionMode.Polite }) {
+        item {
+            CapabilitySectionCard("Vulkan inspection") {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Surface(shape = MaterialTheme.shapes.large, color = VulkanAccentContainer) {
+                        Box(Modifier.size(58.dp), contentAlignment = Alignment.Center) {
+                            LoadingIndicator(color = VulkanAccentSoft, modifier = Modifier.size(34.dp))
+                        }
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text("Inspecting Vulkan…", color = VulkanTextPrimary, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text("Collecting the complete Vulkan evidence set for this session.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                Surface(shape = MaterialTheme.shapes.medium, color = VulkanSurfaceTonal) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Collection in progress", color = VulkanTextPrimary, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                        Text("Capability pages become available after the base report reaches a validated terminal state. Missing evidence is not converted into Unsupported while collection is incomplete.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                ExpressiveLinearProgressIndicator(Modifier.fillMaxWidth())
+                Text("Supported, Unsupported, Unavailable, Not applicable and Unknown remain separate evidence states.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+            }
         }
     }
 }
 
 @Composable
 private fun EmptyState(message: String) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(message) }
+    Surface(color = VulkanSurfaceLow, shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Surface(shape = MaterialTheme.shapes.medium, color = VulkanSurfaceTonal) {
+                Icon(painterResource(R.drawable.ic_info), contentDescription = null, tint = VulkanAccentSoft, modifier = Modifier.padding(9.dp).size(20.dp))
+            }
+            Text(message, color = VulkanTextSecondary, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        }
+    }
 }
 
 private fun capabilitySectionIcon(title: String): Int = when {
@@ -7666,8 +8046,15 @@ private fun capabilitySectionIcon(title: String): Int = when {
     else -> R.drawable.ic_info
 }
 
+
 @Composable
-private fun tvBrowseModifier(shape: RoundedCornerShape): Modifier {
+private fun preferExpandedTextLayout(): Boolean {
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    return configuration.fontScale >= 1.3f || configuration.screenWidthDp < 360
+}
+
+@Composable
+private fun tvBrowseModifier(shape: Shape): Modifier {
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
     val isTelevision = configuration.uiMode and Configuration.UI_MODE_TYPE_MASK == Configuration.UI_MODE_TYPE_TELEVISION
     if (!isTelevision) return Modifier
@@ -7809,7 +8196,7 @@ private fun ExpressiveAssistChip(
 }
 
 @Composable
-private fun ExpressiveSwitch(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun ExpressiveSwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?) {
     Switch(
         checked = checked,
         onCheckedChange = onCheckedChange,
@@ -7834,7 +8221,7 @@ private fun ExpressiveSwitch(checked: Boolean, onCheckedChange: (Boolean) -> Uni
 }
 
 @Composable
-private fun ExpressiveRadioButton(selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
+private fun ExpressiveRadioButton(selected: Boolean, enabled: Boolean, onClick: (() -> Unit)?) {
     Surface(
         shape = RoundedCornerShape(18.dp),
         color = if (selected && enabled) ComposeColor(0xFF2A2022) else ComposeColor.Transparent
@@ -7897,7 +8284,7 @@ private fun ExpressiveLinearProgressIndicator(modifier: Modifier = Modifier) {
 
 @Composable
 private fun CapabilitySectionCard(title: String, content: @Composable () -> Unit) {
-    val shape = RoundedCornerShape(30.dp)
+    val shape = MaterialTheme.shapes.extraLarge
     Surface(
         color = ComposeColor(0xFF181516),
         shape = shape,
@@ -7918,7 +8305,7 @@ private fun CapabilitySectionCard(title: String, content: @Composable () -> Unit
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = ComposeColor(0xFFF7F2F3),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f).semantics { heading() }
                 )
             }
             HorizontalDivider(color = ComposeColor(0xFF2A2527))
@@ -7929,10 +8316,10 @@ private fun CapabilitySectionCard(title: String, content: @Composable () -> Unit
 
 @Composable
 private fun CapabilityItemCard(
-    containerColor: ComposeColor = ComposeColor(0xFF181516),
+    containerColor: ComposeColor = VulkanSurfaceRaised,
     content: @Composable () -> Unit
 ) {
-    val shape = RoundedCornerShape(24.dp)
+    val shape = MaterialTheme.shapes.large
     Surface(color = containerColor, shape = shape, modifier = Modifier.fillMaxWidth().then(tvBrowseModifier(shape))) {
         Column(Modifier.fillMaxWidth()) { content() }
     }
@@ -7940,29 +8327,44 @@ private fun CapabilityItemCard(
 
 @Composable
 private fun CapabilityKeyValue(key: String, value: String) {
-    val stacked = value.length > 54 || value.contains("\n")
-    val shape = RoundedCornerShape(17.dp)
-    Surface(color = ComposeColor(0xFF211E1F), shape = shape, modifier = Modifier.fillMaxWidth().then(tvBrowseModifier(shape))) {
-        if (stacked) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(key, color = ComposeColor(0xFF968D8F), style = MaterialTheme.typography.labelSmall)
-                Text(value, color = ComposeColor(0xFFE7DFE1), style = MaterialTheme.typography.bodySmall)
-            }
+    val expandedTextLayout = preferExpandedTextLayout()
+    val detailPresentation = LocalDetailKeyValuePresentation.current
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val stacked = if (detailPresentation) {
+            expandedTextLayout || maxWidth < 420.dp || key.length > 22 || value.length > 30 || value.contains("\n")
         } else {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.Top
-            ) {
-                Text(key, color = ComposeColor(0xFF968D8F), style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(0.92f))
-                Text(
-                    value,
-                    color = ComposeColor(0xFFE7DFE1),
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Medium,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
-                    modifier = Modifier.weight(1.08f)
-                )
+            expandedTextLayout || maxWidth < 360.dp || key.length > 26 || value.length > 34 || value.contains("\n")
+        }
+        val shape: Shape = if (detailPresentation) MaterialTheme.shapes.medium else RoundedCornerShape(16.dp)
+        Surface(
+            color = VulkanSurfaceTonal,
+            shape = shape,
+            border = if (detailPresentation) androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant) else null,
+            modifier = Modifier.fillMaxWidth().then(tvBrowseModifier(shape)).semantics(mergeDescendants = true) { }
+        ) {
+            if (stacked) {
+                Column(
+                    Modifier.fillMaxWidth().padding(horizontal = if (detailPresentation) 13.dp else 14.dp, vertical = if (detailPresentation) 10.dp else 11.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Text(key, color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall, fontWeight = if (detailPresentation) FontWeight.SemiBold else FontWeight.Normal)
+                    Text(value.ifBlank { "Unavailable" }, color = ComposeColor(0xFFE7DFE1), style = if (detailPresentation) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodySmall)
+                }
+            } else {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = if (detailPresentation) 13.dp else 14.dp, vertical = if (detailPresentation) 10.dp else 11.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(key, color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(0.88f))
+                    Text(
+                        value.ifBlank { "Unavailable" },
+                        color = ComposeColor(0xFFE7DFE1),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1.12f)
+                    )
+                }
             }
         }
     }
@@ -7996,7 +8398,7 @@ private fun ExpressiveActionButton(
     onClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(if (compact) 26.dp else 28.dp)
+    val shape = if (compact) MaterialTheme.shapes.large else MaterialTheme.shapes.largeIncreased
     val container = if (!enabled) ComposeColor(0xFF111111) else if (focused) ComposeColor(0xFF2A1517) else ComposeColor(0xFF1A1718)
     val iconContainer = if (enabled) ComposeColor(0xFF351719) else ComposeColor(0xFF181818)
     val accent = if (enabled) ComposeColor(0xFFE2676A) else ComposeColor(0xFF606064)
@@ -8023,8 +8425,8 @@ private fun ExpressiveActionButton(
                     }
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(title, color = titleColor, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(subtitle, color = detailColor, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(title, color = titleColor, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(subtitle, color = detailColor, style = MaterialTheme.typography.labelSmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
                 }
             }
         } else {
@@ -8037,8 +8439,8 @@ private fun ExpressiveActionButton(
                     Icon(painter = painterResource(icon), contentDescription = null, tint = accent, modifier = Modifier.padding(11.dp).size(22.dp))
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(title, color = titleColor, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(subtitle, color = detailColor, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(title, color = titleColor, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(subtitle, color = detailColor, style = MaterialTheme.typography.labelSmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
                 }
                 Surface(shape = RoundedCornerShape(999.dp), color = if (enabled) ComposeColor(0xFF291719) else ComposeColor(0xFF171717)) {
                     Icon(painter = painterResource(R.drawable.ic_chevron_right), contentDescription = null, tint = accent, modifier = Modifier.padding(9.dp).size(19.dp))
@@ -8050,7 +8452,7 @@ private fun ExpressiveActionButton(
 
 @Composable
 private fun ExpressiveIdentityBlock(title: String, subtitle: String, icon: Int) {
-    Surface(color = ComposeColor(0xFF181516), shape = RoundedCornerShape(28.dp), modifier = Modifier.fillMaxWidth()) {
+    Surface(color = VulkanSurfaceRaised, shape = MaterialTheme.shapes.largeIncreased, modifier = Modifier.fillMaxWidth()) {
         Row(
             Modifier.fillMaxWidth().padding(17.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -8069,7 +8471,8 @@ private fun ExpressiveIdentityBlock(title: String, subtitle: String, icon: Int) 
 
 @Composable
 private fun ExpressiveVersionBlock(application: String, version: String, versionCode: String, packageName: String, abi: String) {
-    Surface(color = ComposeColor(0xFF181516), shape = RoundedCornerShape(30.dp), modifier = Modifier.fillMaxWidth()) {
+    val expandedTextLayout = preferExpandedTextLayout()
+    Surface(color = VulkanSurfaceRaised, shape = MaterialTheme.shapes.extraLarge, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(13.dp)) {
                 Surface(shape = RoundedCornerShape(19.dp), color = ComposeColor(0xFF351719)) {
@@ -8083,9 +8486,16 @@ private fun ExpressiveVersionBlock(application: String, version: String, version
                     Text("#$versionCode", color = ComposeColor(0xFFC7BEC0), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp))
                 }
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ExpressiveInfoPill("Installed ABI", abi, Modifier.weight(1f))
-                ExpressiveInfoPill("Package", packageName, Modifier.weight(1f))
+            if (expandedTextLayout) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ExpressiveInfoPill("Installed ABI", abi, Modifier.fillMaxWidth())
+                    ExpressiveInfoPill("Package", packageName, Modifier.fillMaxWidth())
+                }
+            } else {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ExpressiveInfoPill("Installed ABI", abi, Modifier.weight(1f))
+                    ExpressiveInfoPill("Package", packageName, Modifier.weight(1f))
+                }
             }
         }
     }
@@ -8093,23 +8503,23 @@ private fun ExpressiveVersionBlock(application: String, version: String, version
 
 @Composable
 private fun ExpressiveInfoPill(label: String, value: String, modifier: Modifier = Modifier) {
-    Surface(color = ComposeColor(0xFF211E1F), shape = RoundedCornerShape(18.dp), modifier = modifier) {
+    Surface(color = VulkanSurfaceTonal, shape = MaterialTheme.shapes.medium, modifier = modifier) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(label, color = ComposeColor(0xFF968D8F), style = MaterialTheme.typography.labelSmall)
-            Text(value, color = ComposeColor(0xFFE7DFE1), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(value, color = ComposeColor(0xFFE7DFE1), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis)
         }
     }
 }
 
 @Composable
 private fun MetricCard(title: String, value: String, modifier: Modifier) {
-    val shape = RoundedCornerShape(26.dp)
+    val shape = MaterialTheme.shapes.large
     Surface(color = ComposeColor(0xFF181516), shape = shape, modifier = modifier.then(tvBrowseModifier(shape))) {
         Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Surface(shape = RoundedCornerShape(999.dp), color = ComposeColor(0xFF2A2022)) {
                 Text(title, color = ComposeColor(0xFFE98A8C), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp))
             }
-            Text(value, color = ComposeColor(0xFFF7F2F3), fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(value, color = ComposeColor(0xFFF7F2F3), fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 3, overflow = TextOverflow.Ellipsis)
         }
     }
 }
