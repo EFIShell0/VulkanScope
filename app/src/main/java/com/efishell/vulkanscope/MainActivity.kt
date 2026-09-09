@@ -19,8 +19,13 @@ import android.content.Context
 import android.content.ActivityNotFoundException
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.os.Environment
 import android.provider.MediaStore
+import android.provider.OpenableColumns
+import android.provider.DocumentsContract
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import java.io.File
@@ -57,6 +62,8 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
@@ -65,6 +72,7 @@ import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
@@ -74,10 +82,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -88,6 +98,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -103,6 +114,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -147,16 +160,23 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.heading
@@ -166,7 +186,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextDirection
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -204,6 +226,8 @@ private val VulkanTextMuted = ComposeColor(0xFF968D8F)
 private val VulkanOutline = ComposeColor(0xFF494244)
 private val VulkanOutlineVariant = ComposeColor(0xFF2A2527)
 private val LocalDetailKeyValuePresentation = staticCompositionLocalOf { false }
+private data class EvidenceActionEnvironment(val openEncyclopedia: (String) -> Unit, val addWatch: (String) -> Unit)
+private val LocalEvidenceActionEnvironment = staticCompositionLocalOf<EvidenceActionEnvironment?> { null }
 private val VulkanExpressiveShapes = Shapes(
     extraSmall = RoundedCornerShape(12.dp),
     small = RoundedCornerShape(16.dp),
@@ -506,6 +530,19 @@ private enum class DriverMode(val label: String) {
 
 private enum class TurnipSupport { UNKNOWN, SUPPORTED, UNSUPPORTED }
 private enum class CollectionStatus { IDLE, COLLECTING, COMPLETED, FAILED }
+private enum class NetworkBannerState { HIDDEN, CONNECTED, DISCONNECTED }
+private val LocalValidatedNetwork = staticCompositionLocalOf { false }
+
+private fun hasValidatedInternetCapabilities(capabilities: NetworkCapabilities): Boolean =
+    capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+        capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+
+private fun hasValidatedInternet(context: Context): Boolean {
+    val manager = context.getSystemService(ConnectivityManager::class.java)
+    val network = runCatching { manager.activeNetwork }.getOrNull() ?: return false
+    val capabilities = runCatching { manager.getNetworkCapabilities(network) }.getOrNull() ?: return false
+    return hasValidatedInternetCapabilities(capabilities)
+}
 
 private fun isCompleteReportReady(report: VulkanReport, collectionStatus: CollectionStatus): Boolean =
     report.baseReportComplete && report.devices.isNotEmpty() && report.error == null && collectionStatus != CollectionStatus.COLLECTING
@@ -633,7 +670,144 @@ private fun readFileTextLimited(file: File, maxBytes: Int): String {
     }
 }
 
+private const val TURNIP_MANAGER_MAX_DRIVERS = 10
+private const val TURNIP_MANAGER_ROOT_NAME = "turnip_drivers"
+private const val TURNIP_MANAGER_BUNDLE_NAME = "bundle"
+private const val TURNIP_MANAGER_SOURCE_NAME = "source.json"
+private const val TURNIP_ACTIVE_SLOT_PREF = "turnip_active_slot"
+
 private data class TurnipBundleScan(val files: List<File>)
+
+private data class TurnipSourceInfo(
+    val name: String,
+    val location: String,
+    val sizeBytes: Long?,
+    val modifiedAtMillis: Long?
+)
+
+private data class TurnipBundleInfo(
+    val installed: Boolean,
+    val zipName: String?,
+    val zipLocation: String?,
+    val zipSizeBytes: Long?,
+    val zipModifiedAtMillis: Long?,
+    val importedAtMillis: Long?,
+    val driverName: String?,
+    val driverVersion: String?,
+    val driverDate: String?,
+    val description: String?,
+    val packageVersion: String?,
+    val vendor: String?,
+    val author: String?,
+    val minApi: Int?,
+    val schemaVersion: Int?,
+    val libraryName: String?,
+    val librarySizeBytes: Long?
+)
+
+private data class ManagedTurnipDriver(
+    val slot: Int,
+    val selected: Boolean,
+    val sourceAvailable: Boolean,
+    val info: TurnipBundleInfo
+)
+
+private data class SystemDriverSummary(
+    val capturedAtMillis: Long,
+    val deviceName: String,
+    val apiVersion: String,
+    val driverVersion: String,
+    val driverName: String?,
+    val driverInfo: String?,
+    val driverId: String?,
+    val conformanceVersion: String?,
+    val vendorId: String,
+    val deviceId: String,
+    val deviceType: String,
+    val loaderVersion: String,
+    val instanceApiVersion: String
+)
+
+private data class FallbackTurnipCandidate(
+    val file: File,
+    val displayName: String,
+    val sizeBytes: Long,
+    val modifiedAtMillis: Long?
+)
+
+private data class FallbackTurnipDialogData(
+    val candidates: List<FallbackTurnipCandidate>,
+    val availableSlots: Int,
+    val scannedLocations: List<String>
+)
+
+private fun turnipManagerRoot(filesDir: File): File = File(filesDir, TURNIP_MANAGER_ROOT_NAME)
+private fun turnipSlotRoot(filesDir: File, slot: Int): File = File(turnipManagerRoot(filesDir), "driver_%02d".format(java.util.Locale.ROOT, slot))
+private fun turnipSlotBundleRoot(filesDir: File, slot: Int): File = File(turnipSlotRoot(filesDir, slot), TURNIP_MANAGER_BUNDLE_NAME)
+private fun turnipSlotSourceFile(filesDir: File, slot: Int): File = File(turnipSlotRoot(filesDir, slot), TURNIP_MANAGER_SOURCE_NAME)
+
+private fun systemDriverSummaryFromReport(report: VulkanReport): SystemDriverSummary? {
+    val device = report.devices.firstOrNull() ?: return null
+    fun property(name: String): String? = device.detailedProperties.firstOrNull { it.name == name }?.value?.trim()?.takeIf { it.isNotBlank() }?.take(2048)
+    return SystemDriverSummary(
+        capturedAtMillis = System.currentTimeMillis(),
+        deviceName = device.name.take(512),
+        apiVersion = device.apiVersion.take(128),
+        driverVersion = device.driverVersionText.ifBlank { device.driverVersion }.take(512),
+        driverName = property("driverName"),
+        driverInfo = property("driverInfo"),
+        driverId = property("driverID"),
+        conformanceVersion = property("conformanceVersion"),
+        vendorId = device.vendorId.take(128),
+        deviceId = device.deviceId.take(128),
+        deviceType = device.deviceType.take(256),
+        loaderVersion = report.loaderVersion.take(128),
+        instanceApiVersion = report.instanceApiVersion.take(128)
+    )
+}
+
+private fun readSystemDriverSummary(prefs: android.content.SharedPreferences): SystemDriverSummary? {
+    val raw = prefs.getString("system_driver_summary_v1", null) ?: return null
+    if (raw.length > 16_384) return null
+    return runCatching {
+        val root = JSONObject(raw)
+        fun required(name: String, max: Int): String = root.optString(name).take(max).takeIf { it.isNotBlank() } ?: error("Missing System driver summary field")
+        fun optional(name: String, max: Int): String? = root.optString(name).trim().take(max).takeIf { it.isNotBlank() }
+        SystemDriverSummary(
+            capturedAtMillis = root.optLong("capturedAtMillis").takeIf { it > 0L } ?: error("Invalid System driver summary timestamp"),
+            deviceName = required("deviceName", 512),
+            apiVersion = required("apiVersion", 128),
+            driverVersion = required("driverVersion", 512),
+            driverName = optional("driverName", 2048),
+            driverInfo = optional("driverInfo", 2048),
+            driverId = optional("driverId", 256),
+            conformanceVersion = optional("conformanceVersion", 256),
+            vendorId = required("vendorId", 128),
+            deviceId = required("deviceId", 128),
+            deviceType = required("deviceType", 256),
+            loaderVersion = required("loaderVersion", 128),
+            instanceApiVersion = required("instanceApiVersion", 128)
+        )
+    }.getOrNull()
+}
+
+private fun persistSystemDriverSummary(prefs: android.content.SharedPreferences, summary: SystemDriverSummary) {
+    val root = JSONObject()
+        .put("capturedAtMillis", summary.capturedAtMillis)
+        .put("deviceName", summary.deviceName)
+        .put("apiVersion", summary.apiVersion)
+        .put("driverVersion", summary.driverVersion)
+        .put("driverName", summary.driverName)
+        .put("driverInfo", summary.driverInfo)
+        .put("driverId", summary.driverId)
+        .put("conformanceVersion", summary.conformanceVersion)
+        .put("vendorId", summary.vendorId)
+        .put("deviceId", summary.deviceId)
+        .put("deviceType", summary.deviceType)
+        .put("loaderVersion", summary.loaderVersion)
+        .put("instanceApiVersion", summary.instanceApiVersion)
+    prefs.edit().putString("system_driver_summary_v1", root.toString()).apply()
+}
 
 private fun scanTurnipBundle(root: File, maxEntries: Int): TurnipBundleScan? {
     if (maxEntries <= 0) return null
@@ -675,8 +849,8 @@ private fun ensureTurnipNativeLibrariesReadOnly(scan: TurnipBundleScan): Boolean
     }
 }
 
-private fun resolveInstalledTurnipLibrary(filesDir: File): File? {
-    val scan = scanTurnipBundle(File(filesDir, "turnip"), 2048) ?: return null
+private fun resolveTurnipLibrary(bundleRoot: File): File? {
+    val scan = scanTurnipBundle(bundleRoot, 2048) ?: return null
     val metadataFiles = scan.files.filter { it.name.equals("meta.json", true) }
     if (metadataFiles.size != 1) return null
     val metadata = runCatching { JSONObject(readFileTextLimited(metadataFiles.single(), 1024 * 1024)) }.getOrNull() ?: return null
@@ -691,6 +865,161 @@ private fun resolveInstalledTurnipLibrary(filesDir: File): File? {
     if (library.canWrite()) return null
     return library
 }
+
+private fun resolveInstalledTurnipLibrary(filesDir: File): File? = resolveTurnipLibrary(File(filesDir, "turnip"))
+
+private fun readTurnipSourceInfo(sourceFile: File): TurnipSourceInfo? {
+    if (!sourceFile.isFile) return null
+    val source = runCatching { JSONObject(readFileTextLimited(sourceFile, 64 * 1024)) }.getOrNull() ?: return null
+    val name = source.optString("name").trim().take(512).takeIf { it.isNotEmpty() } ?: return null
+    val location = source.optString("location").trim().take(4096).takeIf { it.isNotEmpty() } ?: "Private imported source"
+    val size = source.optLong("sizeBytes", -1L).takeIf { it >= 0L }
+    val modified = source.optLong("modifiedAtMillis", -1L).takeIf { it > 0L }
+    return TurnipSourceInfo(name, location, size, modified)
+}
+
+private fun writeTurnipSourceInfo(sourceFile: File, source: TurnipSourceInfo, importedAtMillis: Long): Boolean {
+    val parent = sourceFile.parentFile ?: return false
+    if (!parent.mkdirs() && !parent.isDirectory) return false
+    val payload = JSONObject().apply {
+        put("name", source.name.take(512))
+        put("location", source.location.take(4096))
+        source.sizeBytes?.let { put("sizeBytes", it) }
+        source.modifiedAtMillis?.let { put("modifiedAtMillis", it) }
+        put("importedAtMillis", importedAtMillis)
+    }.toString().toByteArray(Charsets.UTF_8)
+    if (payload.size > 64 * 1024) return false
+    val temp = File(parent, sourceFile.name + ".tmp")
+    return runCatching {
+        FileOutputStream(temp).use { output -> output.write(payload); output.fd.sync() }
+        if (sourceFile.exists() && !sourceFile.delete()) return@runCatching false
+        if (!temp.renameTo(sourceFile)) return@runCatching false
+        true
+    }.getOrDefault(false).also { if (!it) temp.delete() }
+}
+
+private fun legacyTurnipSourceInfo(prefs: android.content.SharedPreferences): Pair<TurnipSourceInfo?, Long?> {
+    val name = prefs.getString("turnip_source_name", null)?.takeIf { it.isNotBlank() }
+    val location = prefs.getString("turnip_source_location", null)?.takeIf { it.isNotBlank() }
+    val size = prefs.getLong("turnip_source_size", -1L).takeIf { it >= 0L }
+    val modified = prefs.getLong("turnip_source_modified", -1L).takeIf { it > 0L }
+    val imported = prefs.getLong("turnip_imported_at", -1L).takeIf { it > 0L }
+    return if (name != null) TurnipSourceInfo(name, location ?: "Legacy imported source", size, modified) to imported else null to imported
+}
+
+private fun readTurnipBundleInfo(bundleRoot: File, sourceInfo: TurnipSourceInfo?, importedAtMillis: Long?): TurnipBundleInfo {
+    val library = resolveTurnipLibrary(bundleRoot) ?: return TurnipBundleInfo(false, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null)
+    val scan = scanTurnipBundle(bundleRoot, 2048) ?: return TurnipBundleInfo(false, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null)
+    val metadataFile = scan.files.singleOrNull { it.name.equals("meta.json", true) }
+    val metadata = metadataFile?.let { runCatching { JSONObject(readFileTextLimited(it, 1024 * 1024)) }.getOrNull() }
+    fun text(key: String): String? = metadata?.optString(key)?.trim()?.takeIf { it.isNotEmpty() }
+    val minApi = metadata?.optInt("minApi", -1)?.takeIf { it >= 0 }
+    val schemaVersion = metadata?.optInt("schemaVersion", -1)?.takeIf { it >= 0 }
+    return TurnipBundleInfo(
+        installed = true,
+        zipName = sourceInfo?.name,
+        zipLocation = sourceInfo?.location,
+        zipSizeBytes = sourceInfo?.sizeBytes,
+        zipModifiedAtMillis = sourceInfo?.modifiedAtMillis,
+        importedAtMillis = importedAtMillis,
+        driverName = text("name"),
+        driverVersion = text("driverVersion"),
+        driverDate = text("driverDate") ?: text("date"),
+        description = text("description"),
+        packageVersion = text("packageVersion"),
+        vendor = text("vendor"),
+        author = text("author"),
+        minApi = minApi,
+        schemaVersion = schemaVersion,
+        libraryName = metadata?.optString("libraryName")?.trim()?.takeIf { it.isNotEmpty() } ?: library.name,
+        librarySizeBytes = library.length().takeIf { it >= 0L }
+    )
+}
+
+private fun readInstalledTurnipBundleInfo(filesDir: File, prefs: android.content.SharedPreferences): TurnipBundleInfo {
+    val activeSlot = prefs.getInt(TURNIP_ACTIVE_SLOT_PREF, 0)
+    if (activeSlot in 1..TURNIP_MANAGER_MAX_DRIVERS) {
+        val sourceFile = turnipSlotSourceFile(filesDir, activeSlot)
+        val source = readTurnipSourceInfo(sourceFile)
+        val imported = if (sourceFile.isFile) runCatching { JSONObject(readFileTextLimited(sourceFile, 64 * 1024)).optLong("importedAtMillis", -1L).takeIf { it > 0L } }.getOrNull() else null
+        val info = readTurnipBundleInfo(turnipSlotBundleRoot(filesDir, activeSlot), source, imported)
+        if (info.installed) return info
+    }
+    val legacy = legacyTurnipSourceInfo(prefs)
+    return readTurnipBundleInfo(File(filesDir, "turnip"), legacy.first, legacy.second)
+}
+
+private fun turnipSourceAvailable(context: Context, source: TurnipSourceInfo?): Boolean {
+    val location = source?.location?.trim().orEmpty()
+    if (location.isEmpty()) return false
+    return when {
+        location.startsWith("content://", ignoreCase = true) -> runCatching {
+            context.contentResolver.openFileDescriptor(Uri.parse(location), "r")?.use { descriptor -> descriptor.statSize != 0L } == true
+        }.getOrDefault(false)
+        location.startsWith(File.separator) -> runCatching {
+            File(location).canonicalFile.let { it.isFile && it.canRead() && it.length() > 0L }
+        }.getOrDefault(false)
+        else -> false
+    }
+}
+
+private fun readManagedTurnipDrivers(context: Context, prefs: android.content.SharedPreferences, activeMode: DriverMode): List<ManagedTurnipDriver> {
+    val filesDir = context.filesDir
+    val activeSlot = prefs.getInt(TURNIP_ACTIVE_SLOT_PREF, 0)
+    return (1..TURNIP_MANAGER_MAX_DRIVERS).mapNotNull { slot ->
+        val slotRoot = turnipSlotRoot(filesDir, slot)
+        if (!slotRoot.exists()) return@mapNotNull null
+        val sourceFile = turnipSlotSourceFile(filesDir, slot)
+        val source = readTurnipSourceInfo(sourceFile)
+        val imported = if (sourceFile.isFile) runCatching { JSONObject(readFileTextLimited(sourceFile, 64 * 1024)).optLong("importedAtMillis", -1L).takeIf { it > 0L } }.getOrNull() else null
+        val info = readTurnipBundleInfo(turnipSlotBundleRoot(filesDir, slot), source, imported)
+        ManagedTurnipDriver(slot, activeMode == DriverMode.TURNIP && slot == activeSlot, turnipSourceAvailable(context, source), info)
+    }
+}
+
+private fun migrateLegacyTurnipBundleIfNeeded(filesDir: File, prefs: android.content.SharedPreferences): Boolean {
+    val legacy = File(filesDir, "turnip")
+    if (!legacy.isDirectory || resolveTurnipLibrary(legacy) == null) return false
+    if ((1..TURNIP_MANAGER_MAX_DRIVERS).any { turnipSlotRoot(filesDir, it).exists() }) return false
+    val slot = 1
+    val slotRoot = turnipSlotRoot(filesDir, slot)
+    val bundleRoot = turnipSlotBundleRoot(filesDir, slot)
+    val managerRoot = turnipManagerRoot(filesDir)
+    if (!managerRoot.mkdirs() && !managerRoot.isDirectory) return false
+    if (!slotRoot.mkdir()) return false
+    if (!legacy.renameTo(bundleRoot)) {
+        slotRoot.deleteRecursively()
+        return false
+    }
+    val legacySource = legacyTurnipSourceInfo(prefs)
+    if (legacySource.first != null && !writeTurnipSourceInfo(turnipSlotSourceFile(filesDir, slot), legacySource.first!!, legacySource.second ?: System.currentTimeMillis())) {
+        bundleRoot.renameTo(legacy)
+        slotRoot.deleteRecursively()
+        return false
+    }
+    val committed = prefs.edit().putInt(TURNIP_ACTIVE_SLOT_PREF, slot).putString("turnip_bundle", bundleRoot.absolutePath).commit()
+    if (!committed) {
+        turnipSlotSourceFile(filesDir, slot).delete()
+        bundleRoot.renameTo(legacy)
+        slotRoot.deleteRecursively()
+        return false
+    }
+    return true
+}
+
+private fun activeTurnipBundleRoot(filesDir: File, prefs: android.content.SharedPreferences): File? {
+    val activeSlot = prefs.getInt(TURNIP_ACTIVE_SLOT_PREF, 0)
+    if (activeSlot in 1..TURNIP_MANAGER_MAX_DRIVERS) {
+        val managed = turnipSlotBundleRoot(filesDir, activeSlot)
+        if (resolveTurnipLibrary(managed) != null) return managed
+    }
+    val legacy = File(filesDir, "turnip")
+    return legacy.takeIf { resolveTurnipLibrary(it) != null }
+}
+
+private fun formatTimestampOrUnavailable(value: Long?): String = value?.let {
+    java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT).format(java.util.Date(it))
+} ?: "Not available"
 
 private fun readResponseTextLimited(body: ResponseBody, maxBytes: Int): String {
     require(maxBytes > 0)
@@ -734,6 +1063,18 @@ class MainActivity : ComponentActivity() {
     private var reportLoading by mutableStateOf(true)
     private var collectionStatus by mutableStateOf(CollectionStatus.IDLE)
     private var updateStatus by mutableStateOf<UpdateStatus>(UpdateStatus.Hidden)
+    private var networkBannerState by mutableStateOf(NetworkBannerState.HIDDEN)
+    private var networkBannerGeneration = 0L
+    private var lastValidatedNetwork: Boolean? = null
+    private var trackedDefaultNetwork: Network? = null
+    private var validatedNetworkAvailable by mutableStateOf(false)
+    private var networkStateKnown by mutableStateOf(false)
+    private var pendingDriverModeConfirmation by mutableStateOf<DriverMode?>(null)
+    private var pendingTurnipActivationSlot by mutableStateOf<Int?>(null)
+    private var turnipManagerRevision by mutableIntStateOf(0)
+    private var turnipManagerBusy by mutableStateOf(false)
+    private var fallbackTurnipDialogData by mutableStateOf<FallbackTurnipDialogData?>(null)
+    private var networkCallbackRegistered = false
     private var updateConfirmation by mutableStateOf<AppUpdate?>(null)
     private var directUpdatesEnabled by mutableStateOf(true)
     private var directUpdatesConsentVisible by mutableStateOf(false)
@@ -753,16 +1094,88 @@ class MainActivity : ComponentActivity() {
     private val backgroundQueryGroups = (ISOLATED_CORE_GROUPS.keys + ISOLATED_ADVANCED_GROUPS.keys).toSet()
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val requestedQueryGroups = Collections.synchronizedSet(mutableSetOf<String>())
+    private var queryTimingMs by mutableStateOf<Map<String, Long>>(emptyMap())
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            activityScope.launch {
+                trackedDefaultNetwork = network
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                    delay(80L)
+                    if (trackedDefaultNetwork == network) {
+                        val capabilities = runCatching { getSystemService(ConnectivityManager::class.java).getNetworkCapabilities(network) }.getOrNull()
+                        applyValidatedNetworkState(capabilities?.let(::hasValidatedInternetCapabilities) == true)
+                    }
+                }
+            }
+        }
+        override fun onLost(network: Network) {
+            activityScope.launch {
+                if (trackedDefaultNetwork == network) {
+                    trackedDefaultNetwork = null
+                    applyValidatedNetworkState(false)
+                }
+            }
+        }
+        override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+            activityScope.launch {
+                trackedDefaultNetwork = network
+                applyValidatedNetworkState(hasValidatedInternetCapabilities(networkCapabilities))
+            }
+        }
+    }
 
     override fun onStart() {
         super.onStart()
         getSystemService(DisplayManager::class.java).registerDisplayListener(displayListener, null)
         refreshDisplayReport()
+        registerNetworkStateCallback()
     }
 
     override fun onStop() {
+        if (networkCallbackRegistered) {
+            runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networkCallback) }
+            networkCallbackRegistered = false
+        }
         getSystemService(DisplayManager::class.java).unregisterDisplayListener(displayListener)
         super.onStop()
+    }
+
+    private fun registerNetworkStateCallback() {
+        if (networkCallbackRegistered) return
+        val manager = getSystemService(ConnectivityManager::class.java)
+        runCatching {
+            manager.registerDefaultNetworkCallback(networkCallback)
+            networkCallbackRegistered = true
+        }
+        trackedDefaultNetwork = runCatching { manager.activeNetwork }.getOrNull()
+        applyValidatedNetworkState(validatedDefaultNetwork())
+    }
+
+    private fun validatedDefaultNetwork(): Boolean = hasValidatedInternet(this)
+
+    private fun applyValidatedNetworkState(validated: Boolean) {
+        val previous = lastValidatedNetwork
+        validatedNetworkAvailable = validated
+        networkStateKnown = true
+        if (previous == null) {
+            lastValidatedNetwork = validated
+            networkBannerState = NetworkBannerState.HIDDEN
+            return
+        }
+        if (previous == validated) return
+        lastValidatedNetwork = validated
+        networkBannerGeneration += 1L
+        val generation = networkBannerGeneration
+        networkBannerState = if (validated) NetworkBannerState.CONNECTED else NetworkBannerState.DISCONNECTED
+        activityScope.launch {
+            var remainingVisibleMillis = 4_500L
+            while (networkBannerGeneration == generation && remainingVisibleMillis > 0L) {
+                val step = minOf(remainingVisibleMillis, 100L)
+                delay(step)
+                remainingVisibleMillis -= step
+            }
+            if (networkBannerGeneration == generation) networkBannerState = NetworkBannerState.HIDDEN
+        }
     }
 
     override fun onResume() {
@@ -796,6 +1209,7 @@ class MainActivity : ComponentActivity() {
         }
         prefs = getSharedPreferences("settings", MODE_PRIVATE)
         directUpdatesEnabled = prefs.getBoolean("direct_updates_enabled", true)
+        if (runCatching { migrateLegacyTurnipBundleIfNeeded(filesDir, prefs) }.getOrDefault(false)) turnipManagerRevision += 1
         displayReportState = displayReport()
         driverMode = DriverMode.values().find { it.name == prefs.getString("driver_mode", DriverMode.SYSTEM.name) } ?: DriverMode.SYSTEM
         if (!isTurnipPlatformEligible()) turnipSupport = TurnipSupport.UNSUPPORTED
@@ -806,6 +1220,9 @@ class MainActivity : ComponentActivity() {
                 loading = reportLoading,
                 collectionStatus = collectionStatus,
                 updateStatus = updateStatus,
+                networkBannerState = networkBannerState,
+                validatedNetworkAvailable = validatedNetworkAvailable,
+                networkStateKnown = networkStateKnown,
                 updateConfirmation = updateConfirmation,
                 onRequestUpdateConfirmation = { update -> updateConfirmation = update },
                 onDismissUpdateConfirmation = { updateConfirmation = null },
@@ -858,10 +1275,24 @@ class MainActivity : ComponentActivity() {
                 surfaceHostGeneration = surfaceHostGeneration,
                 driverMode = driverMode,
                 turnipSupport = turnipSupport,
+                turnipManagerRevision = turnipManagerRevision,
+                turnipManagerBusy = turnipManagerBusy,
                 onDriverModeChanged = { mode -> requestDriverModeChange(mode) },
+                pendingDriverModeConfirmation = pendingDriverModeConfirmation,
+                onConfirmDriverModeChange = { confirmDriverModeChange() },
+                onDismissDriverModeConfirmation = { pendingDriverModeConfirmation = null },
+                pendingTurnipActivationSlot = pendingTurnipActivationSlot,
+                onConfirmTurnipActivation = { confirmManagedTurnipDriverActivation() },
+                onDismissTurnipActivation = { pendingTurnipActivationSlot = null },
                 onInstallDriverBundle = { openDriverBundlePicker() },
+                onActivateTurnipDriver = { slot -> activateManagedTurnipDriver(slot) },
+                onRemoveTurnipDriver = { slot -> removeManagedTurnipDriver(slot) },
+                fallbackTurnipDialogData = fallbackTurnipDialogData,
+                onDismissFallbackTurnipDialog = { fallbackTurnipDialogData = null },
+                onImportFallbackTurnipDrivers = { files -> installFallbackDriverBundles(files) },
                 onPageOpened = { page -> requestPageQueries(page) },
-                onRequestQuery = { group -> requestQueryGroup(group) }
+                onRequestQuery = { group -> requestQueryGroup(group) },
+                queryTimingMs = queryTimingMs
             )
         }
         if (directUpdatesEnabled) {
@@ -912,7 +1343,7 @@ class MainActivity : ComponentActivity() {
 
     private fun completeReportMutationReady(): Boolean {
         val report = latestReport ?: return false
-        return isCompleteReportReady(report, collectionStatus) && !collectionInFlight && pendingCollectionTasks.isEmpty() && !collectionPending
+        return isCompleteReportReady(report, collectionStatus) && !collectionInFlight && pendingCollectionTasks.isEmpty() && !collectionPending && !turnipManagerBusy && !driverImportInFlight && !driverPickerInFlight
     }
 
     private val driverPickerLauncher = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
@@ -926,12 +1357,62 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun fallbackTurnipSearchRoots(): List<File> {
+        val roots = linkedSetOf<File>()
+        roots += File(filesDir, "turnip_imports")
+        getExternalFilesDirs(null).filterNotNull().forEach { roots += it }
+        getExternalFilesDirs(Environment.DIRECTORY_DOWNLOADS).filterNotNull().forEach { roots += it }
+        getExternalFilesDirs(Environment.DIRECTORY_DOCUMENTS).filterNotNull().forEach { roots += it }
+        return roots.mapNotNull { runCatching { it.canonicalFile }.getOrNull() }.distinctBy { it.path }
+    }
+
+    private fun scanFallbackTurnipPackages(): Pair<List<FallbackTurnipCandidate>, List<String>> {
+        val roots = fallbackTurnipSearchRoots()
+        val candidates = ArrayList<FallbackTurnipCandidate>()
+        val seen = HashSet<String>()
+        for (root in roots) {
+            if (!root.mkdirs() && !root.isDirectory) continue
+            for (index in 1..TURNIP_MANAGER_MAX_DRIVERS) {
+                val expected = "turnip_%02d.zip".format(java.util.Locale.ROOT, index)
+                val file = File(root, expected)
+                val canonical = runCatching { file.canonicalFile }.getOrNull() ?: continue
+                if (canonical.parentFile != root || canonical.name != expected || !canonical.isFile || !canonical.canRead()) continue
+                if (!seen.add(canonical.path)) continue
+                val size = canonical.length()
+                if (size <= 0L || size > TURNIP_ARCHIVE_INPUT_MAX_BYTES) continue
+                candidates += FallbackTurnipCandidate(canonical, canonical.name, size, canonical.lastModified().takeIf { it > 0L })
+            }
+        }
+        return candidates.sortedBy { it.displayName } to roots.map { it.path }
+    }
+
+    private fun openFallbackTurnipImportDialog() {
+        if (driverImportInFlight || driverPickerInFlight || turnipManagerBusy) return
+        turnipManagerBusy = true
+        activityScope.launch {
+            try {
+                val data = withContext(Dispatchers.IO) {
+                    probeMutex.withLock {
+                        migrateLegacyTurnipBundleIfNeeded(filesDir, prefs)
+                        val scan = scanFallbackTurnipPackages()
+                        val occupied = (1..TURNIP_MANAGER_MAX_DRIVERS).count { turnipSlotRoot(filesDir, it).exists() }
+                        FallbackTurnipDialogData(scan.first, (TURNIP_MANAGER_MAX_DRIVERS - occupied).coerceAtLeast(0), scan.second)
+                    }
+                }
+                fallbackTurnipDialogData = data
+                turnipManagerRevision += 1
+            } finally {
+                turnipManagerBusy = false
+            }
+        }
+    }
+
     private fun openDriverBundlePicker() {
         if (!completeReportMutationReady()) {
             android.widget.Toast.makeText(this, "Wait for the complete Vulkan collection pass before changing the driver package.", android.widget.Toast.LENGTH_LONG).show()
             return
         }
-        if (driverPickerInFlight || driverImportInFlight) {
+        if (driverPickerInFlight || driverImportInFlight || turnipManagerBusy) {
             android.widget.Toast.makeText(this, "Driver package selection or import is already in progress.", android.widget.Toast.LENGTH_SHORT).show()
             return
         }
@@ -944,41 +1425,68 @@ class MainActivity : ComponentActivity() {
             return
         }
         driverPickerInFlight = true
-        runCatching { driverPickerLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }
-            .onFailure { error ->
-                driverPickerInFlight = false
-                Log.e("VulkanScope", "Unable to open the driver package picker", error)
-                android.widget.Toast.makeText(this, "Unable to open the driver package picker.", android.widget.Toast.LENGTH_LONG).show()
+        if (!tryLaunchSystemDocumentPicker { driverPickerLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }) {
+            driverPickerInFlight = false
+            openFallbackTurnipImportDialog()
+        }
+    }
+
+    private fun queryTurnipSourceInfo(uri: Uri): TurnipSourceInfo {
+        var name: String? = null
+        var size: Long? = null
+        var modified: Long? = null
+        runCatching {
+            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE, DocumentsContract.Document.COLUMN_LAST_MODIFIED), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                    val modifiedIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+                    if (nameIndex >= 0 && !cursor.isNull(nameIndex)) name = cursor.getString(nameIndex)?.trim()?.take(512)?.takeIf { it.isNotEmpty() }
+                    if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) size = cursor.getLong(sizeIndex).takeIf { it >= 0L }
+                    if (modifiedIndex >= 0 && !cursor.isNull(modifiedIndex)) modified = cursor.getLong(modifiedIndex).takeIf { it > 0L }
+                }
             }
+        }
+        if (size == null) {
+            size = runCatching { contentResolver.openFileDescriptor(uri, "r")?.use { descriptor -> descriptor.statSize.takeIf { it >= 0L } } }.getOrNull()
+        }
+        return TurnipSourceInfo(
+            name = name ?: uri.lastPathSegment?.substringAfterLast('/')?.take(512)?.takeIf { it.isNotBlank() } ?: "Selected driver ZIP",
+            location = uri.toString().take(4096),
+            sizeBytes = size,
+            modifiedAtMillis = modified
+        )
     }
 
     private fun installDriverBundle(uri: Uri) {
-        if (driverImportInFlight) return
+        if (driverImportInFlight || turnipManagerBusy) return
         if (!completeReportMutationReady()) {
             android.widget.Toast.makeText(this, "Driver import was blocked because Vulkan collection is active.", android.widget.Toast.LENGTH_LONG).show()
             return
         }
         driverImportInFlight = true
+        turnipManagerBusy = true
         activityScope.launch {
-            var installed = false
+            var importedSlot: Int? = null
             try {
-                withContext(Dispatchers.IO) { probeMutex.withLock { installDriverBundleIo(uri) } }
-                installed = true
+                runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                val sourceInfo = withContext(Dispatchers.IO) { queryTurnipSourceInfo(uri) }
+                importedSlot = withContext(Dispatchers.IO) {
+                    probeMutex.withLock { installDriverBundleIo(sourceInfo) { contentResolver.openInputStream(uri) } }
+                }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
                 Log.e("VulkanScope", "Turnip bundle installation failed", error)
-                android.widget.Toast.makeText(
-                    this@MainActivity,
-                    "Driver import failed: ${error.message ?: "The selected ZIP could not be installed."}",
-                    android.widget.Toast.LENGTH_LONG
-                ).show()
+                android.widget.Toast.makeText(this@MainActivity, "Driver import failed: ${error.message ?: "The selected ZIP could not be installed."}", android.widget.Toast.LENGTH_LONG).show()
             } finally {
                 driverImportInFlight = false
+                turnipManagerBusy = false
             }
-            if (installed) {
+            if (importedSlot != null) {
                 collectionPending = false
-                activateImportedTurnipDriver()
+                turnipManagerRevision += 1
+                android.widget.Toast.makeText(this@MainActivity, "Driver imported into slot %02d. Activate it from Driver manager.".format(java.util.Locale.ROOT, importedSlot), android.widget.Toast.LENGTH_LONG).show()
             } else if (collectionPending && !collectionInFlight && pendingCollectionTasks.isEmpty()) {
                 collectionPending = false
                 requestReportCollection()
@@ -986,30 +1494,80 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private suspend fun installDriverBundleIo(uri: Uri) {
-        val finalDir = File(filesDir, "turnip")
-        val tempDir = File(filesDir, "turnip_import_${java.util.UUID.randomUUID()}")
+    private fun installFallbackDriverBundles(files: List<File>) {
+        if (files.isEmpty() || driverImportInFlight || turnipManagerBusy) return
+        if (!completeReportMutationReady()) {
+            android.widget.Toast.makeText(this, "Driver import was blocked because Vulkan collection is active.", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        fallbackTurnipDialogData = null
+        driverImportInFlight = true
+        turnipManagerBusy = true
+        activityScope.launch {
+            var imported = 0
+            var lastError: String? = null
+            try {
+                withContext(Dispatchers.IO) {
+                    probeMutex.withLock {
+                        for (file in files.distinctBy { it.absolutePath }.take(TURNIP_MANAGER_MAX_DRIVERS)) {
+                            currentCoroutineContext().ensureActive()
+                            val canonical = file.canonicalFile
+                            if (!canonical.isFile || !canonical.canRead() || canonical.length() <= 0L || canonical.length() > TURNIP_ARCHIVE_INPUT_MAX_BYTES) continue
+                            val expectedNames = (1..TURNIP_MANAGER_MAX_DRIVERS).map { "turnip_%02d.zip".format(java.util.Locale.ROOT, it) }.toSet()
+                            if (canonical.name !in expectedNames) continue
+                            val source = TurnipSourceInfo(canonical.name, canonical.absolutePath.take(4096), canonical.length(), canonical.lastModified().takeIf { it > 0L })
+                            try {
+                                installDriverBundleIo(source) { FileInputStream(canonical) }
+                                imported += 1
+                            } catch (error: Exception) {
+                                lastError = error.message
+                                if (error.message?.contains("10-driver", true) == true) break
+                            }
+                        }
+                    }
+                }
+            } finally {
+                driverImportInFlight = false
+                turnipManagerBusy = false
+                turnipManagerRevision += 1
+            }
+            val message = when {
+                imported > 0 && lastError == null -> "Imported $imported Turnip driver package(s). Activate one from the manager."
+                imported > 0 -> "Imported $imported package(s); at least one package was rejected: ${lastError ?: "invalid package"}."
+                else -> "No fallback Turnip package was imported${lastError?.let { ": $it" } ?: "."}"
+            }
+            android.widget.Toast.makeText(this@MainActivity, message, android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private suspend fun installDriverBundleIo(sourceInfo: TurnipSourceInfo, openInput: () -> InputStream?): Int {
+        migrateLegacyTurnipBundleIfNeeded(filesDir, prefs)
+        val slot = (1..TURNIP_MANAGER_MAX_DRIVERS).firstOrNull { !turnipSlotRoot(filesDir, it).exists() }
+            ?: throw IllegalStateException("The 10-driver Turnip manager limit has been reached")
+        val managerRoot = turnipManagerRoot(filesDir)
+        if (!managerRoot.mkdirs() && !managerRoot.isDirectory) throw IllegalStateException("Unable to create the private driver manager directory")
+        val finalSlotRoot = turnipSlotRoot(filesDir, slot)
+        val tempSlotRoot = File(managerRoot, ".import_${java.util.UUID.randomUUID()}")
+        val tempBundleRoot = File(tempSlotRoot, TURNIP_MANAGER_BUNDLE_NAME)
         val importContext = currentCoroutineContext()
         try {
-            if (!tempDir.mkdir()) throw IllegalStateException("Unable to create the private driver import directory")
+            if (!tempSlotRoot.mkdir() || !tempBundleRoot.mkdir()) throw IllegalStateException("Unable to create the private driver import directory")
             var entryCount = 0
             var totalBytes = 0L
-            val canonicalTempDir = tempDir.canonicalFile
+            val canonicalTempDir = tempBundleRoot.canonicalFile
             val seenArchivePaths = HashSet<String>()
             val maxEntries = 2048
             val maxTotalBytes = 64L * 1024L * 1024L
             val maxFileBytes = 32L * 1024L * 1024L
-            contentResolver.openInputStream(uri)?.use { input ->
+            openInput()?.use { input ->
                 ZipInputStream(BoundedDriverArchiveInputStream(input, TURNIP_ARCHIVE_INPUT_MAX_BYTES)).use { zip ->
                     var entry = zip.nextEntry
                     while (entry != null) {
                         importContext.ensureActive()
                         if (++entryCount > maxEntries) throw SecurityException("Driver bundle contains too many entries")
                         if (entry.name.isBlank() || entry.name.length > 1024) throw SecurityException("Driver bundle contains an invalid path")
-                        val safe = File(tempDir, entry.name).canonicalFile
-                        if (!safe.path.startsWith(canonicalTempDir.path + File.separator) && safe != canonicalTempDir) {
-                            throw SecurityException("Unsafe driver bundle path")
-                        }
+                        val safe = File(tempBundleRoot, entry.name).canonicalFile
+                        if (!safe.path.startsWith(canonicalTempDir.path + File.separator) && safe != canonicalTempDir) throw SecurityException("Unsafe driver bundle path")
                         if (!seenArchivePaths.add(safe.path)) throw SecurityException("Driver bundle contains duplicate archive paths")
                         if (entry.isDirectory) {
                             if (!safe.mkdirs() && !safe.isDirectory) throw IllegalStateException("Unable to create a driver bundle directory")
@@ -1039,58 +1597,99 @@ class MainActivity : ComponentActivity() {
             } ?: throw IllegalStateException("Unable to read bundle")
 
             importContext.ensureActive()
-            val bundleScan = scanTurnipBundle(tempDir, maxEntries) ?: throw SecurityException("The extracted driver bundle could not be validated within the entry safety limit")
+            val bundleScan = scanTurnipBundle(tempBundleRoot, maxEntries) ?: throw SecurityException("The extracted driver bundle could not be validated within the entry safety limit")
             val metadataFiles = bundleScan.files.filter { it.name.equals("meta.json", true) }
             if (metadataFiles.size != 1) throw IllegalArgumentException("The AdrenoTools package must contain exactly one meta.json")
             val metadataFile = metadataFiles.single()
-            val metadata = runCatching { JSONObject(readFileTextLimited(metadataFile, 1024 * 1024)) }.getOrElse {
-                throw IllegalArgumentException("The AdrenoTools meta.json is invalid")
-            }
+            val metadata = runCatching { JSONObject(readFileTextLimited(metadataFile, 1024 * 1024)) }.getOrElse { throw IllegalArgumentException("The AdrenoTools meta.json is invalid") }
             val schemaVersion = metadata.optInt("schemaVersion", -1)
-            if (schemaVersion != 1) {
-                throw IllegalArgumentException("Unsupported AdrenoTools package schema: ${if (schemaVersion < 0) "missing" else schemaVersion}")
-            }
+            if (schemaVersion != 1) throw IllegalArgumentException("Unsupported AdrenoTools package schema: ${if (schemaVersion < 0) "missing" else schemaVersion}")
             val declared = metadata.optString("libraryName").trim()
-            if (declared.isBlank() || declared.contains('/') || declared.contains('\\') || !declared.endsWith(".so", true)) {
-                throw IllegalArgumentException("AdrenoTools meta.json does not declare a valid Vulkan library name")
-            }
+            if (declared.isBlank() || declared.contains('/') || declared.contains('\\') || !declared.endsWith(".so", true)) throw IllegalArgumentException("AdrenoTools meta.json does not declare a valid Vulkan library name")
             val libraries = bundleScan.files.filter { it.name == declared }
             if (libraries.size != 1) throw IllegalArgumentException("Driver metadata must resolve to exactly one Vulkan library: $declared")
             val library = libraries.single()
-            if (!declared.contains("vulkan", true)) {
-                throw IllegalArgumentException("The selected AdrenoTools package does not declare a Vulkan driver library")
-            }
-            if (!library.canRead() || library.length() == 0L) {
-                throw IllegalArgumentException("The Vulkan .so driver library is empty or unreadable")
-            }
-            if (!ensureTurnipNativeLibrariesReadOnly(bundleScan)) {
-                throw SecurityException("The native driver libraries could not be secured as read-only")
-            }
-
+            if (!declared.contains("vulkan", true)) throw IllegalArgumentException("The selected AdrenoTools package does not declare a Vulkan driver library")
+            if (!library.canRead() || library.length() == 0L) throw IllegalArgumentException("The Vulkan .so driver library is empty or unreadable")
+            if (!ensureTurnipNativeLibrariesReadOnly(bundleScan)) throw SecurityException("The native driver libraries could not be secured as read-only")
+            val importedAt = System.currentTimeMillis()
+            if (!writeTurnipSourceInfo(File(tempSlotRoot, TURNIP_MANAGER_SOURCE_NAME), sourceInfo, importedAt)) throw IllegalStateException("Unable to persist private source ZIP provenance")
             importContext.ensureActive()
-            val backupDir = File(filesDir, "turnip_backup_${java.util.UUID.randomUUID()}")
-            if (finalDir.exists() && !finalDir.renameTo(backupDir)) throw IllegalStateException("Unable to replace the existing driver bundle")
-            if (!tempDir.renameTo(finalDir)) {
-                if (backupDir.exists()) backupDir.renameTo(finalDir)
-                throw IllegalStateException("Unable to install the driver bundle atomically")
-            }
-            if (backupDir.exists()) backupDir.deleteRecursively()
+            if (finalSlotRoot.exists()) throw IllegalStateException("Turnip driver slot is already occupied")
+            if (!tempSlotRoot.renameTo(finalSlotRoot)) throw IllegalStateException("Unable to install the driver bundle atomically")
+            Log.i("VulkanScope", "Imported validated Turnip driver slot=%02d library=%s".format(java.util.Locale.ROOT, slot, declared))
+            return slot
+        } catch (error: Throwable) {
+            tempSlotRoot.deleteRecursively()
+            throw error
+        }
+    }
 
-            prefs.edit().putString("turnip_bundle", finalDir.absolutePath).commit()
-            Log.i("VulkanScope", "Imported AdrenoTools driver bundle: ${metadataFile.name}, library: ${library.name}")
-        } catch (e: Throwable) {
-            tempDir.deleteRecursively()
-            throw e
+    private fun activateManagedTurnipDriver(slot: Int) {
+        if (slot !in 1..TURNIP_MANAGER_MAX_DRIVERS || driverImportInFlight || turnipManagerBusy) return
+        if (!completeReportMutationReady()) {
+            android.widget.Toast.makeText(this, "Wait for the complete Vulkan collection pass before activating a Turnip driver.", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        pendingTurnipActivationSlot = slot
+    }
+
+    private fun confirmManagedTurnipDriverActivation() {
+        val slot = pendingTurnipActivationSlot ?: return
+        pendingTurnipActivationSlot = null
+        if (slot !in 1..TURNIP_MANAGER_MAX_DRIVERS || driverImportInFlight || turnipManagerBusy || !completeReportMutationReady()) return
+        turnipManagerBusy = true
+        activityScope.launch {
+            val valid = withContext(Dispatchers.IO) { probeMutex.withLock { resolveTurnipLibrary(turnipSlotBundleRoot(filesDir, slot)) != null } }
+            if (!valid) {
+                turnipManagerBusy = false
+                turnipManagerRevision += 1
+                android.widget.Toast.makeText(this@MainActivity, "The selected Turnip driver slot is invalid or incomplete.", android.widget.Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            val committed = withContext(Dispatchers.IO) { prefs.edit().putInt(TURNIP_ACTIVE_SLOT_PREF, slot).putString("turnip_bundle", turnipSlotBundleRoot(filesDir, slot).absolutePath).commit() }
+            turnipManagerBusy = false
+            if (!committed) {
+                android.widget.Toast.makeText(this@MainActivity, "Unable to persist the selected Turnip driver.", android.widget.Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            turnipManagerRevision += 1
+            applyDriverModeChange(DriverMode.TURNIP, true)
+        }
+    }
+
+    private fun removeManagedTurnipDriver(slot: Int) {
+        if (slot !in 1..TURNIP_MANAGER_MAX_DRIVERS || driverImportInFlight || turnipManagerBusy) return
+        if (!completeReportMutationReady()) {
+            android.widget.Toast.makeText(this, "Wait for the complete Vulkan collection pass before removing a Turnip driver.", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        turnipManagerBusy = true
+        activityScope.launch {
+            val wasSelected = prefs.getInt(TURNIP_ACTIVE_SLOT_PREF, 0) == slot
+            val switchToSystem = wasSelected && driverMode == DriverMode.TURNIP
+            if (wasSelected) {
+                val committed = withContext(Dispatchers.IO) { prefs.edit().remove(TURNIP_ACTIVE_SLOT_PREF).remove("turnip_bundle").commit() }
+                if (!committed) {
+                    turnipManagerBusy = false
+                    android.widget.Toast.makeText(this@MainActivity, "Unable to clear the active Turnip driver selection.", android.widget.Toast.LENGTH_LONG).show()
+                    return@launch
+                }
+            }
+            val removed = withContext(Dispatchers.IO) { probeMutex.withLock { turnipSlotRoot(filesDir, slot).deleteRecursively() } }
+            turnipManagerBusy = false
+            turnipManagerRevision += 1
+            if (switchToSystem) applyDriverModeChange(DriverMode.SYSTEM, true)
+            android.widget.Toast.makeText(this@MainActivity, if (removed) "Turnip driver removed from slot %02d.".format(java.util.Locale.ROOT, slot) else "Unable to remove Turnip driver slot %02d.".format(java.util.Locale.ROOT, slot), android.widget.Toast.LENGTH_LONG).show()
         }
     }
 
     private fun findTurnipBundle(mode: DriverMode = driverMode): String? {
         if (mode != DriverMode.TURNIP) return null
-        val root = File(filesDir, "turnip")
-        return if (root.exists()) root.absolutePath else null
+        return activeTurnipBundleRoot(filesDir, prefs)?.absolutePath
     }
 
-    private fun resolveInstalledTurnipIcd(): String? = resolveInstalledTurnipLibrary(filesDir)?.absolutePath
+    private fun resolveInstalledTurnipIcd(): String? = activeTurnipBundleRoot(filesDir, prefs)?.let(::resolveTurnipLibrary)?.absolutePath
 
     private fun findTurnipIcd(mode: DriverMode = driverMode): String? = if (mode == DriverMode.TURNIP) resolveInstalledTurnipIcd() else null
 
@@ -1164,6 +1763,7 @@ class MainActivity : ComponentActivity() {
         val generation = collectionGeneration
         val modeSnapshot = driverMode
         requestedQueryGroups.clear()
+        queryTimingMs = emptyMap()
         pendingCollectionTasks.clear()
         pendingCollectionTasks.add("$generation:base")
         pendingCollectionTasks.add("$generation:enrichment")
@@ -1329,6 +1929,7 @@ class MainActivity : ComponentActivity() {
                 val current = latestReport ?: break
                 val extensionName = if (group.startsWith("ext::")) group.removePrefix("ext::") else ISOLATED_EXTENSION_GROUPS[group]
                 val remainingBudgetMs = (remainingNanos / 1_000_000L).coerceAtLeast(1L)
+                val timingStartNanos = System.nanoTime()
                 val raw = runCatching {
                     withTimeout(remainingBudgetMs) { runIsolatedProbe(group, modeSnapshot) }
                 }.getOrElse { e ->
@@ -1337,8 +1938,10 @@ class MainActivity : ComponentActivity() {
                 }.ifBlank {
                     JSONObject().put("status", "unavailable").put("group", group).put("reason", "The dedicated background query returned no data.").put("devices", JSONArray()).toString()
                 }
+                val elapsedMs = ((System.nanoTime() - timingStartNanos) / 1_000_000L).coerceAtLeast(0L)
                 withContext(Dispatchers.Main.immediate) {
                     if (generation != collectionGeneration || modeSnapshot != driverMode) return@withContext
+                    queryTimingMs = queryTimingMs + (group to elapsedMs)
                     val currentReport = latestReport ?: current
                     latestReport = if (extensionName != null) {
                         mergeExtensionGroupReport(currentReport, raw, group, extensionName)
@@ -1370,6 +1973,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkForApplicationUpdate(showProgress: Boolean) {
+        if (!validatedDefaultNetwork()) {
+            if (showProgress) updateStatus = UpdateStatus.Failed("No validated internet connection. Internet-dependent update checks are unavailable until connectivity returns.")
+            return
+        }
         if (!directUpdatesEnabled) {
             if (showProgress) updateStatus = UpdateStatus.Failed("Direct GitHub updates are disabled. Use Obtainium for external update management or enable them in Settings.")
             return
@@ -1516,6 +2123,10 @@ class MainActivity : ComponentActivity() {
     private fun isNewerVersion(candidate: String, current: String): Boolean = compareVersions(candidate, current) > 0
 
     private fun downloadAndInstallUpdate(update: AppUpdate) {
+        if (!validatedDefaultNetwork()) {
+            updateStatus = UpdateStatus.Failed("No validated internet connection. Update download is unavailable until connectivity returns.")
+            return
+        }
         if (!directUpdatesEnabled || updateStatus is UpdateStatus.Downloading) return
         updateStatus = UpdateStatus.Downloading(update)
         updateDownloadJob = activityScope.launch {
@@ -1636,7 +2247,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestDriverModeChange(mode: DriverMode) {
-        if (!completeReportMutationReady() || driverImportInFlight || driverPickerInFlight) {
+        if (!completeReportMutationReady() || driverImportInFlight || driverPickerInFlight || turnipManagerBusy) {
             android.widget.Toast.makeText(this, "Wait for the complete Vulkan collection pass before changing the driver source.", android.widget.Toast.LENGTH_LONG).show()
             return
         }
@@ -1644,23 +2255,35 @@ class MainActivity : ComponentActivity() {
         if (mode == driverMode) return
         driverModeValidationJob?.cancel()
         if (mode == DriverMode.SYSTEM) {
-            applyDriverModeChange(mode, false)
+            pendingDriverModeConfirmation = mode
             return
         }
         driverModeValidationJob = activityScope.launch {
             val installed = withContext(Dispatchers.IO) { findInstalledTurnipLibrary() != null }
-            if (!completeReportMutationReady() || driverImportInFlight || driverPickerInFlight || mode == driverMode) return@launch
-            if (installed) applyDriverModeChange(mode, false) else openDriverBundlePicker()
+            if (!completeReportMutationReady() || driverImportInFlight || driverPickerInFlight || turnipManagerBusy || mode == driverMode) return@launch
+            if (installed) {
+                pendingDriverModeConfirmation = mode
+            } else {
+                android.widget.Toast.makeText(this@MainActivity, "No active Turnip driver is selected. Open Settings and activate a driver from the Driver manager.", android.widget.Toast.LENGTH_LONG).show()
+            }
         }
     }
 
-    private fun activateImportedTurnipDriver() {
-        driverModeValidationJob?.cancel()
-        if (!completeReportMutationReady()) {
-            android.widget.Toast.makeText(this, "Driver package installed, but activation was deferred because Vulkan collection changed.", android.widget.Toast.LENGTH_LONG).show()
+    private fun confirmDriverModeChange() {
+        val mode = pendingDriverModeConfirmation ?: return
+        pendingDriverModeConfirmation = null
+        if (!completeReportMutationReady() || driverImportInFlight || driverPickerInFlight || turnipManagerBusy || mode == driverMode) return
+        if (mode == DriverMode.SYSTEM) {
+            applyDriverModeChange(mode, false)
             return
         }
-        applyDriverModeChange(DriverMode.TURNIP, true)
+        driverModeValidationJob?.cancel()
+        driverModeValidationJob = activityScope.launch {
+            val installed = withContext(Dispatchers.IO) { findInstalledTurnipLibrary() != null }
+            if (!completeReportMutationReady() || driverImportInFlight || driverPickerInFlight || turnipManagerBusy || mode == driverMode) return@launch
+            if (installed) applyDriverModeChange(mode, false)
+            else android.widget.Toast.makeText(this@MainActivity, "The active Turnip driver is no longer available.", android.widget.Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun prepareDriverSurfaceRebind() {
@@ -1677,6 +2300,7 @@ class MainActivity : ComponentActivity() {
         if (!completeReportMutationReady()) return
         if (!forceRefresh && mode == driverMode) return
         requestedQueryGroups.clear()
+        queryTimingMs = emptyMap()
         prepareDriverSurfaceRebind()
         driverMode = mode
         latestReport = null
@@ -1885,14 +2509,17 @@ class MainActivity : ComponentActivity() {
                 val label = ISOLATED_ADVANCED_GROUPS[group] ?: ISOLATED_CORE_GROUPS[group]
                 val extensionName = if (group.startsWith("ext::")) group.removePrefix("ext::") else ISOLATED_EXTENSION_GROUPS[group]
                 if (extensionName != null && current.devices.none { device -> device.extensions.any { it.name == extensionName } }) return@launch
+                val timingStartNanos = System.nanoTime()
                 val raw = runCatching { runIsolatedProbe(group, modeSnapshot) }.getOrElse { e ->
                     Log.e("VulkanScope", "Vulkan lazy query failed: $group", e)
                     JSONObject().put("status", "unavailable").put("group", group).put("reason", e.message ?: "The dedicated lazy query failed.").put("devices", JSONArray()).toString()
                 }.ifBlank {
                     JSONObject().put("status", "unavailable").put("group", group).put("reason", "The dedicated lazy query returned no data.").put("devices", JSONArray()).toString()
                 }
+                val elapsedMs = ((System.nanoTime() - timingStartNanos) / 1_000_000L).coerceAtLeast(0L)
                 withContext(Dispatchers.Main.immediate) {
                     if (generation != collectionGeneration || modeSnapshot != driverMode || latestReport == null) return@withContext
+                    queryTimingMs = queryTimingMs + (group to elapsedMs)
                     val currentReport = latestReport ?: current
                     latestReport = if (extensionName != null) {
                         mergeExtensionGroupReport(currentReport, raw, group, extensionName)
@@ -2977,6 +3604,9 @@ private fun VulkanScopeApp(
     loading: Boolean,
     collectionStatus: CollectionStatus,
     updateStatus: UpdateStatus,
+    networkBannerState: NetworkBannerState,
+    validatedNetworkAvailable: Boolean,
+    networkStateKnown: Boolean,
     updateConfirmation: AppUpdate?,
     onRequestUpdateConfirmation: (AppUpdate) -> Unit,
     onDismissUpdateConfirmation: () -> Unit,
@@ -2992,12 +3622,27 @@ private fun VulkanScopeApp(
     surfaceHostGeneration: Long,
     driverMode: DriverMode,
     turnipSupport: TurnipSupport,
+    turnipManagerRevision: Int,
+    turnipManagerBusy: Boolean,
     onDriverModeChanged: (DriverMode) -> Unit,
+    pendingDriverModeConfirmation: DriverMode?,
+    onConfirmDriverModeChange: () -> Unit,
+    onDismissDriverModeConfirmation: () -> Unit,
+    pendingTurnipActivationSlot: Int?,
+    onConfirmTurnipActivation: () -> Unit,
+    onDismissTurnipActivation: () -> Unit,
     onInstallDriverBundle: () -> Unit,
+    onActivateTurnipDriver: (Int) -> Unit,
+    onRemoveTurnipDriver: (Int) -> Unit,
+    fallbackTurnipDialogData: FallbackTurnipDialogData?,
+    onDismissFallbackTurnipDialog: () -> Unit,
+    onImportFallbackTurnipDrivers: (List<File>) -> Unit,
     onPageOpened: (Page) -> Unit,
-    onRequestQuery: (String) -> Unit
+    onRequestQuery: (String) -> Unit,
+    queryTimingMs: Map<String, Long>
 ) {
     var page by remember { mutableStateOf(Page.Overview) }
+    var encyclopediaSeed by rememberSaveable { mutableStateOf("") }
     var selectedDeviceIndex by remember { mutableIntStateOf(0) }
     LaunchedEffect(page) { onPageOpened(page) }
     LaunchedEffect(report?.devices?.size) {
@@ -3034,12 +3679,14 @@ private fun VulkanScopeApp(
         val isTelevision = configuration.uiMode and Configuration.UI_MODE_TYPE_MASK == Configuration.UI_MODE_TYPE_TELEVISION
         val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
         val useRail = isLandscape || isTelevision
-        Scaffold(
+        CompositionLocalProvider(LocalValidatedNetwork provides validatedNetworkAvailable) {
+            Scaffold(
             containerColor = ComposeColor.Black,
             topBar = {
                 Column {
                     AppHeader(page, onBack = { page = Page.Overview }, onSettings = { page = Page.Settings }, onInfo = { page = Page.Info })
                     CollectionStatusBanner(collectionStatus)
+                    ConnectivityStatusHost(collectionStatus, networkStateKnown, validatedNetworkAvailable, networkBannerState)
                     UpdateStatusBanner(updateStatus, onRequestUpdateConfirmation)
                 }
             },
@@ -3047,10 +3694,14 @@ private fun VulkanScopeApp(
                 if (!useRail) {
                     ShortNavigationBar(containerColor = ComposeColor(0xFF0A0A0A)) {
                         navigationItems().forEach { item ->
+                            var animationTrigger by remember(item.page) { mutableIntStateOf(0) }
                             ShortNavigationBarItem(
                                 selected = selectedNavigationPage(page) == item.page,
-                                onClick = { page = item.page },
-                                icon = { Icon(painterResource(item.icon), contentDescription = null, modifier = Modifier.size(24.dp)) },
+                                onClick = {
+                                    animationTrigger += 1
+                                    page = item.page
+                                },
+                                icon = { AnimatedNavigationIcon(item.page, item.icon, animationTrigger, 24.dp) },
                                 label = { Text(item.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                 colors = ShortNavigationBarItemDefaults.colors(
                                     selectedIconColor = VulkanAccentSoft,
@@ -3107,28 +3758,50 @@ private fun VulkanScopeApp(
                                         PhysicalDeviceSelector(current.devices, selectedDeviceIndex) { selectedDeviceIndex = it }
                                     }
                                     Box(Modifier.weight(1f)) {
-                                        PageContent(
-                                            page = targetPage,
-                                            report = current,
-                                            display = displayReport,
-                                            driverMode = driverMode,
-                                            turnipSupport = turnipSupport,
-                                            selectedDeviceIndex = selectedDeviceIndex,
-                                            onDriverModeChanged = onDriverModeChanged,
-                                            onInstallDriverBundle = onInstallDriverBundle,
-                                            onCheckForUpdates = onCheckForUpdates,
-                                            directUpdatesEnabled = directUpdatesEnabled,
-                                            onDirectUpdatesChanged = onDirectUpdatesChanged,
-                                            collectionStatus = collectionStatus,
-                                            onNavigate = { page = it },
-                                            onRequestQuery = onRequestQuery
-                                        )
+                                        val evidenceContext = androidx.compose.ui.platform.LocalContext.current
+                                        CompositionLocalProvider(
+                                            LocalEvidenceActionEnvironment provides EvidenceActionEnvironment(
+                                                openEncyclopedia = { term -> encyclopediaSeed = term; page = Page.Encyclopedia },
+                                                addWatch = { token ->
+                                                    val clean = token.trim().take(256)
+                                                    if (clean.isNotBlank()) {
+                                                        val prefs = evidenceContext.getSharedPreferences("analysis_tools", Context.MODE_PRIVATE)
+                                                        val watched = prefs.getStringSet("watched", emptySet())?.toMutableSet() ?: mutableSetOf()
+                                                        if (watched.size < ANALYSIS_MAX_WATCHED || clean in watched) { watched += clean; prefs.edit().putStringSet("watched", watched).apply() }
+                                                    }
+                                                }
+                                            )
+                                        ) {
+                                            PageContent(
+                                                page = targetPage,
+                                                report = current,
+                                                display = displayReport,
+                                                driverMode = driverMode,
+                                                turnipSupport = turnipSupport,
+                                                turnipManagerRevision = turnipManagerRevision,
+                                                turnipManagerBusy = turnipManagerBusy,
+                                                selectedDeviceIndex = selectedDeviceIndex,
+                                                onDriverModeChanged = onDriverModeChanged,
+                                                onInstallDriverBundle = onInstallDriverBundle,
+                                                onActivateTurnipDriver = onActivateTurnipDriver,
+                                                onRemoveTurnipDriver = onRemoveTurnipDriver,
+                                                onCheckForUpdates = onCheckForUpdates,
+                                                directUpdatesEnabled = directUpdatesEnabled,
+                                                onDirectUpdatesChanged = onDirectUpdatesChanged,
+                                                collectionStatus = collectionStatus,
+                                                onNavigate = { page = it },
+                                                onRequestQuery = onRequestQuery,
+                                                queryTimingMs = queryTimingMs,
+                                                encyclopediaSeed = encyclopediaSeed
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
+            }
             }
         }
         if (directUpdatesConsentVisible) {
@@ -3142,8 +3815,42 @@ private fun VulkanScopeApp(
         updateConfirmation?.let { update ->
             UpdateConfirmationDialog(
                 update = update,
+                networkAvailable = validatedNetworkAvailable,
                 onDismiss = onDismissUpdateConfirmation,
                 onConfirm = { onConfirmUpdateDownload(update) }
+            )
+        }
+        pendingDriverModeConfirmation?.let { target ->
+            AlertDialog(
+                onDismissRequest = onDismissDriverModeConfirmation,
+                title = { QuestionDialogTitle(if (target == DriverMode.SYSTEM) "Switch to System Vulkan driver?" else "Switch to Turnip driver?") },
+                text = {
+                    Text(
+                        if (target == DriverMode.SYSTEM)
+                            "VulkanScope will deactivate the current Turnip source and start a fresh Vulkan collection with Android's system Vulkan driver."
+                        else
+                            "VulkanScope will deactivate the System source and start a fresh Vulkan collection with the currently active Turnip driver."
+                    )
+                },
+                confirmButton = { ExpressiveContainedTextButton(if (target == DriverMode.SYSTEM) "Use System" else "Use Turnip", onClick = onConfirmDriverModeChange) },
+                dismissButton = { ExpressiveCancelButton(onClick = onDismissDriverModeConfirmation) }
+            )
+        }
+        pendingTurnipActivationSlot?.let { slot ->
+            AlertDialog(
+                onDismissRequest = onDismissTurnipActivation,
+                title = { QuestionDialogTitle("Activate Turnip driver?") },
+                text = { Text("Slot %02d will become VulkanScope's active Turnip driver. The current driver selection will be deactivated and a fresh Vulkan collection will start after activation.".format(java.util.Locale.ROOT, slot)) },
+                confirmButton = { ExpressiveContainedTextButton("Activate", onClick = onConfirmTurnipActivation) },
+                dismissButton = { ExpressiveCancelButton(onClick = onDismissTurnipActivation) }
+            )
+        }
+        fallbackTurnipDialogData?.let { data ->
+            FallbackTurnipImportDialog(
+                data = data,
+                busy = turnipManagerBusy,
+                onDismiss = onDismissFallbackTurnipDialog,
+                onImport = onImportFallbackTurnipDrivers
             )
         }
     }
@@ -3181,15 +3888,7 @@ private fun SurfaceProbe(
 private fun PhysicalDeviceSelector(devices: List<DeviceReport>, selectedIndex: Int, onSelected: (Int) -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text("Physical device", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            devices.forEachIndexed { index, device ->
-                ExpressiveFilterChip(
-                    selected = index == selectedIndex,
-                    label = "GPU ${index + 1} · ${device.name.ifBlank { "Unknown" }.take(48)}",
-                    onClick = { onSelected(index) }
-                )
-            }
-        }
+        ExpressiveFilterBar(devices.mapIndexed { index, device -> "GPU ${index + 1} · ${device.name.ifBlank { "Unknown" }.take(48)}" }, selectedIndex, onSelected = onSelected)
     }
 }
 
@@ -3215,7 +3914,7 @@ private fun VulkanLazyPage(
             userScrollEnabled = true,
             content = content
         )
-        ScrollBoundaryIndicators(listState, Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp))
+        ExpressiveScrollHints(listState, Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp))
     }
 }
 
@@ -3234,6 +3933,12 @@ private fun ScrollBoundaryIndicators(scrollState: ScrollState, modifier: Modifie
     val visible = rememberScrollIndicatorVisibility(scrollState.isScrollInProgress, showUp || showDown)
     ScrollBoundaryIndicatorColumn(showUp, showDown, visible, modifier)
 }
+
+@Composable
+private fun ExpressiveScrollHints(listState: LazyListState, modifier: Modifier = Modifier) = ScrollBoundaryIndicators(listState, modifier)
+
+@Composable
+private fun ExpressiveScrollHints(scrollState: ScrollState, modifier: Modifier = Modifier) = ScrollBoundaryIndicators(scrollState, modifier)
 
 @Composable
 private fun rememberScrollIndicatorVisibility(isScrollInProgress: Boolean, hasScrollableDirection: Boolean): Boolean {
@@ -3292,7 +3997,28 @@ private fun ScrollBoundaryIndicatorBubble(up: Boolean) {
 }
 
 @Composable
-private fun PageContent(page: Page, report: VulkanReport, display: DisplayReport, driverMode: DriverMode, turnipSupport: TurnipSupport, selectedDeviceIndex: Int, onDriverModeChanged: (DriverMode) -> Unit, onInstallDriverBundle: () -> Unit, onCheckForUpdates: () -> Unit, directUpdatesEnabled: Boolean, onDirectUpdatesChanged: (Boolean) -> Unit, collectionStatus: CollectionStatus, onNavigate: (Page) -> Unit, onRequestQuery: (String) -> Unit) {
+private fun PageContent(
+    page: Page,
+    report: VulkanReport,
+    display: DisplayReport,
+    driverMode: DriverMode,
+    turnipSupport: TurnipSupport,
+    turnipManagerRevision: Int,
+    turnipManagerBusy: Boolean,
+    selectedDeviceIndex: Int,
+    onDriverModeChanged: (DriverMode) -> Unit,
+    onInstallDriverBundle: () -> Unit,
+    onActivateTurnipDriver: (Int) -> Unit,
+    onRemoveTurnipDriver: (Int) -> Unit,
+    onCheckForUpdates: () -> Unit,
+    directUpdatesEnabled: Boolean,
+    onDirectUpdatesChanged: (Boolean) -> Unit,
+    collectionStatus: CollectionStatus,
+    onNavigate: (Page) -> Unit,
+    onRequestQuery: (String) -> Unit,
+    queryTimingMs: Map<String, Long>,
+    encyclopediaSeed: String
+) {
     val device = report.devices.getOrNull(selectedDeviceIndex) ?: report.devices.firstOrNull()
     when (page) {
         Page.Overview -> OverviewPage(report, device, display, driverMode, onNavigate)
@@ -3307,9 +4033,22 @@ private fun PageContent(page: Page, report: VulkanReport, display: DisplayReport
         Page.Properties -> PropertiesPage(device, onRequestQuery)
         Page.Extensions -> ExtensionsPage(report, device)
         Page.Profiles -> ProfilesPage(report, device)
-        Page.Encyclopedia -> EncyclopediaPage()
-        Page.Analysis -> AnalysisPage(report, device, display, driverMode)
-        Page.Settings -> SettingsPage(report, driverMode, turnipSupport, onDriverModeChanged, onInstallDriverBundle, collectionStatus, directUpdatesEnabled, onDirectUpdatesChanged)
+        Page.Encyclopedia -> EncyclopediaPage(encyclopediaSeed)
+        Page.Analysis -> AnalysisPage(report, device, display, driverMode, turnipSupport, collectionStatus, queryTimingMs, onDriverModeChanged)
+        Page.Settings -> SettingsPage(
+            report = report,
+            mode = driverMode,
+            turnipSupport = turnipSupport,
+            turnipManagerRevision = turnipManagerRevision,
+            turnipManagerBusy = turnipManagerBusy,
+            onModeChanged = onDriverModeChanged,
+            onInstallDriverBundle = onInstallDriverBundle,
+            onActivateTurnipDriver = onActivateTurnipDriver,
+            onRemoveTurnipDriver = onRemoveTurnipDriver,
+            collectionStatus = collectionStatus,
+            directUpdatesEnabled = directUpdatesEnabled,
+            onDirectUpdatesChanged = onDirectUpdatesChanged
+        )
         Page.Info -> InfoPage(report, display, driverMode, collectionStatus, onCheckForUpdates, directUpdatesEnabled)
     }
 }
@@ -3728,8 +4467,9 @@ private fun encyclopediaSearch(category: String, rawQuery: String): List<Encyclo
 }
 
 @Composable
-private fun EncyclopediaPage() {
-    var query by rememberSaveable { mutableStateOf("") }
+private fun EncyclopediaPage(initialQuery: String = "") {
+    var query by rememberSaveable { mutableStateOf(initialQuery) }
+    LaunchedEffect(initialQuery) { if (initialQuery.isNotBlank()) query = initialQuery }
     var category by rememberSaveable { mutableStateOf("All") }
     val entries = remember(query, category) { encyclopediaSearch(category, query) }
     VulkanLazyPage(verticalSpacing = 12.dp) {
@@ -3748,11 +4488,8 @@ private fun EncyclopediaPage() {
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     placeholderText = "Search VK_SUCCESS, vkCreateInstance, VkFormat, VK_KHR_swapchain…"
                 )
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("All", "VkResult", "Commands", "VK_*", "Types", "Extensions").forEach { value ->
-                        ExpressiveFilterChip(selected = category == value, label = value, onClick = { category = value })
-                    }
-                }
+                val categories = listOf("All", "VkResult", "Commands", "VK_*", "Types", "Extensions")
+                ExpressiveFilterBar(categories, categories.indexOf(category).coerceAtLeast(0)) { category = categories[it] }
                 Text(
                     when {
                         (category == "Commands" || category == "VK_*" || category == "Types") && query.trim().length < 2 -> "Type at least 2 characters to search this large registry symbol family. Results are capped at $ENCYCLOPEDIA_VISIBLE_RESULT_LIMIT; refine the query for a specific symbol."
@@ -3799,10 +4536,35 @@ private fun EncyclopediaPage() {
 }
 
 @Composable
-private fun AnalysisPage(report: VulkanReport, device: DeviceReport?, display: DisplayReport, driverMode: DriverMode) {
-    val analysisModel = rememberAnalysisWorkspaceModel(report, device, display, driverMode)
+private fun AnalysisPage(report: VulkanReport, device: DeviceReport?, display: DisplayReport, driverMode: DriverMode, turnipSupport: TurnipSupport, collectionStatus: CollectionStatus, queryTimingMs: Map<String, Long>, onDriverModeChanged: (DriverMode) -> Unit) {
+    val analysisModel = rememberAnalysisWorkspaceModel(report, device, display, driverMode, turnipSupport, collectionStatus, queryTimingMs, onDriverModeChanged)
     VulkanLazyPage(verticalSpacing = 12.dp) {
         analysisWorkspaceItems(analysisModel, report, device)
+    }
+    analysisModel.state.selectedEvidence?.let { selected ->
+        EvidenceInspectorDialog(selected.first, selected.second, onDismiss = { analysisModel.state.selectedEvidence = null }, onWatch = analysisModel.addWatched)
+    }
+    analysisModel.state.fallbackImportDialogData?.let { data ->
+        FallbackAnalysisImportDialog(
+            data = data,
+            busy = analysisModel.state.fallbackImportBusy,
+            onDismiss = { if (!analysisModel.state.fallbackImportBusy) analysisModel.state.fallbackImportDialogData = null },
+            onImport = { file -> analysisModel.importFallbackFile(data.kind, file) }
+        )
+    }
+    analysisModel.state.pendingHistoryDelete?.let { record ->
+        AlertDialog(
+            onDismissRequest = { analysisModel.state.pendingHistoryDelete = null },
+            title = { QuestionDialogTitle("Delete analysis history snapshot?") },
+            text = { Text("This deletes the selected bounded local analysis snapshot from VulkanScope private storage. The action cannot be undone.") },
+            confirmButton = {
+                ExpressiveContainedIconTextButton("Yes", R.drawable.ic_delete) {
+                    analysisModel.state.pendingHistoryDelete = null
+                    analysisModel.deleteHistory(record)
+                }
+            },
+            dismissButton = { ExpressiveCancelButton { analysisModel.state.pendingHistoryDelete = null } }
+        )
     }
 }
 
@@ -3966,7 +4728,12 @@ private fun HeroCard(device: DeviceReport?, report: VulkanReport, driverMode: Dr
                 Column(Modifier.weight(1f)) {
                     Text(device?.name ?: if (report.error != null) "Vulkan unavailable" else "Vulkan device unavailable", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(if (device != null) vendorInfo(device.vendorIdRaw).name else report.error?.take(120) ?: "Unknown vendor", color = ComposeColor(0xFFBDBDBD), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(driverMode.label, color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        driverMode.label,
+                        color = if (driverMode == DriverMode.TURNIP) VulkanAccentSoft else VulkanTextPrimary,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }
@@ -3978,11 +4745,10 @@ private fun HeroCard(device: DeviceReport?, report: VulkanReport, driverMode: Dr
 @Composable
 private fun OverviewDestinationCard(title: String, subtitle: String, destination: Page, navigate: (Page) -> Unit) {
     val shape = MaterialTheme.shapes.large
-    Card(
-        onClick = { navigate(destination) },
-        colors = CardDefaults.cardColors(containerColor = ComposeColor(0xFF181516)),
+    Surface(
+        color = ComposeColor(0xFF181516),
         shape = shape,
-        modifier = Modifier.fillMaxWidth().then(tvBrowseModifier(shape))
+        modifier = Modifier.fillMaxWidth()
     ) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp),
@@ -3996,7 +4762,13 @@ private fun OverviewDestinationCard(title: String, subtitle: String, destination
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = VulkanTextPrimary)
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = VulkanTextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
-            Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null, tint = VulkanTextMuted, modifier = Modifier.size(20.dp))
+            IconButton(
+                onClick = { navigate(destination) },
+                modifier = Modifier.size(48.dp),
+                colors = IconButtonDefaults.iconButtonColors(containerColor = ComposeColor(0xFF291719), contentColor = VulkanAccentSoft)
+            ) {
+                Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = "Open $title", tint = VulkanAccentSoft, modifier = Modifier.size(20.dp))
+            }
         }
     }
 }
@@ -4014,12 +4786,16 @@ private fun QuickAccessCard(title: String, destination: Page, navigate: (Page) -
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically)
         ) {
-            Icon(
-                painterResource(pageIcon(destination)),
-                contentDescription = null,
-                modifier = Modifier.size(19.dp),
-                tint = ComposeColor(0xFFE2676A)
-            )
+            if (title == "HDR & Color") {
+                DisplaySectionBadgeIcon("HDR")
+            } else {
+                Icon(
+                    painterResource(pageIcon(destination)),
+                    contentDescription = null,
+                    modifier = Modifier.size(19.dp),
+                    tint = ComposeColor(0xFFE2676A)
+                )
+            }
             Text(
                 title,
                 style = MaterialTheme.typography.labelSmall,
@@ -4054,12 +4830,16 @@ private fun CompactNavigationRail(selectedPage: Page, onPageSelected: (Page) -> 
         ) {
             navigationItems().forEachIndexed { index, item ->
                 val selected = selectedPage == item.page
+                var animationTrigger by remember(item.page) { mutableIntStateOf(0) }
                 val bringIntoViewRequester = remember { BringIntoViewRequester() }
                 val scope = rememberCoroutineScope()
                 var focused by remember { mutableStateOf(false) }
                 val shape = RoundedCornerShape(18.dp)
                 Card(
-                    onClick = { onPageSelected(item.page) },
+                    onClick = {
+                        animationTrigger += 1
+                        onPageSelected(item.page)
+                    },
                     colors = CardDefaults.cardColors(
                         containerColor = if (selected) VulkanAccentContainer else if (focused) ComposeColor(0xFF2A1517) else ComposeColor.Transparent
                     ),
@@ -4080,10 +4860,11 @@ private fun CompactNavigationRail(selectedPage: Page, onPageSelected: (Page) -> 
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(1.dp, Alignment.CenterVertically)
                     ) {
-                        Icon(
-                            painterResource(item.icon),
-                            contentDescription = null,
-                            modifier = Modifier.size(21.dp),
+                        AnimatedNavigationIcon(
+                            page = item.page,
+                            icon = item.icon,
+                            trigger = animationTrigger,
+                            size = 21.dp,
                             tint = if (selected) VulkanAccentSoft else ComposeColor(0xFFB8B8B8)
                         )
                         Text(
@@ -4448,10 +5229,8 @@ private fun FeaturesPage(device: DeviceReport?) {
             Text("Runtime feature support. Core 1.0, promoted core versions and extension-provided feature blocks remain distinguishable.", style = MaterialTheme.typography.bodySmall, color = ComposeColor(0xFFB6ACAE))
             ExpressiveSearchField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), labelText = "Search features")
             SupportFilterRow(filter) { filter = it }
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                sources.forEach { source -> ExpressiveFilterChip(selected = sourceFilter == source, label = source, onClick = { sourceFilter = source }) }
-            }
-            Text("${filtered.size} features", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(vertical = 6.dp))
+            ExpressiveFilterBar(sources, sources.indexOf(sourceFilter).coerceAtLeast(0), arrowTint = VulkanAccentSoft) { sourceFilter = sources[it] }
+            ExpressiveMetricGrid(listOf("Visible features" to filtered.size.toString()), Modifier.padding(top = 4.dp))
             }
         }
         itemsIndexed(filtered, key = { index, feature -> "feature:${feature.name}:$index" }) { _, feature ->
@@ -4690,11 +5469,28 @@ private fun VideoProfileEvidenceCard(profile: VideoProfileEvidence) {
     }
 }
 
+private fun videoOperationNeedle(profile: VideoProfileEvidence): String = when {
+    profile.direction == "Decode" && profile.codec == "H.264" -> "DECODE_H264"
+    profile.direction == "Decode" && profile.codec == "H.265" -> "DECODE_H265"
+    profile.direction == "Decode" && profile.codec == "VP9" -> "DECODE_VP9"
+    profile.direction == "Decode" && profile.codec == "AV1" -> "DECODE_AV1"
+    profile.direction == "Encode" && profile.codec == "H.264" -> "ENCODE_H264"
+    profile.direction == "Encode" && profile.codec == "H.265" -> "ENCODE_H265"
+    profile.direction == "Encode" && profile.codec == "AV1" -> "ENCODE_AV1"
+    else -> ""
+}
+
+private fun videoProfileQueueFamilies(profile: VideoProfileEvidence, queues: List<QueueEntry>): List<Int> {
+    val needle = videoOperationNeedle(profile)
+    if (needle.isBlank()) return emptyList()
+    return queues.filter { queue -> queueVideoCodecEvidenceRetained(queue) && videoCodecOperationFlags(queue.videoCodecOperations).contains(needle, true) }.map { it.index }
+}
+
 @Composable
 private fun VulkanVideoPage(device: DeviceReport?) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val evidence = remember(device) { parseVulkanVideoEvidence(device) }
-    val tabs = listOf("Overview", "Decode", "Encode", "Formats", "Queues")
+    val tabs = listOf("Overview", "Matrix", "Decode", "Encode", "Formats", "Queues")
     val registry = evidence.general.lastOrNull { it.name == "videoRegistry" }?.value
     val recipe = evidence.general.lastOrNull { it.name == "queryRecipe" }?.value
     val capabilityQuery = evidence.general.lastOrNull { it.name == "Video capability query" }?.value
@@ -4708,9 +5504,7 @@ private fun VulkanVideoPage(device: DeviceReport?) {
         item {
             CapabilitySectionCard("Vulkan Video") {
                 Text("Exact-profile Vulkan Video evidence collected by VulkanScope. Capability results below apply only to the queried exact 4:2:0 8-bit luma/chroma profile combinations and never imply codec-wide support.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    tabs.forEachIndexed { index, label -> ExpressiveFilterChip(selected = tab == index, label = label, onClick = { tab = index }) }
-                }
+                ExpressiveFilterBar(tabs, tab) { tab = it }
             }
         }
         if (tab == 0) {
@@ -4748,14 +5542,38 @@ private fun VulkanVideoPage(device: DeviceReport?) {
                 }
             }
         } else if (tab == 1) {
+            item { CapabilitySectionCard("Exact-profile matrix") {
+                Text("Each row keeps exact-profile capability state, matching queue codec-operation evidence and bounded sampled-format evidence separate. A queue/format association does not upgrade the exact-profile capability state.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+            } }
+            items(evidence.profiles, key = { "matrix:${it.operation}:${it.variant}" }) { profile ->
+                val queueFamilies = videoProfileQueueFamilies(profile, device?.queues.orEmpty())
+                val sampledFormats = evidence.formats.filter { it.name.contains(profile.operation, true) || it.name.contains(profile.codec, true) }
+                CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("${profile.codec} ${profile.direction.lowercase()}", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                            Text(profile.variant, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleSmall)
+                        }
+                        VideoEvidenceStateBadge(videoEvidenceState(profile.status))
+                    }
+                    CapabilityKeyValue("Exact profile status", profile.status)
+                    CapabilityKeyValue("Matching queue operation evidence", if (queueFamilies.isEmpty()) "No matching retained queue-operation token" else queueFamilies.joinToString { "Queue $it" })
+                    CapabilityKeyValue("Bounded sampled-format rows", sampledFormats.size.toString())
+                    profile.properties.firstOrNull { it.first == "codedExtent" }?.let { CapabilityKeyValue("Coded extent", it.second) }
+                    profile.properties.firstOrNull { it.first == "DPB" }?.let { CapabilityKeyValue("Decoded picture buffer", it.second) }
+                    profile.properties.firstOrNull { it.first == "rateControlModes" }?.let { CapabilityKeyValue("Rate-control modes", it.second) }
+                } }
+            }
+            if (evidence.profiles.isEmpty()) item { EmptyState("No exact-profile Vulkan Video evidence reported") }
+        } else if (tab == 2) {
             item { CapabilitySectionCard("Decode profiles") { Text("H.264, H.265, VP9 and AV1 exact decode-profile combinations from the locked registry-driven census.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall) } }
             items(decodeProfiles, key = { "decode:${it.operation}:${it.variant}" }) { VideoProfileEvidenceCard(it) }
             if (decodeProfiles.isEmpty()) item { EmptyState("No decode-profile evidence reported") }
-        } else if (tab == 2) {
+        } else if (tab == 3) {
             item { CapabilitySectionCard("Encode profiles") { Text("H.264, H.265 and AV1 exact encode-profile combinations from the locked registry-driven census.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall) } }
             items(encodeProfiles, key = { "encode:${it.operation}:${it.variant}" }) { VideoProfileEvidenceCard(it) }
             if (encodeProfiles.isEmpty()) item { EmptyState("No encode-profile evidence reported") }
-        } else if (tab == 3) {
+        } else if (tab == 4) {
             item {
                 CapabilitySectionCard("Sampled-profile formats") {
                     CapabilityKeyValue("Format query", formatQuery ?: "Unknown: sampled-profile format query status was not reported.")
@@ -4819,6 +5637,78 @@ private fun readBoundedAnalysisBytes(input: java.io.InputStream, maxBytes: Int):
         out.write(buffer, 0, read)
     }
     return out.toByteArray()
+}
+
+private inline fun tryLaunchSystemDocumentPicker(launch: () -> Unit): Boolean {
+    return try {
+        launch()
+        true
+    } catch (error: ActivityNotFoundException) {
+        Log.w("VulkanScope", "System document picker activity unavailable", error)
+        false
+    } catch (error: SecurityException) {
+        Log.w("VulkanScope", "System document picker launch denied", error)
+        false
+    }
+}
+
+private enum class FallbackAnalysisImportKind { SNAPSHOT, MINIMUM }
+
+private data class FallbackAnalysisCandidate(
+    val file: File,
+    val displayName: String,
+    val sizeBytes: Long,
+    val modifiedAtMillis: Long?
+)
+
+private data class FallbackAnalysisDialogData(
+    val kind: FallbackAnalysisImportKind,
+    val candidates: List<FallbackAnalysisCandidate>,
+    val scannedLocations: List<String>
+)
+
+private fun analysisExchangeRoots(context: Context): List<File> {
+    val roots = linkedSetOf<File>()
+    context.getExternalFilesDirs(Environment.DIRECTORY_DOCUMENTS).filterNotNull().forEach { roots += it }
+    context.getExternalFilesDirs(Environment.DIRECTORY_DOWNLOADS).filterNotNull().forEach { roots += it }
+    roots += File(context.filesDir, "analysis_exchange")
+    return roots.mapNotNull { runCatching { it.canonicalFile }.getOrNull() }.distinctBy { it.path }
+}
+
+private fun scanAnalysisExchangeFiles(context: Context, suffix: String, maxBytes: Int): Pair<List<FallbackAnalysisCandidate>, List<String>> {
+    val roots = analysisExchangeRoots(context)
+    val candidates = ArrayList<FallbackAnalysisCandidate>()
+    val seen = HashSet<String>()
+    for (root in roots) {
+        if (!root.mkdirs() && !root.isDirectory) continue
+        root.listFiles().orEmpty().asSequence().take(64).forEach { file ->
+            val canonical = runCatching { file.canonicalFile }.getOrNull() ?: return@forEach
+            if (canonical.parentFile != root || !canonical.isFile || !canonical.canRead()) return@forEach
+            if (!canonical.name.startsWith("VulkanScope-") || !canonical.name.endsWith(suffix, true)) return@forEach
+            val size = canonical.length()
+            if (size <= 0L || size > maxBytes.toLong() || !seen.add(canonical.path)) return@forEach
+            candidates += FallbackAnalysisCandidate(canonical, canonical.name, size, canonical.lastModified().takeIf { it > 0L })
+        }
+    }
+    return candidates.sortedWith(compareByDescending<FallbackAnalysisCandidate> { it.modifiedAtMillis ?: 0L }.thenBy { it.displayName }) to roots.map { it.path }
+}
+
+private fun findAnalysisExchangeFile(context: Context, suffix: String, maxBytes: Int): File? = scanAnalysisExchangeFiles(context, suffix, maxBytes).first.firstOrNull()?.file
+
+private fun writeAnalysisExchangeFile(context: Context, filename: String, bytes: ByteArray, maxBytes: Int): File {
+    if (bytes.isEmpty() || bytes.size > maxBytes) error("Local exchange payload exceeds its bounded size")
+    val safeName = filename.replace(Regex("[^A-Za-z0-9._-]+"), "_").take(180)
+    if (!safeName.startsWith("VulkanScope-") || !safeName.endsWith(".json")) error("Unsafe local exchange filename")
+    val root = analysisExchangeRoots(context).firstOrNull { (it.mkdirs() || it.isDirectory) && it.canWrite() } ?: error("No writable app-specific exchange directory is available")
+    val target = File(root, safeName).canonicalFile
+    if (target.parentFile != root) error("Unsafe local exchange path")
+    FileOutputStream(target, false).use { output ->
+        output.write(bytes)
+        output.flush()
+        output.fd.sync()
+    }
+    if (!target.isFile || target.length() != bytes.size.toLong()) error("Local exchange export could not be persisted")
+    return target
 }
 
 private fun validateAnalysisSnapshot(obj: JSONObject): JSONObject {
@@ -5101,15 +5991,34 @@ private fun dependencyGraphEntries(root: String, maxDepth: Int = 4, maxNodes: In
 
 private fun dependencyRuntimeEvidence(token: String, report: VulkanReport, device: DeviceReport?): String {
     if (token.startsWith("VK_VERSION_")) {
-        val m = Regex("VK_VERSION_(\\d+)_(\\d+)").matchEntire(token) ?: return "Unknown core dependency"
-        return if (apiAtLeast(device?.apiVersion ?: "", m.groupValues[1].toInt(), m.groupValues[2].toInt())) "Runtime API satisfies ${m.groupValues[1]}.${m.groupValues[2]}" else "Runtime API does not expose ${m.groupValues[1]}.${m.groupValues[2]}"
+        val match = Regex("""VK_VERSION_(\d+)_(\d+)""").matchEntire(token) ?: return "Unknown core dependency"
+        val requiredMajor = match.groupValues[1].toInt()
+        val requiredMinor = match.groupValues[2].toInt()
+        val apiText = device?.apiVersion?.trim().orEmpty()
+        val apiParts = apiText.split('.')
+        val actualMajor = apiParts.getOrNull(0)?.toIntOrNull()
+        val actualMinor = apiParts.getOrNull(1)?.toIntOrNull()
+        if (actualMajor == null || actualMinor == null) return "Unknown · runtime device API evidence is unavailable or unparsable"
+        return if (actualMajor > requiredMajor || actualMajor == requiredMajor && actualMinor >= requiredMinor) "Runtime API satisfies $requiredMajor.$requiredMinor" else "Runtime API does not expose $requiredMajor.$requiredMinor"
     }
-    val instance = report.instanceExtensions.any { it.name == token }
-    val dev = device?.extensions.orEmpty().any { it.name == token }
-    return when {
-        instance -> "Enumerated · instance"
-        dev -> "Enumerated · device"
-        else -> "Not enumerated in completed runtime set"
+    if (report.instanceExtensions.any { it.name == token }) return "Enumerated · instance"
+    if (device?.extensions.orEmpty().any { it.name == token }) return "Enumerated · device"
+    val referenceType = vulkanExtensionReference(token).type.lowercase()
+    fun absence(scope: String, status: String?, reason: String): String = when (status) {
+        "available" -> "Not enumerated by completed $scope extension evidence"
+        "incomplete" -> "Unknown · $scope extension enumeration is incomplete"
+        "unavailable" -> "Unknown · $scope extension enumeration is unavailable${reason.takeIf { it.isNotBlank() }?.let { ": $it" }.orEmpty()}"
+        "not_applicable" -> "Not applicable · $scope extension enumeration does not apply"
+        else -> "Unknown · $scope extension enumeration is not authoritative"
+    }
+    return when (referenceType) {
+        "instance" -> absence("instance", report.instanceExtensionStatus, report.instanceExtensionReason)
+        "device" -> if (device == null) "Unknown · no selected physical-device evidence" else absence("device", device.deviceExtensionStatus, device.deviceExtensionReason)
+        else -> {
+            val instanceAuthoritative = report.instanceExtensionStatus == "available"
+            val deviceAuthoritative = device?.deviceExtensionStatus == "available"
+            if (instanceAuthoritative && deviceAuthoritative) "Not enumerated by completed instance/device extension evidence" else "Unknown · extension scope/enumeration evidence is not authoritative enough to prove absence"
+        }
     }
 }
 
@@ -5152,7 +6061,47 @@ private fun matchesFormatExplorerQuery(format: FormatEntry, query: String): Bool
 
 private fun databaseReportUrl(id: String): String = OFFICIAL_DATABASE_WEB_URL.trimEnd('/') + "/#reports/" + Uri.encode(id) + "/Overview"
 
-private class AnalysisWorkspaceState(initialWatched: Set<String>) {
+private suspend fun fetchDatabaseTechnicalReport(context: Context, reportId: String): JSONObject = withContext(Dispatchers.IO) {
+    if (!hasValidatedInternet(context)) error("Database fetch is unavailable without a validated internet connection")
+    val id = reportId.trim().lowercase()
+    if (!id.matches(Regex("[a-f0-9]{64}"))) error("Database report id must be a lowercase 64-character SHA-256 id")
+    val baseUrl = OFFICIAL_DATABASE_API_ENDPOINT.toHttpUrlOrNull() ?: error("The official VulkanScope Database endpoint is invalid")
+    if (baseUrl.scheme != "https" || baseUrl.host != "vulkanscope-database-api.vulkanscope.workers.dev" || baseUrl.username.isNotEmpty() || baseUrl.password.isNotEmpty() || baseUrl.query != null || baseUrl.fragment != null || baseUrl.encodedPath != "/") error("The official VulkanScope Database endpoint is invalid")
+    val url = baseUrl.newBuilder().addPathSegments("v1/reports/$id").addQueryParameter("compact", "1").build()
+    val request = Request.Builder().url(url).header("Accept", "application/json").get().build()
+    databaseHttpClient.newCall(request).execute().use { response ->
+        val body = readResponseTextLimited(response.body, ANALYSIS_DATABASE_COMPARE_MAX_BYTES)
+        if (!response.isSuccessful) {
+            val message = runCatching { JSONObject(body).optString("error") }.getOrDefault("").ifBlank { "HTTP ${response.code}" }
+            error("Database report fetch failed: $message")
+        }
+        val payload = JSONObject(body)
+        payload.optJSONObject("technicalReport") ?: error("Database report does not contain technicalReport")
+    }
+}
+
+private fun loadSavedMinimumProfiles(raw: String?): Map<String, String> {
+    if (raw.isNullOrBlank()) return emptyMap()
+    return runCatching {
+        val root = JSONObject(raw)
+        if (root.optString("schema") != "VulkanScopeMinimumProfiles1") error("Invalid minimum profile store")
+        val profiles = root.optJSONObject("profiles") ?: JSONObject()
+        linkedMapOf<String, String>().apply {
+            val keys = profiles.keys().asSequence().toList().sorted().take(ANALYSIS_CUSTOM_PROFILE_MAX_PROFILES)
+            keys.forEach { name ->
+                val rules = profiles.optString(name)
+                if (name.isNotBlank() && name.length <= 128 && rules.length <= 16_384 && rules.lineSequence().filter { it.isNotBlank() }.count() <= ANALYSIS_CUSTOM_PROFILE_MAX_RULES) put(name, rules)
+            }
+        }
+    }.getOrDefault(emptyMap())
+}
+
+private fun encodeSavedMinimumProfiles(profiles: Map<String, String>): String = JSONObject().apply {
+    put("schema", "VulkanScopeMinimumProfiles1")
+    put("profiles", JSONObject().apply { profiles.toSortedMap().entries.take(ANALYSIS_CUSTOM_PROFILE_MAX_PROFILES).forEach { (name, rules) -> put(name, rules) } })
+}.toString()
+
+private class AnalysisWorkspaceState(initialWatched: Set<String>, initialProfiles: Map<String, String>, initialAbWorkflowStage: String) {
     var tab by mutableIntStateOf(0)
     var baseline by mutableStateOf<JSONObject?>(null)
     var analysisStatus by mutableStateOf("No baseline imported")
@@ -5160,14 +6109,35 @@ private class AnalysisWorkspaceState(initialWatched: Set<String>) {
     var diffStateFilter by mutableStateOf("All")
     var diffKindFilter by mutableStateOf("All")
     var includeUnchanged by mutableStateOf(false)
+    var globalQuery by mutableStateOf("")
+    var globalKindFilter by mutableStateOf("All")
+    var requirementInput by mutableStateOf("VK_KHR_dynamic_rendering")
     var profileQuery by mutableStateOf("")
     var profileStatusFilter by mutableStateOf("All")
+    var customProfileName by mutableStateOf("My minimum")
+    var customProfileRules by mutableStateOf("api>=1.3\nextension:VK_KHR_dynamic_rendering")
+    var customProfileStatus by mutableStateOf("Local custom profiles do not modify Vulkan capability evidence")
+    var savedProfiles by mutableStateOf(initialProfiles)
+    var graphInput by mutableStateOf("VK_KHR_swapchain")
+    var graphDepth by mutableIntStateOf(4)
+    var rawQuery by mutableStateOf("")
+    var databaseReportId by mutableStateOf("")
+    var databaseStatus by mutableStateOf("No Database report loaded")
+    var databaseLoading by mutableStateOf(false)
+    var databaseRemoteLeaves by mutableStateOf<List<RawJsonLeaf>>(emptyList())
+    var databaseIncludeUnchanged by mutableStateOf(false)
+    var history by mutableStateOf<List<AnalysisHistoryRecord>>(emptyList())
+    var historyStatus by mutableStateOf("Local history is bounded and stored only on this device")
+    var pendingHistoryDelete by mutableStateOf<AnalysisHistoryRecord?>(null)
+    var fallbackImportDialogData by mutableStateOf<FallbackAnalysisDialogData?>(null)
+    var fallbackImportBusy by mutableStateOf(false)
+    var abWorkflowStage by mutableStateOf(initialAbWorkflowStage)
+    var abWorkflowStatus by mutableStateOf("Guided A/B is idle")
     var watchInput by mutableStateOf("")
     var watchQuery by mutableStateOf("")
     var watchStateFilter by mutableStateOf("All")
-    var graphInput by mutableStateOf("VK_KHR_swapchain")
-    var graphDepth by mutableIntStateOf(4)
     var watched by mutableStateOf(initialWatched)
+    var selectedEvidence by mutableStateOf<Pair<String, String>?>(null)
     var testRunning by mutableStateOf(false)
     var testResult by mutableStateOf<JSONObject?>(null)
 }
@@ -5175,37 +6145,189 @@ private class AnalysisWorkspaceState(initialWatched: Set<String>) {
 private data class AnalysisWorkspaceModel(
     val state: AnalysisWorkspaceState,
     val diffRows: List<VulkanAnalysisDiff>,
+    val globalResults: List<Pair<String, String>>,
+    val diagnostics: List<QueryDiagnosticRow>,
+    val requirementReference: VulkanExtensionReference?,
+    val requirementEvaluations: List<RequirementEvaluation>,
     val profileResults: List<ProfileResult>,
+    val customMinimumEvaluations: List<CustomMinimumEvaluation>,
     val graphRootToken: String,
     val graphRootRef: VulkanExtensionReference?,
     val graphEntries: List<DependencyGraphEntry>,
     val visualGraphNodes: List<VulkanGraphNode>,
-    val driverHealth: HeuristicDiagnosticScore,
+    val presentationPaths: List<PresentationEvidencePath>,
+    val rawLeaves: List<RawJsonLeaf>,
+    val databaseDiff: List<GenericAnalysisDiff>,
+    val systemHistory: AnalysisHistoryRecord?,
+    val turnipHistory: AnalysisHistoryRecord?,
+    val driverDiffRows: List<VulkanAnalysisDiff>,
     val watchedEvidence: Map<String, Pair<Int, List<Pair<String, String>>>>,
     val visibleWatched: List<String>,
+    val driverHealth: HeuristicDiagnosticScore,
     val lastSharedReportId: String,
     val sharedReportUrl: String,
     val selfTestsAvailable: Boolean,
+    val canSwitchSystem: Boolean,
+    val canSwitchTurnip: Boolean,
     val importSnapshot: () -> Unit,
     val exportSnapshot: () -> Unit,
+    val importMinimumProfile: () -> Unit,
+    val exportMinimumProfile: () -> Unit,
+    val saveMinimumProfile: () -> Unit,
+    val loadMinimumProfile: (String) -> Unit,
+    val deleteMinimumProfile: (String) -> Unit,
+    val exportRawTechnicalReport: () -> Unit,
+    val importFallbackFile: (FallbackAnalysisImportKind, File) -> Unit,
+    val fetchDatabaseReport: () -> Unit,
+    val useHistoryAsBaseline: (AnalysisHistoryRecord) -> Unit,
+    val deleteHistory: (AnalysisHistoryRecord) -> Unit,
+    val addWatched: (String) -> Unit,
     val persistWatched: (Set<String>) -> Unit,
+    val switchToSystem: () -> Unit,
+    val switchToTurnip: () -> Unit,
+    val startDriverAbWorkflow: () -> Unit,
+    val cancelDriverAbWorkflow: () -> Unit,
     val shareLink: () -> Unit,
     val copyLink: () -> Unit,
     val runSelfTests: () -> Unit
 )
 
 @Composable
-private fun rememberAnalysisWorkspaceModel(report: VulkanReport, device: DeviceReport?, display: DisplayReport, mode: DriverMode): AnalysisWorkspaceModel {
+private fun rememberAnalysisWorkspaceModel(
+    report: VulkanReport,
+    device: DeviceReport?,
+    display: DisplayReport,
+    mode: DriverMode,
+    turnipSupport: TurnipSupport,
+    collectionStatus: CollectionStatus,
+    queryTimingMs: Map<String, Long>,
+    onDriverModeChanged: (DriverMode) -> Unit
+): AnalysisWorkspaceModel {
     val context = androidx.compose.ui.platform.LocalContext.current
     val activity = context as? MainActivity
     val scope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences("analysis_tools", Context.MODE_PRIVATE) }
-    val state = remember { AnalysisWorkspaceState(prefs.getStringSet("watched", emptySet())?.toSet() ?: emptySet()) }
+    val initialProfiles = remember { loadSavedMinimumProfiles(prefs.getString("minimum_profiles", null)) }
+    val state = remember { AnalysisWorkspaceState(prefs.getStringSet("watched", emptySet())?.toSet() ?: emptySet(), initialProfiles, prefs.getString("ab_workflow_stage", "idle") ?: "idle") }
     val packageInfo = remember(context) { runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull() }
     val applicationVersion = packageInfo?.versionName ?: "Unknown"
-    val current = remember(state.tab, report, device, display, mode, applicationVersion) {
-        if (state.tab == 0 || state.tab == 4) vulkanAnalysisSnapshot(report, device, display, mode, applicationVersion)
-        else JSONObject().put("schema", "VulkanScopeAnalysisSnapshot1").put("applicationVersion", applicationVersion).put("entries", JSONObject())
+    val current = remember(report, device, display, mode, applicationVersion) { vulkanAnalysisSnapshot(report, device, display, mode, applicationVersion) }
+    val currentEntries = remember(current) { objectStringMap(current.optJSONObject("entries") ?: JSONObject()) }
+    val technicalLeavesNeeded = state.tab == 8 || state.tab == 9
+    val currentRawLeaves = remember(report, display, mode, technicalLeavesNeeded) {
+        if (technicalLeavesNeeded) flattenJson(technicalReportJson(context, report, display, mode)) else emptyList()
+    }
+    fun openFallbackImport(kind: FallbackAnalysisImportKind) {
+        if (state.fallbackImportBusy) return
+        scope.launch {
+            val data = withContext(Dispatchers.IO) {
+                when (kind) {
+                    FallbackAnalysisImportKind.SNAPSHOT -> {
+                        val scan = scanAnalysisExchangeFiles(context, "-analysis.json", ANALYSIS_MAX_SNAPSHOT_BYTES)
+                        FallbackAnalysisDialogData(kind, scan.first, scan.second)
+                    }
+                    FallbackAnalysisImportKind.MINIMUM -> {
+                        val scan = scanAnalysisExchangeFiles(context, "-minimum.json", 256 * 1024)
+                        FallbackAnalysisDialogData(kind, scan.first, scan.second)
+                    }
+                }
+            }
+            state.fallbackImportDialogData = data
+        }
+    }
+    fun importFallbackFile(kind: FallbackAnalysisImportKind, file: File) {
+        if (state.fallbackImportBusy) return
+        state.fallbackImportBusy = true
+        scope.launch {
+            try {
+                when (kind) {
+                    FallbackAnalysisImportKind.SNAPSHOT -> {
+                        val result = withContext(Dispatchers.IO) {
+                            runCatching {
+                                val canonical = file.canonicalFile
+                                val allowed = analysisExchangeRoots(context).any { root -> canonical.parentFile == root }
+                                if (!allowed || !canonical.isFile || !canonical.canRead() || canonical.length() <= 0L || canonical.length() > ANALYSIS_MAX_SNAPSHOT_BYTES) error("Selected fallback snapshot is outside the bounded app-specific exchange roots")
+                                FileInputStream(canonical).use { input -> validateAnalysisSnapshot(JSONObject(readBoundedAnalysisBytes(input, ANALYSIS_MAX_SNAPSHOT_BYTES).toString(Charsets.UTF_8))) }
+                            }
+                        }
+                        result.onSuccess { snapshot ->
+                            state.baseline = snapshot
+                            state.analysisStatus = "Document picker fallback · baseline imported from ${file.parentFile?.absolutePath ?: "app-specific exchange"}"
+                            state.fallbackImportDialogData = null
+                        }.onFailure { state.analysisStatus = it.message ?: "Document picker fallback import failed" }
+                    }
+                    FallbackAnalysisImportKind.MINIMUM -> {
+                        val result = withContext(Dispatchers.IO) {
+                            runCatching {
+                                val canonical = file.canonicalFile
+                                val allowed = analysisExchangeRoots(context).any { root -> canonical.parentFile == root }
+                                if (!allowed || !canonical.isFile || !canonical.canRead() || canonical.length() <= 0L || canonical.length() > 256 * 1024L) error("Selected fallback minimum profile is outside the bounded app-specific exchange roots")
+                                val bytes = FileInputStream(canonical).use { input -> readBoundedAnalysisBytes(input, 256 * 1024) }
+                                val root = JSONObject(bytes.toString(Charsets.UTF_8))
+                                if (root.optString("schema") != "VulkanScopeMinimumProfile1") error("Unsupported minimum profile schema")
+                                val name = root.optString("name").trim()
+                                val array = root.optJSONArray("rules") ?: error("Minimum profile rules are missing")
+                                if (name.isBlank() || name.length > 128 || array.length() > ANALYSIS_CUSTOM_PROFILE_MAX_RULES) error("Minimum profile bounds are invalid")
+                                val rules = (0 until array.length()).map { array.optString(it) }.filter { it.isNotBlank() }
+                                if (rules.any { it.length > 512 }) error("Minimum profile contains an overlong rule")
+                                name to rules.joinToString("\n")
+                            }
+                        }
+                        result.onSuccess { (name, rules) ->
+                            state.customProfileName = name
+                            state.customProfileRules = rules
+                            state.customProfileStatus = "Document picker fallback · minimum profile imported from ${file.parentFile?.absolutePath ?: "app-specific exchange"}"
+                            state.fallbackImportDialogData = null
+                        }.onFailure { state.customProfileStatus = it.message ?: "Document picker fallback minimum import failed" }
+                    }
+                }
+            } finally {
+                state.fallbackImportBusy = false
+            }
+        }
+    }
+    fun exportSnapshotFallback() {
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val validated = validateAnalysisSnapshot(JSONObject(current.toString()))
+                    val bytes = validated.toString(2).toByteArray(Charsets.UTF_8)
+                    if (bytes.size > ANALYSIS_MAX_SNAPSHOT_BYTES) error("Current analysis snapshot exceeds 8 MiB and was not truncated")
+                    writeAnalysisExchangeFile(context, "VulkanScope-${safeFilePart(device?.name ?: "Unknown-GPU")}-analysis.json", bytes, ANALYSIS_MAX_SNAPSHOT_BYTES)
+                }
+            }
+            state.analysisStatus = result.fold({ "Document picker fallback · snapshot exported to ${it.absolutePath}" }, { it.message ?: "Document picker fallback export failed" })
+            android.widget.Toast.makeText(context, result.fold({ "Document picker fallback · analysis snapshot saved to ${it.absolutePath}" }, { "Fallback analysis snapshot export failed" }), android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+    fun exportMinimumFallback() {
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val rules = state.customProfileRules.lineSequence().map { it.trim() }.filter { it.isNotBlank() }.take(ANALYSIS_CUSTOM_PROFILE_MAX_RULES + 1).toList()
+                    if (rules.isEmpty() || rules.size > ANALYSIS_CUSTOM_PROFILE_MAX_RULES) error("Minimum profile must contain 1..$ANALYSIS_CUSTOM_PROFILE_MAX_RULES rules")
+                    val name = state.customProfileName.trim().take(128)
+                    if (name.isBlank()) error("Minimum profile name is required")
+                    val bytes = JSONObject().put("schema", "VulkanScopeMinimumProfile1").put("name", name).put("rules", JSONArray(rules)).toString(2).toByteArray(Charsets.UTF_8)
+                    writeAnalysisExchangeFile(context, "VulkanScope-${safeFilePart(name)}-minimum.json", bytes, 256 * 1024)
+                }
+            }
+            state.customProfileStatus = result.fold({ "Document picker fallback · minimum profile exported to ${it.absolutePath}" }, { it.message ?: "Document picker fallback minimum export failed" })
+            android.widget.Toast.makeText(context, result.fold({ "Document picker fallback · minimum profile saved to ${it.absolutePath}" }, { "Fallback minimum profile export failed" }), android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+    fun exportRawFallback() {
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val bytes = technicalReportJson(context, report, display, mode).toString(2).toByteArray(Charsets.UTF_8)
+                    if (bytes.size > ANALYSIS_MAX_SNAPSHOT_BYTES) error("Structured technical report exceeds the 8 MiB local export bound")
+                    writeAnalysisExchangeFile(context, "VulkanScope-${safeFilePart(device?.name ?: "Unknown-GPU")}-technicalReport.json", bytes, ANALYSIS_MAX_SNAPSHOT_BYTES)
+                }
+            }
+            state.analysisStatus = result.fold({ "Document picker fallback · structured technicalReport exported to ${it.absolutePath}" }, { it.message ?: "Document picker fallback structured report export failed" })
+            android.widget.Toast.makeText(context, result.fold({ "Document picker fallback · technicalReport JSON saved to ${it.absolutePath}" }, { "Fallback technicalReport export failed" }), android.widget.Toast.LENGTH_LONG).show()
+        }
     }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
@@ -5226,15 +6348,89 @@ private fun rememberAnalysisWorkspaceModel(report: VulkanReport, device: DeviceR
                     val validated = validateAnalysisSnapshot(JSONObject(current.toString()))
                     val bytes = validated.toString(2).toByteArray(Charsets.UTF_8)
                     if (bytes.size > ANALYSIS_MAX_SNAPSHOT_BYTES) error("Current analysis snapshot exceeds 8 MiB and was not truncated")
-                    val output = context.contentResolver.openOutputStream(uri, "wt") ?: error("Unable to open snapshot destination")
-                    output.use { it.write(bytes) }
+                    context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } ?: error("Unable to open snapshot destination")
                 }
             }
             state.analysisStatus = result.fold({ "Snapshot exported successfully" }, { it.message ?: "Snapshot export failed" })
         }
     }
-    val diffRows = remember(state.tab, state.baseline, current, state.includeUnchanged, state.diffQuery, state.diffStateFilter, state.diffKindFilter) {
-        if (state.tab != 0) emptyList() else state.baseline?.let { vulkanSnapshotDiff(it, current) }.orEmpty().filter { row ->
+    val minimumImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val bytes = context.contentResolver.openInputStream(uri)?.use { input -> readBoundedAnalysisBytes(input, 256 * 1024) } ?: error("Unable to read minimum profile")
+                    val root = JSONObject(bytes.toString(Charsets.UTF_8))
+                    if (root.optString("schema") != "VulkanScopeMinimumProfile1") error("Unsupported minimum profile schema")
+                    val name = root.optString("name").trim()
+                    val array = root.optJSONArray("rules") ?: error("Minimum profile rules are missing")
+                    if (name.isBlank() || name.length > 128 || array.length() > ANALYSIS_CUSTOM_PROFILE_MAX_RULES) error("Minimum profile bounds are invalid")
+                    val rules = (0 until array.length()).map { array.optString(it) }.filter { it.isNotBlank() }
+                    if (rules.any { it.length > 512 }) error("Minimum profile contains an overlong rule")
+                    name to rules.joinToString("\n")
+                }
+            }
+            result.onSuccess { (name, rules) -> state.customProfileName = name; state.customProfileRules = rules; state.customProfileStatus = "Minimum profile imported" }
+                .onFailure { state.customProfileStatus = it.message ?: "Minimum profile import failed" }
+        }
+    }
+    val minimumExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val rules = state.customProfileRules.lineSequence().map { it.trim() }.filter { it.isNotBlank() }.take(ANALYSIS_CUSTOM_PROFILE_MAX_RULES + 1).toList()
+                    if (rules.isEmpty() || rules.size > ANALYSIS_CUSTOM_PROFILE_MAX_RULES) error("Minimum profile must contain 1..$ANALYSIS_CUSTOM_PROFILE_MAX_RULES rules")
+                    val name = state.customProfileName.trim().take(128)
+                    if (name.isBlank()) error("Minimum profile name is required")
+                    val payload = JSONObject().put("schema", "VulkanScopeMinimumProfile1").put("name", name).put("rules", JSONArray(rules)).toString(2).toByteArray(Charsets.UTF_8)
+                    context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(payload) } ?: error("Unable to open minimum profile destination")
+                }
+            }
+            state.customProfileStatus = result.fold({ "Minimum profile exported" }, { it.message ?: "Minimum profile export failed" })
+        }
+    }
+    val rawExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val bytes = technicalReportJson(context, report, display, mode).toString(2).toByteArray(Charsets.UTF_8)
+                    if (bytes.size > ANALYSIS_MAX_SNAPSHOT_BYTES) error("Structured technical report exceeds the 8 MiB local export bound")
+                    context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } ?: error("Unable to open structured report destination")
+                }
+            }
+            state.analysisStatus = result.fold({ "Structured technical report exported" }, { it.message ?: "Structured report export failed" })
+        }
+    }
+    LaunchedEffect(report, device, mode, applicationVersion, collectionStatus, state.abWorkflowStage, turnipSupport) {
+        val complete = report.baseReportComplete && report.error == null && device != null && collectionStatus != CollectionStatus.COLLECTING
+        if (complete) {
+            val saved = withContext(Dispatchers.IO) { saveAnalysisHistoryRecord(context, applicationVersion, mode.label, device.name, current) }
+            state.history = withContext(Dispatchers.IO) { loadAnalysisHistoryRecords(context) }
+            state.historyStatus = if (saved != null) "Current completed session is retained in bounded local history" else "Current session could not be persisted because local storage was unavailable or the bounded history size was exceeded"
+            when (state.abWorkflowStage) {
+                "collect-system" -> if (mode == DriverMode.SYSTEM) {
+                    if (turnipSupport == TurnipSupport.SUPPORTED) {
+                        state.abWorkflowStage = "collect-turnip"
+                        state.abWorkflowStatus = "System session retained; switching to Turnip for the second guided collection"
+                        prefs.edit().putString("ab_workflow_stage", state.abWorkflowStage).apply()
+                        onDriverModeChanged(DriverMode.TURNIP)
+                    } else {
+                        state.abWorkflowStage = "blocked"
+                        state.abWorkflowStatus = "System session retained, but no validated compatible Turnip driver is available"
+                        prefs.edit().putString("ab_workflow_stage", state.abWorkflowStage).apply()
+                    }
+                }
+                "collect-turnip" -> if (mode == DriverMode.TURNIP) {
+                    state.abWorkflowStage = "complete"
+                    state.abWorkflowStatus = "Guided System ↔ Turnip collection completed; latest retained sessions are ready to compare"
+                    prefs.edit().putString("ab_workflow_stage", state.abWorkflowStage).apply()
+                }
+            }
+        } else {
+            state.history = withContext(Dispatchers.IO) { loadAnalysisHistoryRecords(context) }
+        }
+    }
+    val diffRows = remember(state.baseline, current, state.includeUnchanged, state.diffQuery, state.diffStateFilter, state.diffKindFilter) {
+        state.baseline?.let { vulkanSnapshotDiff(it, current) }.orEmpty().filter { row ->
             val stateOk = state.diffStateFilter == "All" || when (state.diffStateFilter) {
                 "Added" -> row.state == "Added"
                 "Removed" -> row.state.startsWith("Removed")
@@ -5246,79 +6442,195 @@ private fun rememberAnalysisWorkspaceModel(report: VulkanReport, device: DeviceR
             (state.includeUnchanged || row.state != "Unchanged") && stateOk && kindOk && matchesAnalysisQuery(row, state.diffQuery)
         }
     }
-    val profileResults = remember(state.tab, report, device, state.profileQuery, state.profileStatusFilter) {
-        if (state.tab != 1) emptyList() else vulkanProfileEvaluations(report, device).filter { result ->
-            (state.profileStatusFilter == "All" || result.status == state.profileStatusFilter) && result.name.contains(state.profileQuery, true)
+    val globalResults = remember(currentEntries, state.globalQuery, state.globalKindFilter) {
+        val query = state.globalQuery.trim()
+        if (query.length < 2) emptyList() else currentEntries.entries.asSequence().filter { (key, value) ->
+            val kind = key.substringBefore('/').lowercase()
+            (state.globalKindFilter == "All" || kind.equals(state.globalKindFilter, true)) && (key.contains(query, true) || value.contains(query, true))
+        }.take(ANALYSIS_GLOBAL_SEARCH_VISIBLE_LIMIT).map { it.key to it.value }.toList()
+    }
+    val diagnostics = remember(currentEntries, queryTimingMs) { queryDiagnostics(currentEntries, queryTimingMs) }
+    val requirementReference = remember(state.requirementInput) {
+        val token = state.requirementInput.trim()
+        if (token.startsWith("VK_")) vulkanExtensionReference(token) else null
+    }
+    val requirementEvaluations = remember(requirementReference, state.requirementInput, currentEntries) {
+        val token = state.requirementInput.trim()
+        if (token.isBlank()) emptyList() else {
+            val expressions = requirementReference?.let { listOf(it.depends, it.requires, it.promotedTo).filter { value -> value.isNotBlank() } }.orEmpty()
+            (listOf(token) + expressions.flatMap(::requirementTokens)).distinct().take(128).map { evaluateRequirementToken(it, currentEntries) }
         }
     }
-    val graphRootToken = state.graphInput.trim()
-    val graphRootRef = remember(state.tab, graphRootToken) { if (state.tab == 2 && graphRootToken.startsWith("VK_")) vulkanExtensionReference(graphRootToken) else null }
-    val graphEntries = remember(state.tab, graphRootToken, state.graphDepth) { if (state.tab == 2) dependencyGraphEntries(graphRootToken, state.graphDepth) else emptyList() }
-    val visualGraphNodes = remember(graphEntries, report, device) {
-        graphEntries.take(24).map { entry -> VulkanGraphNode(entry.token, entry.depth, entry.parent, dependencyRuntimeEvidence(entry.token, report, device)) }
+    val profileResults = remember(report, device, state.profileQuery, state.profileStatusFilter) {
+        vulkanProfileEvaluations(report, device).filter { result -> (state.profileStatusFilter == "All" || result.status == state.profileStatusFilter) && result.name.contains(state.profileQuery, true) }
     }
-    val driverHealth = remember(state.tab, report, device) { if (state.tab == 3) heuristicDiagnosticEvidenceScore(report, device) else HeuristicDiagnosticScore(null, "Not evaluated", emptyList()) }
-    val currentEntries = remember(current) { objectStringMap(current.optJSONObject("entries") ?: JSONObject()) }
-    val watchedEvidence = remember(state.tab, currentEntries, state.watched) {
-        if (state.tab != 4) emptyMap() else state.watched.associateWith { token ->
+    val customMinimumEvaluations = remember(state.customProfileRules, currentEntries) {
+        state.customProfileRules.lineSequence().map { it.trim() }.filter { it.isNotBlank() }.take(ANALYSIS_CUSTOM_PROFILE_MAX_RULES).map { evaluateCustomMinimumRule(it, currentEntries) }.toList()
+    }
+    val graphRootToken = state.graphInput.trim()
+    val graphRootRef = remember(graphRootToken) { if (graphRootToken.startsWith("VK_")) vulkanExtensionReference(graphRootToken) else null }
+    val graphEntries = remember(graphRootToken, state.graphDepth) { dependencyGraphEntries(graphRootToken, state.graphDepth) }
+    val visualGraphNodes = remember(graphEntries, report, device) { graphEntries.take(24).map { entry -> VulkanGraphNode(entry.token, entry.depth, entry.parent, dependencyRuntimeEvidence(entry.token, report, device)) } }
+    val presentationPaths = remember(currentEntries) { presentationEvidencePaths(currentEntries) }
+    val rawLeaves = remember(currentRawLeaves, state.rawQuery) {
+        val query = state.rawQuery.trim()
+        if (query.isBlank()) currentRawLeaves.take(ANALYSIS_RAW_JSON_VISIBLE_LIMIT) else currentRawLeaves.asSequence().filter { it.path.contains(query, true) || it.value.contains(query, true) }.take(ANALYSIS_RAW_JSON_VISIBLE_LIMIT).toList()
+    }
+    val databaseDiff = remember(state.databaseRemoteLeaves, currentRawLeaves, state.databaseIncludeUnchanged) {
+        if (state.databaseRemoteLeaves.isEmpty()) emptyList() else genericDiff(rawLeavesToMap(state.databaseRemoteLeaves), rawLeavesToMap(currentRawLeaves)).filter { state.databaseIncludeUnchanged || it.state != "Unchanged" }
+    }
+    val systemHistory = remember(state.history) { state.history.firstOrNull { it.driverMode == DriverMode.SYSTEM.label } }
+    val turnipHistory = remember(state.history) { state.history.firstOrNull { it.driverMode == DriverMode.TURNIP.label } }
+    val driverDiffRows = remember(systemHistory, turnipHistory) {
+        if (systemHistory == null || turnipHistory == null) emptyList() else vulkanSnapshotDiff(systemHistory.snapshot, turnipHistory.snapshot).filter { it.state != "Unchanged" }
+    }
+    val watchedEvidence = remember(currentEntries, state.watched) {
+        state.watched.associateWith { token ->
             var count = 0
             val preview = ArrayList<Pair<String, String>>(10)
             currentEntries.forEach { (key, value) ->
-                if (key.contains(token, true)) {
-                    count += 1
-                    if (preview.size < 10) preview += key to value
-                }
+                if (key.contains(token, true) || value.contains(token, true)) { count += 1; if (preview.size < 10) preview += key to value }
             }
             count to preview.toList()
         }
     }
-    val visibleWatched = remember(state.tab, state.watched, watchedEvidence, state.watchQuery, state.watchStateFilter) {
-        if (state.tab != 4) emptyList() else state.watched.sorted().filter { token ->
+    val visibleWatched = remember(state.watched, watchedEvidence, state.watchQuery, state.watchStateFilter) {
+        state.watched.sorted().filter { token ->
             val matched = (watchedEvidence[token]?.first ?: 0) > 0
-            val stateOk = state.watchStateFilter == "All" || (state.watchStateFilter == "Matched" && matched) || (state.watchStateFilter == "Missing" && !matched)
+            val stateOk = state.watchStateFilter == "All" || state.watchStateFilter == "Matched" && matched || state.watchStateFilter == "Missing" && !matched
             stateOk && (state.watchQuery.isBlank() || token.contains(state.watchQuery, true))
         }
     }
+    val driverHealth = remember(report, device) { heuristicDiagnosticEvidenceScore(report, device) }
     val sharePrefs = remember { context.getSharedPreferences("database_share", Context.MODE_PRIVATE) }
     val lastSharedReportId = sharePrefs.getString("last_report_id", "").orEmpty()
-    val sharedReportUrl = remember(lastSharedReportId) {
-        if (lastSharedReportId.matches(Regex("[a-f0-9]{64}"))) databaseReportUrl(lastSharedReportId) else OFFICIAL_DATABASE_WEB_URL
+    val sharedReportUrl = remember(lastSharedReportId) { if (lastSharedReportId.matches(Regex("[a-f0-9]{64}"))) databaseReportUrl(lastSharedReportId) else OFFICIAL_DATABASE_WEB_URL }
+    val persistProfiles = { profiles: Map<String, String> -> prefs.edit().putString("minimum_profiles", encodeSavedMinimumProfiles(profiles)).apply() }
+    val addWatched: (String) -> Unit = { raw ->
+        val token = evidenceTokenForReference(raw, raw).trim().take(256)
+        if (token.isNotBlank() && (state.watched.size < ANALYSIS_MAX_WATCHED || token in state.watched)) {
+            state.watched = state.watched + token
+            prefs.edit().putStringSet("watched", state.watched).apply()
+        }
     }
     return AnalysisWorkspaceModel(
         state = state,
         diffRows = diffRows,
+        globalResults = globalResults,
+        diagnostics = diagnostics,
+        requirementReference = requirementReference,
+        requirementEvaluations = requirementEvaluations,
         profileResults = profileResults,
+        customMinimumEvaluations = customMinimumEvaluations,
         graphRootToken = graphRootToken,
         graphRootRef = graphRootRef,
         graphEntries = graphEntries,
         visualGraphNodes = visualGraphNodes,
-        driverHealth = driverHealth,
+        presentationPaths = presentationPaths,
+        rawLeaves = rawLeaves,
+        databaseDiff = databaseDiff,
+        systemHistory = systemHistory,
+        turnipHistory = turnipHistory,
+        driverDiffRows = driverDiffRows,
         watchedEvidence = watchedEvidence,
         visibleWatched = visibleWatched,
+        driverHealth = driverHealth,
         lastSharedReportId = lastSharedReportId,
         sharedReportUrl = sharedReportUrl,
         selfTestsAvailable = activity != null && device != null,
-        importSnapshot = { importLauncher.launch(arrayOf("application/json", "text/plain")) },
-        exportSnapshot = { exportLauncher.launch("VulkanScope-${safeFilePart(device?.name ?: "Unknown-GPU")}-analysis.json") },
-        persistWatched = { value -> prefs.edit().putStringSet("watched", value).apply() },
-        shareLink = {
-            val intent = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, sharedReportUrl)
-            runCatching { context.startActivity(Intent.createChooser(intent, "Share VulkanScope link")) }
+        canSwitchSystem = collectionStatus != CollectionStatus.COLLECTING && mode != DriverMode.SYSTEM,
+        canSwitchTurnip = collectionStatus != CollectionStatus.COLLECTING && mode != DriverMode.TURNIP && turnipSupport == TurnipSupport.SUPPORTED,
+        importSnapshot = {
+            if (!tryLaunchSystemDocumentPicker { importLauncher.launch(arrayOf("application/json", "text/plain")) }) openFallbackImport(FallbackAnalysisImportKind.SNAPSHOT)
         },
-        copyLink = {
-            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
-            clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("VulkanScope link", sharedReportUrl))
+        exportSnapshot = {
+            val filename = "VulkanScope-${safeFilePart(device?.name ?: "Unknown-GPU")}-analysis.json"
+            if (!tryLaunchSystemDocumentPicker { exportLauncher.launch(filename) }) exportSnapshotFallback()
         },
+        importMinimumProfile = {
+            if (!tryLaunchSystemDocumentPicker { minimumImportLauncher.launch(arrayOf("application/json", "text/plain")) }) openFallbackImport(FallbackAnalysisImportKind.MINIMUM)
+        },
+        exportMinimumProfile = {
+            val filename = "VulkanScope-${safeFilePart(state.customProfileName.ifBlank { "minimum" })}-minimum.json"
+            if (!tryLaunchSystemDocumentPicker { minimumExportLauncher.launch(filename) }) exportMinimumFallback()
+        },
+        saveMinimumProfile = {
+            val name = state.customProfileName.trim().take(128)
+            val rules = state.customProfileRules.lineSequence().map { it.trim() }.filter { it.isNotBlank() }.take(ANALYSIS_CUSTOM_PROFILE_MAX_RULES + 1).toList()
+            if (name.isBlank() || rules.isEmpty() || rules.size > ANALYSIS_CUSTOM_PROFILE_MAX_RULES || state.savedProfiles.size >= ANALYSIS_CUSTOM_PROFILE_MAX_PROFILES && name !in state.savedProfiles) {
+                state.customProfileStatus = "Minimum profile violates local bounds"
+            } else {
+                state.savedProfiles = state.savedProfiles + (name to rules.joinToString("\n"))
+                persistProfiles(state.savedProfiles)
+                state.customProfileStatus = "Saved local minimum profile · $name"
+            }
+        },
+        loadMinimumProfile = { name -> state.savedProfiles[name]?.let { state.customProfileName = name; state.customProfileRules = it; state.customProfileStatus = "Loaded local minimum profile · $name" } },
+        deleteMinimumProfile = { name -> state.savedProfiles = state.savedProfiles - name; persistProfiles(state.savedProfiles); state.customProfileStatus = "Deleted local minimum profile · $name" },
+        exportRawTechnicalReport = {
+            val filename = "VulkanScope-${safeFilePart(device?.name ?: "Unknown-GPU")}-technicalReport.json"
+            if (!tryLaunchSystemDocumentPicker { rawExportLauncher.launch(filename) }) exportRawFallback()
+        },
+        importFallbackFile = { kind, file -> importFallbackFile(kind, file) },
+        fetchDatabaseReport = {
+            if (!hasValidatedInternet(context)) {
+                state.databaseRemoteLeaves = emptyList()
+                state.databaseStatus = "Database fetch unavailable · no validated internet connection"
+            } else if (!state.databaseLoading) {
+                state.databaseLoading = true
+                scope.launch {
+                    val result = runCatching { fetchDatabaseTechnicalReport(context, state.databaseReportId) }
+                    result.onSuccess { technical -> state.databaseRemoteLeaves = flattenJson(technical); state.databaseStatus = "Database technicalReport loaded · ${state.databaseReportId.take(12)}…" }
+                        .onFailure { state.databaseRemoteLeaves = emptyList(); state.databaseStatus = it.message ?: "Database report fetch failed" }
+                    state.databaseLoading = false
+                }
+            }
+        },
+        useHistoryAsBaseline = { record -> state.baseline = JSONObject(record.snapshot.toString()); state.analysisStatus = "Baseline from local history · ${record.driverMode}"; state.tab = 0 },
+        deleteHistory = { record -> scope.launch { withContext(Dispatchers.IO) { deleteAnalysisHistoryRecord(context, record.id) }; state.history = withContext(Dispatchers.IO) { loadAnalysisHistoryRecords(context) } } },
+        addWatched = addWatched,
+        persistWatched = { value -> state.watched = value; prefs.edit().putStringSet("watched", value).apply() },
+        switchToSystem = { if (collectionStatus != CollectionStatus.COLLECTING) onDriverModeChanged(DriverMode.SYSTEM) },
+        switchToTurnip = { if (collectionStatus != CollectionStatus.COLLECTING && turnipSupport == TurnipSupport.SUPPORTED) onDriverModeChanged(DriverMode.TURNIP) },
+        startDriverAbWorkflow = {
+            if (device == null || collectionStatus == CollectionStatus.COLLECTING) {
+                state.abWorkflowStatus = "Wait for a completed current-device collection before starting guided A/B"
+            } else if (turnipSupport != TurnipSupport.SUPPORTED) {
+                state.abWorkflowStage = "blocked"
+                state.abWorkflowStatus = "A validated compatible Turnip driver is required for guided A/B"
+                prefs.edit().putString("ab_workflow_stage", state.abWorkflowStage).apply()
+            } else {
+                scope.launch {
+                    withContext(Dispatchers.IO) { saveAnalysisHistoryRecord(context, applicationVersion, mode.label, device.name, current) }
+                    state.history = withContext(Dispatchers.IO) { loadAnalysisHistoryRecords(context) }
+                    if (mode == DriverMode.SYSTEM) {
+                        state.abWorkflowStage = "collect-turnip"
+                        state.abWorkflowStatus = "System session retained; collecting Turnip next"
+                        prefs.edit().putString("ab_workflow_stage", state.abWorkflowStage).apply()
+                        onDriverModeChanged(DriverMode.TURNIP)
+                    } else {
+                        state.abWorkflowStage = "collect-system"
+                        state.abWorkflowStatus = "Turnip session retained; collecting System first, then Turnip"
+                        prefs.edit().putString("ab_workflow_stage", state.abWorkflowStage).apply()
+                        onDriverModeChanged(DriverMode.SYSTEM)
+                    }
+                }
+            }
+        },
+        cancelDriverAbWorkflow = {
+            state.abWorkflowStage = "idle"
+            state.abWorkflowStatus = "Guided A/B cancelled; existing local history is unchanged"
+            prefs.edit().putString("ab_workflow_stage", "idle").apply()
+        },
+        shareLink = { runCatching { context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, sharedReportUrl), "Share VulkanScope link")) } },
+        copyLink = { (context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager)?.setPrimaryClip(android.content.ClipData.newPlainText("VulkanScope link", sharedReportUrl)) },
         runSelfTests = {
             val host = activity
             val target = device
             if (host != null && target != null && !state.testRunning) {
                 state.testRunning = true
                 scope.launch {
-                    state.testResult = withContext(Dispatchers.IO) {
-                        runCatching { JSONObject(host.runVulkanSelfTests(target.vendorIdRaw, target.deviceIdRaw)) }
-                            .getOrElse { JSONObject().put("status", "unavailable").put("reason", it.message ?: "Self-test failed") }
-                    }
+                    state.testResult = withContext(Dispatchers.IO) { runCatching { JSONObject(host.runVulkanSelfTests(target.vendorIdRaw, target.deviceIdRaw)) }.getOrElse { JSONObject().put("status", "unavailable").put("reason", it.message ?: "Self-test failed") } }
                     state.testRunning = false
                 }
             }
@@ -5326,221 +6638,369 @@ private fun rememberAnalysisWorkspaceModel(report: VulkanReport, device: DeviceR
     )
 }
 
+private fun historyLabel(record: AnalysisHistoryRecord): String = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(java.util.Date(record.timestampMs))
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, report: VulkanReport, device: DeviceReport?) {
     val state = model.state
-
-    item { CapabilitySectionCard("Analysis workspace") {
-        Text("Comparison snapshots, watch lists and optional tests stay local and do not mutate the canonical Vulkan capability report or Database payload.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("Compare", "Minimums", "Graph", "Quality", "Watched", "Share", "Tests").forEachIndexed { index, label -> ExpressiveFilterChip(selected = state.tab == index, label = label, onClick = { state.tab = index }) }
+    val tabs = listOf("Compare", "Search", "Drivers", "Diagnostics", "Requirements", "Minimums", "Graph", "Presentation", "Raw JSON", "Database", "History", "Watched", "Quality", "Share", "Tests")
+    item {
+        CapabilitySectionCard("Analysis workspace") {
+            Text("Analysis, history, custom minimums and optional tests stay local unless you explicitly fetch a public Database report or share a link. None of these tools mutate canonical TXT, HTML or Database capability evidence.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+            Text("VulkanScope opens the system document picker first. If that picker cannot be opened, Analysis imports show a local fallback selection dialog and scan only bounded VulkanScope app-specific Documents/Downloads exchange folders. Fallback exports write to the first writable app-specific exchange root and show the saved path in a toast; private internal exchange storage is used only when no writable app-specific external folder exists. Fallback roots are Android/data/com.efishell.vulkanscope/files/Documents, Android/data/com.efishell.vulkanscope/files/Download, then private files/analysis_exchange. No broad storage permission is requested; app-specific exchange files may be removed when VulkanScope is uninstalled.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+            ExpressiveFilterBar(tabs, state.tab) { state.tab = it }
         }
-    } }
-    if (state.tab == 0) {
-        item { CapabilitySectionCard("Offline report compare") {
-            CapabilityKeyValue("Snapshot status", state.analysisStatus)
-            ExpressiveActionButton("Import analysis snapshot", "Select a VulkanScope JSON analysis snapshot", R.drawable.ic_action_text) { model.importSnapshot() }
-            ExpressiveActionButton("Export analysis snapshot", "Portable local JSON for system-driver, Turnip or device comparison", R.drawable.ic_action_html) { model.exportSnapshot() }
+    }
+    when (state.tab) {
+        0 -> {
+            item { CapabilitySectionCard("Offline report compare") {
+                CapabilityKeyValue("Snapshot status", state.analysisStatus)
+                ExpressiveActionButton("Import analysis snapshot", "System document picker first; if it cannot be opened, opens a fallback selection dialog for bounded VulkanScope-*-analysis.json files found only in app-specific exchange roots: Android/data/com.efishell.vulkanscope/files/Documents, Android/data/com.efishell.vulkanscope/files/Download, then private files/analysis_exchange.", R.drawable.ic_action_import) { model.importSnapshot() }
+                ExpressiveActionButton("Export analysis snapshot", "System document picker first; if it cannot be opened, writes VulkanScope-<GPU>-analysis.json to the first writable app-specific exchange root and shows the exact saved path in a toast. Root order: Android/data/com.efishell.vulkanscope/files/Documents, Android/data/com.efishell.vulkanscope/files/Download, then private files/analysis_exchange.", R.drawable.ic_export) { model.exportSnapshot() }
+                if (state.baseline != null) {
+                    ExpressiveToggleRow("Show unchanged", "Include evidence rows whose canonical value is unchanged.", state.includeUnchanged) { state.includeUnchanged = it }
+                    ExpressiveFilterBar(listOf("All", "Added", "Removed", "Changed", "Regression"), listOf("All", "Added", "Removed", "Changed", "Regression").indexOf(state.diffStateFilter).coerceAtLeast(0)) { state.diffStateFilter = listOf("All", "Added", "Removed", "Changed", "Regression")[it] }
+                    ExpressiveSearchField(value = state.diffQuery, onValueChange = { state.diffQuery = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "Search evidence differences…")
+                }
+            } }
             if (state.baseline != null) {
-                Row(
-                    Modifier.fillMaxWidth().toggleable(value = state.includeUnchanged, role = Role.Switch, onValueChange = { state.includeUnchanged = it }).padding(vertical = 4.dp).semantics(mergeDescendants = true) { },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    ExpressiveSwitch(checked = state.includeUnchanged, onCheckedChange = null)
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("Show unchanged", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                        Text("Include evidence rows whose canonical value is unchanged.", style = MaterialTheme.typography.labelSmall, color = VulkanTextSecondary)
-                    }
+                item { CapabilitySectionCard("Diff summary") {
+                    ExpressiveMetric("Added", model.diffRows.count { it.state == "Added" }.toString())
+                    ExpressiveMetric("Removed", model.diffRows.count { it.state.startsWith("Removed") }.toString())
+                    ExpressiveMetric("Changed", model.diffRows.count { it.state.startsWith("Changed") }.toString())
+                    ExpressiveMetric("Regression candidates", model.diffRows.count { it.state.contains("regression candidate") }.toString())
+                    Text("Regression candidates are evidence changes only; VulkanScope does not declare a driver defect from a diff alone.", color = VulkanTextMuted, style = MaterialTheme.typography.bodySmall)
+                } }
+                items(model.diffRows, key = { it.key }) { row ->
+                    CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        CapabilityKeyValue(row.key, row.state)
+                        row.baseline?.let { CapabilityKeyValue("Baseline", it) }
+                        row.current?.let { CapabilityKeyValue("Current", it) }
+                        ExpressiveContainedIconTextButton("Evidence provenance", R.drawable.ic_evidence) { state.selectedEvidence = row.key to (row.current ?: row.baseline.orEmpty()) }
+                    } }
                 }
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("All", "Added", "Removed", "Changed", "Regression").forEach { value -> ExpressiveFilterChip(selected = state.diffStateFilter == value, label = value, onClick = { state.diffStateFilter = value }) } }
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("All", "extension", "feature", "format", "property", "limit", "memory", "queue", "surface", "display", "profile", "query", "safety").forEach { value -> ExpressiveFilterChip(selected = state.diffKindFilter == value, label = value, onClick = { state.diffKindFilter = value }) } }
-                ExpressiveSearchField(value = state.diffQuery, onValueChange = { state.diffQuery = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "Search · state:changed kind:feature vendor:KHR core:1.4 changed:true")
             }
-        } }
-        if (state.baseline != null) {
-            item { CapabilitySectionCard("Diff summary") {
-                CapabilityKeyValue("Added", model.diffRows.count { it.state == "Added" }.toString())
-                CapabilityKeyValue("Removed", model.diffRows.count { it.state.startsWith("Removed") }.toString())
-                CapabilityKeyValue("Changed", model.diffRows.count { it.state.startsWith("Changed") }.toString())
-                CapabilityKeyValue("Regression candidates", model.diffRows.count { it.state.contains("regression candidate") }.toString())
-                Text("Regression candidates are evidence changes only; VulkanScope does not declare a driver bug from a diff alone.", color = VulkanTextMuted, style = MaterialTheme.typography.bodySmall)
+        }
+        1 -> {
+            item { CapabilitySectionCard("Global Vulkan report search") {
+                Text("Searches the completed current-device evidence model. Registry/reference symbols remain separate and can be opened in Encyclopedia from each result.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                ExpressiveSearchField(value = state.globalQuery, onValueChange = { state.globalQuery = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "Search descriptorBuffer, maxImageDimension2D, HDR10…")
+                ExpressiveFilterBar(listOf("All", "extension", "feature", "property", "limit", "format", "surface", "display", "queue", "profile", "query"), listOf("All", "extension", "feature", "property", "limit", "format", "surface", "display", "queue", "profile", "query").indexOf(state.globalKindFilter).coerceAtLeast(0)) { state.globalKindFilter = listOf("All", "extension", "feature", "property", "limit", "format", "surface", "display", "queue", "profile", "query")[it] }
+                CapabilityKeyValue("Visible result bound", "$ANALYSIS_GLOBAL_SEARCH_VISIBLE_LIMIT")
             } }
-            items(model.diffRows, key = { it.key }) { row -> CapabilityItemCard {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (state.globalQuery.trim().length < 2) item { EmptyState("Type at least two characters to search the complete current report") }
+            items(model.globalResults, key = { it.first }) { result ->
+                CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    CapabilityKeyValue(result.first, result.second)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { DetailAffordance { state.selectedEvidence = result } }
+                } }
+            }
+        }
+        2 -> {
+            item { CapabilitySectionCard("System driver ↔ Turnip A/B") {
+                Text("Each completed driver session is captured into bounded local history. Switching drivers remains an explicit user action and uses VulkanScope's existing driver-change/collection path.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                CapabilityKeyValue("System snapshot", model.systemHistory?.let(::historyLabel) ?: "No completed local System session")
+                CapabilityKeyValue("Turnip snapshot", model.turnipHistory?.let(::historyLabel) ?: "No completed local Turnip session")
+                CapabilityKeyValue("Guided workflow", state.abWorkflowStatus)
+                ExpressiveActionButton("Run guided System ↔ Turnip A/B", "One explicit workflow retains the current completed session, collects the missing System/Turnip side, then exposes the local evidence diff", R.drawable.ic_compare, enabled = model.canSwitchSystem || model.canSwitchTurnip) { model.startDriverAbWorkflow() }
+                if (state.abWorkflowStage in setOf("collect-system", "collect-turnip")) ExpressiveTextButton("Cancel guided A/B") { model.cancelDriverAbWorkflow() }
+                ExpressiveActionButton("Switch to System and collect", "Manual single-side collection using the existing driver selection workflow", R.drawable.ic_compare, enabled = model.canSwitchSystem) { model.switchToSystem() }
+                ExpressiveActionButton("Switch to Turnip and collect", "Manual single-side collection; requires a validated installed compatible driver bundle", R.drawable.ic_compare, enabled = model.canSwitchTurnip) { model.switchToTurnip() }
+                Text("The guided workflow may perform the second driver switch after the first requested collection completes because that continuation was explicitly authorized by Run guided A/B. No driver mutation starts without that user action, and no network upload is involved.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+            } }
+            if (model.systemHistory != null && model.turnipHistory != null) {
+                item { CapabilitySectionCard("A/B summary") {
+                    ExpressiveMetric("Changed evidence", model.driverDiffRows.size.toString())
+                    ExpressiveMetric("Added", model.driverDiffRows.count { it.state == "Added" }.toString())
+                    ExpressiveMetric("Removed", model.driverDiffRows.count { it.state.startsWith("Removed") }.toString())
+                    ExpressiveMetric("Regression candidates", model.driverDiffRows.count { it.state.contains("regression candidate") }.toString())
+                    Text("The baseline is the latest System session and the current side is the latest Turnip session. Differences are evidence changes, not performance or quality rankings.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                } }
+                items(model.driverDiffRows.take(ANALYSIS_GLOBAL_SEARCH_VISIBLE_LIMIT), key = { "ab:${it.key}" }) { row -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     CapabilityKeyValue(row.key, row.state)
-                    row.baseline?.let { CapabilityKeyValue("Baseline", it) }
-                    row.current?.let { CapabilityKeyValue("Current", it) }
+                    row.baseline?.let { CapabilityKeyValue("System", it) }
+                    row.current?.let { CapabilityKeyValue("Turnip", it) }
+                } } }
+            } else item { EmptyState("Collect at least one completed System session and one completed Turnip session") }
+        }
+        3 -> {
+            item { CapabilitySectionCard("Collection diagnostics") {
+                Text("Shows explicit query/completeness/safety evidence already present in the report. The base collector does not publish elapsed time for every Vulkan query; dedicated or on-demand probes display measured app-side elapsed time when that timing evidence exists, and VulkanScope does not invent missing timings.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                ExpressiveMetric("Diagnostic rows", model.diagnostics.size.toString())
+                ExpressiveMetric("Safety rejections", model.diagnostics.count { it.state == "SAFETY REJECTED" }.toString())
+                ExpressiveMetric("Incomplete", model.diagnostics.count { it.state == "INCOMPLETE" }.toString())
+            } }
+            items(model.diagnostics, key = { "diag:${it.key}" }) { row -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                ExpressiveStatus(row.state)
+                CapabilityKeyValue(row.key, row.value)
+                CapabilityKeyValue("Per-query timing", row.timing)
+            } } }
+        }
+        4 -> {
+            item { CapabilitySectionCard("Capability requirement resolver") {
+                Text("Registry dependency expressions are reference metadata. VulkanScope evaluates referenced tokens individually against authoritative runtime API/extension evidence and does not collapse a registry expression into an inferred global support claim.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                ExpressiveSearchField(value = state.requirementInput, onValueChange = { state.requirementInput = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "VK_EXT_descriptor_buffer")
+                model.requirementReference?.let { ref ->
+                    CapabilityKeyValue("Registry depends", ref.depends.ifBlank { "No dependency expression in checked-in reference" })
+                    CapabilityKeyValue("Registry requires", ref.requires.ifBlank { "No requires expression in checked-in reference" })
+                    CapabilityKeyValue("Promoted to", ref.promotedTo.ifBlank { "Not promoted in checked-in reference" })
                 }
             } }
+            items(model.requirementEvaluations, key = { "req:${it.token}" }) { result -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                ExpressiveStatus(result.state)
+                CapabilityKeyValue(result.token, result.evidence)
+            } } }
         }
-    } else if (state.tab == 1) {
-        item { CapabilitySectionCard("Specification/profile minimum comparison") {
-            Text("The evaluator uses struct-qualified runtime evidence, required-profile inheritance and explicit OR capability groups from audited normalized official definitions. Catalog-only or coverage-limited definitions remain UNKNOWN rather than becoming API-only PASS claims.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-            CapabilityKeyValue("Published Vulkan baseline", report.registryCoverage.baseline.ifBlank { "Vulkan 1.4.362" })
-            ExpressiveSearchField(value = state.profileQuery, onValueChange = { state.profileQuery = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "Search profiles…")
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("All", "FAIL", "UNKNOWN", "PASS").forEach { value -> ExpressiveFilterChip(selected = state.profileStatusFilter == value, label = value, onClick = { state.profileStatusFilter = value }) } }
-        } }
-        items(model.profileResults, key = { it.name }) { result -> CapabilityItemCard {
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        5 -> {
+            item { CapabilitySectionCard("Vulkan Profiles and custom minimums") {
+                Text("Official bundled Profile evaluation remains authoritative for included profiles. The custom builder is a separate local rule layer and never rewrites runtime evidence.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                ExpressiveSearchField(value = state.profileQuery, onValueChange = { state.profileQuery = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "Search bundled profiles…")
+                ExpressiveFilterBar(listOf("All", "FAIL", "UNKNOWN", "PASS"), listOf("All", "FAIL", "UNKNOWN", "PASS").indexOf(state.profileStatusFilter).coerceAtLeast(0)) { state.profileStatusFilter = listOf("All", "FAIL", "UNKNOWN", "PASS")[it] }
+            } }
+            items(model.profileResults, key = { "profile:${it.name}" }) { result -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 CapabilityKeyValue(result.name, profileSummary(result))
                 CapabilityKeyValue("Mapped checks", result.checkedRequirementCount.toString())
                 result.failingLimits.takeIf { it.isNotEmpty() }?.let { CapabilityKeyValue("Verified property/limit failures", it.joinToString("; ")) }
                 result.unknownLimits.takeIf { it.isNotEmpty() }?.let { CapabilityKeyValue("Unavailable properties/limits", it.joinToString("; ")) }
-                result.failingFormats.takeIf { it.isNotEmpty() }?.let { CapabilityKeyValue("Verified format failures", it.joinToString("; ")) }
-                result.unknownFormats.takeIf { it.isNotEmpty() }?.let { CapabilityKeyValue("Unavailable formats", it.joinToString("; ")) }
                 result.failingRequirementGroups.takeIf { it.isNotEmpty() }?.let { CapabilityKeyValue("Failed inherited/OR requirements", it.joinToString("; ")) }
                 result.unknownRequirementGroups.takeIf { it.isNotEmpty() }?.let { CapabilityKeyValue("Unresolved inherited/OR requirements", it.joinToString("; ")) }
-            }
-        } }
-    } else if (state.tab == 2) {
-        item { CapabilitySectionCard("Capability dependency graph") {
-            Text("Registry dependency edges and runtime enumeration are shown as separate evidence. A registry edge never fabricates runtime support.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-            ExpressiveSearchField(value = state.graphInput, onValueChange = { state.graphInput = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "VK_KHR_swapchain")
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { (1..4).forEach { depth -> ExpressiveFilterChip(selected = state.graphDepth == depth, label = "Depth $depth", onClick = { state.graphDepth = depth }) } }
-            CapabilityKeyValue("Root", model.graphRootToken.ifBlank { "Enter a Vulkan extension token" })
-            model.graphRootRef?.let {
-                CapabilityKeyValue("Registry depends", it.depends.ifBlank { "Unavailable in checked-in reference asset" })
-                CapabilityKeyValue("Promoted to core", it.promotedTo.ifBlank { "Unavailable in checked-in reference asset" })
-            }
-        } }
-        if (model.graphRootRef != null) {
-            item { CapabilitySectionCard("Visual registry-reference graph") {
-                Text("The visual graph is bounded to 24 nodes for legibility. The complete bounded traversal remains listed below. Lines represent references inside registry dependency expressions, not inferred runtime requirements.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-                VulkanDependencyGraph(model.visualGraphNodes, Modifier.fillMaxWidth())
-                if (model.graphEntries.size > model.visualGraphNodes.size) CapabilityKeyValue("Visual nodes", "${model.visualGraphNodes.size} of ${model.graphEntries.size} · full traversal below")
+            } } }
+            item { CapabilitySectionCard("Custom minimum builder") {
+                OutlinedTextField(value = state.customProfileName, onValueChange = { state.customProfileName = it.take(128) }, modifier = Modifier.fillMaxWidth(), label = { Text("Profile name") }, singleLine = true)
+                OutlinedTextField(value = state.customProfileRules, onValueChange = { if (it.length <= 16_384) state.customProfileRules = it }, modifier = Modifier.fillMaxWidth().heightIn(min = 140.dp), label = { Text("Rules") }, supportingText = { Text("One rule per line: api>=1.3 · extension:VK_KHR_dynamic_rendering · feature:name=true · limit:name>=number · evidence:path=value") })
+                CapabilityKeyValue("Local status", state.customProfileStatus)
+                ExpressiveActionButton("Save local profile", "Bounded local profile; no capability mutation", R.drawable.ic_save) { model.saveMinimumProfile() }
+                ExpressiveActionButton("Import profile JSON", "System document picker first; if it cannot be opened, opens a fallback selection dialog for bounded VulkanScope-*-minimum.json files found only in app-specific exchange roots: Android/data/com.efishell.vulkanscope/files/Documents, Android/data/com.efishell.vulkanscope/files/Download, then private files/analysis_exchange.", R.drawable.ic_action_import) { model.importMinimumProfile() }
+                ExpressiveActionButton("Export profile JSON", "System document picker first; if it cannot be opened, writes VulkanScope-<profile>-minimum.json to the first writable app-specific exchange root and shows the exact saved path in a toast. Roots: Android/data/com.efishell.vulkanscope/files/Documents, Android/data/com.efishell.vulkanscope/files/Download, then private files/analysis_exchange.", R.drawable.ic_export) { model.exportMinimumProfile() }
             } }
-            item { CapabilityItemCard {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(model.graphRootToken, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                    Text(dependencyRuntimeEvidence(model.graphRootToken, report, device), color = VulkanAccentSoft, style = MaterialTheme.typography.labelMedium)
-                    if (model.graphEntries.size > 1) Text("↓ registry expression references", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
-                }
+            items(state.savedProfiles.toSortedMap().entries.toList(), key = { "saved:${it.key}" }) { entry -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                CapabilityKeyValue(entry.key, "${entry.value.lineSequence().count { it.isNotBlank() }} rule(s)")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { ExpressiveTextButton("Load") { model.loadMinimumProfile(entry.key) }; ExpressiveTextButton("Delete") { model.deleteMinimumProfile(entry.key) } }
+            } } }
+            item { CapabilitySectionCard("Current custom evaluation") {
+                ExpressiveMetric("PASS", model.customMinimumEvaluations.count { it.state == "PASS" }.toString())
+                ExpressiveMetric("FAIL", model.customMinimumEvaluations.count { it.state == "FAIL" }.toString())
+                ExpressiveMetric("UNKNOWN", model.customMinimumEvaluations.count { it.state == "UNKNOWN" }.toString())
             } }
-            items(model.graphEntries.drop(1), key = { "dep:${it.depth}:${it.token}" }) { entry ->
-                val child = vulkanExtensionReference(entry.token)
-                CapabilityItemCard { Column(Modifier.padding(start = (14 + entry.depth * 10).dp, top = 12.dp, end = 14.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            items(model.customMinimumEvaluations, key = { "minimum:${it.rule}" }) { evaluation -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                ExpressiveStatus(evaluation.state)
+                CapabilityKeyValue(evaluation.rule, evaluation.evidence)
+            } } }
+        }
+        6 -> {
+            item { CapabilitySectionCard("Capability dependency graph") {
+                Text("Registry edges and runtime enumeration remain separate evidence classes. Graph traversal is bounded and cycle-safe.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                ExpressiveSearchField(value = state.graphInput, onValueChange = { state.graphInput = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "VK_KHR_swapchain")
+                ExpressiveFilterBar((1..4).map { "Depth $it" }, state.graphDepth - 1) { state.graphDepth = it + 1 }
+                CapabilityKeyValue("Root", model.graphRootToken.ifBlank { "Enter a Vulkan extension token" })
+                model.graphRootRef?.let { CapabilityKeyValue("Registry depends", it.depends.ifBlank { "Unavailable in checked-in reference asset" }) }
+            } }
+            if (model.graphRootRef != null) {
+                item { CapabilitySectionCard("Visual registry-reference graph") { VulkanDependencyGraph(model.visualGraphNodes, Modifier.fillMaxWidth()); CapabilityKeyValue("Bounded traversal", "${model.graphEntries.size} reference node(s)") } }
+                items(model.graphEntries, key = { "dep:${it.depth}:${it.token}" }) { entry -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     CapabilityKeyValue(entry.token, dependencyRuntimeEvidence(entry.token, report, device))
-                    CapabilityKeyValue("Registry edge", "${entry.parent ?: model.graphRootToken} → ${entry.token} · expression reference")
-                    if (child.depends.isNotBlank()) CapabilityKeyValue("Dependency expression", child.depends)
+                    entry.parent?.let { CapabilityKeyValue("Registry edge", "$it → ${entry.token}") }
+                } } }
+            }
+        }
+        7 -> {
+            item { CapabilitySectionCard("Surface + Display presentation evidence") {
+                Text("These are compatible evidence paths, not end-to-end presentation guarantees. Vulkan Surface color spaces and Android physical-display HDR/wide-gamut evidence remain separate sources.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+            } }
+            items(model.presentationPaths, key = { it.title }) { path -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                ExpressiveStatus(path.state)
+                Text(path.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                CapabilityKeyValue("Vulkan Surface", path.surfaceEvidence)
+                CapabilityKeyValue("Android Display", path.displayEvidence)
+                Text(path.note, color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+            } } }
+        }
+        8 -> {
+            item { CapabilitySectionCard("Raw structured technical Report") {
+                Text("Read-only tree leaves from the exact local schema-v3 technicalReport object used by Database submission. Values are searchable and exportable without changing the canonical report.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                ExpressiveSearchField(value = state.rawQuery, onValueChange = { state.rawQuery = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "Search JSON path or value…")
+                CapabilityKeyValue("Visible leaf bound", "$ANALYSIS_RAW_JSON_VISIBLE_LIMIT")
+                ExpressiveActionButton("Export technicalReport JSON", "Structured local schema-v3 report · System document picker first; if it cannot be opened, writes VulkanScope-<GPU>-technicalReport.json to the first writable app-specific exchange root and shows the exact saved path in a toast. Roots: Android/data/com.efishell.vulkanscope/files/Documents, Android/data/com.efishell.vulkanscope/files/Download, then private files/analysis_exchange.", R.drawable.ic_export) { model.exportRawTechnicalReport() }
+            } }
+            items(model.rawLeaves, key = { "raw:${it.path}" }) { leaf -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                CapabilityKeyValue(leaf.path, leaf.value)
+                Text(leaf.type, color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                ExpressiveContainedIconTextButton("Evidence actions", R.drawable.ic_evidence) { state.selectedEvidence = leaf.path to leaf.value }
+            } } }
+        }
+        9 -> {
+            item {
+                val networkAvailable = LocalValidatedNetwork.current
+                CapabilitySectionCard("Compare with VulkanScope Database") {
+                Text("Fetching is explicit and uses only the fixed official Database HTTPS origin. The downloaded public technicalReport is compared locally against the current technicalReport.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                ExpressiveSearchField(
+                    value = state.databaseReportId,
+                    onValueChange = { state.databaseReportId = it.lowercase().filter { ch -> ch in '0'..'9' || ch in 'a'..'f' }.take(64) },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = networkAvailable,
+                    placeholderText = "64-character report id"
+                )
+                CapabilityKeyValue("Status", state.databaseStatus)
+                ExpressiveActionButton("Fetch public report", if (networkAvailable) "Explicit GET from the fixed official Database endpoint" else "Unavailable without a validated internet connection", R.drawable.ic_database_fetch, enabled = networkAvailable && !state.databaseLoading && state.databaseReportId.length == 64) { model.fetchDatabaseReport() }
+                if (!networkAvailable) Text("Public Database report-id lookup is locked until Android reports a validated internet connection.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
+                if (state.databaseLoading) LoadingIndicator(color = VulkanAccentSoft, modifier = Modifier.size(32.dp))
+                if (state.databaseRemoteLeaves.isNotEmpty()) ExpressiveToggleRow("Show unchanged", "Include identical structured JSON leaves.", state.databaseIncludeUnchanged) { state.databaseIncludeUnchanged = it }
+            } }
+            if (state.databaseRemoteLeaves.isNotEmpty()) {
+                item { CapabilitySectionCard("Database comparison summary") {
+                    ExpressiveMetric("Differences", model.databaseDiff.count { it.state != "Unchanged" }.toString())
+                    ExpressiveMetric("Added locally", model.databaseDiff.count { it.state == "Added" }.toString())
+                    ExpressiveMetric("Missing locally", model.databaseDiff.count { it.state == "Removed" }.toString())
+                    Text("A difference is a report-evidence difference only; it is not a device ranking or market-share statement.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                } }
+                items(model.databaseDiff.take(ANALYSIS_GLOBAL_SEARCH_VISIBLE_LIMIT), key = { "db:${it.key}" }) { row -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    CapabilityKeyValue(row.key, row.state)
+                    row.baseline?.let { CapabilityKeyValue("Database", it) }
+                    row.current?.let { CapabilityKeyValue("Current", it) }
+                } } }
+            }
+        }
+        10 -> {
+            item { CapabilitySectionCard("Local session history") {
+                CapabilityKeyValue("Retention", "${state.history.size} / $ANALYSIS_HISTORY_MAX_ITEMS sessions")
+                CapabilityKeyValue("Status", state.historyStatus)
+                Text("Completed analysis snapshots are compressed into private app storage with strict count/size bounds. No history is uploaded automatically.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+            } }
+            items(state.history, key = { "history:${it.id}" }) { record -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                CapabilityKeyValue(historyLabel(record), record.driverMode)
+                CapabilityKeyValue("GPU", record.deviceName)
+                CapabilityKeyValue("App version", record.applicationVersion)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ExpressiveContainedIconTextButton("Use as baseline", R.drawable.ic_baseline, modifier = Modifier.weight(1f)) { model.useHistoryAsBaseline(record) }
+                    ExpressiveContainedIconTextButton("Delete", R.drawable.ic_delete, modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold) { state.pendingHistoryDelete = record }
+                }
+            } } }
+            if (state.history.isEmpty()) item { EmptyState("No completed local analysis session retained yet") }
+        }
+        11 -> {
+            item { CapabilitySectionCard("Watched evidence") {
+                ExpressiveSearchField(value = state.watchInput, onValueChange = { state.watchInput = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "Extension, feature, limit, format or evidence token…")
+                CapabilityKeyValue("Watch-list usage", "${state.watched.size} / $ANALYSIS_MAX_WATCHED")
+                ExpressiveContainedIconTextButton("Add to watch list", R.drawable.ic_watch_add) { model.addWatched(state.watchInput); state.watchInput = "" }
+                ExpressiveSearchField(value = state.watchQuery, onValueChange = { state.watchQuery = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "Filter watched entries…")
+                ExpressiveFilterBar(listOf("All", "Matched", "Missing"), listOf("All", "Matched", "Missing").indexOf(state.watchStateFilter).coerceAtLeast(0)) { state.watchStateFilter = listOf("All", "Matched", "Missing")[it] }
+            } }
+            items(model.visibleWatched, key = { "watch:$it" }) { token ->
+                val evidence = model.watchedEvidence[token] ?: (0 to emptyList())
+                CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    CapabilityKeyValue(token, if (evidence.first == 0) "Not present in current snapshot" else "${evidence.first} matching evidence item(s)")
+                    evidence.second.forEach { CapabilityKeyValue(it.first, it.second) }
+                    ExpressiveTextButton("Remove") { model.persistWatched(state.watched - token) }
                 } }
             }
         }
-    } else if (state.tab == 3) {
-        item { CapabilitySectionCard("Heuristic diagnostic evidence score") {
-            CapabilityKeyValue("Score", model.driverHealth.score?.let { "$it / 100" } ?: "Unavailable")
-            CapabilityKeyValue("Interpretation", model.driverHealth.level)
-            Text("This heuristic is not a Vulkan conformance result, benchmark, performance score or hardware-quality claim. It summarizes only explicit collection/safety anomalies observed by VulkanScope.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-        } }
-        items(model.driverHealth.factors, key = { it }) { factor -> CapabilityItemCard { Column(Modifier.padding(14.dp)) { Text(factor) } } }
-    } else if (state.tab == 4) {
-        item { CapabilitySectionCard("Watched capabilities") {
-            ExpressiveSearchField(value = state.watchInput, onValueChange = { state.watchInput = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "Exact extension, feature, limit or format…")
-            CapabilityKeyValue("Watch-list usage", "${state.watched.size} / $ANALYSIS_MAX_WATCHED")
-            ExpressiveTextButton("Add to watch list") {
-                val token = state.watchInput.trim()
-                if (token.isNotEmpty() && token.length <= 256 && token !in state.watched && state.watched.size < ANALYSIS_MAX_WATCHED) { state.watched = state.watched + token; model.persistWatched(state.watched); state.watchInput = "" }
-            }
-            ExpressiveSearchField(value = state.watchQuery, onValueChange = { state.watchQuery = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "Filter watched entries…")
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("All", "Matched", "Missing").forEach { value -> ExpressiveFilterChip(selected = state.watchStateFilter == value, label = value, onClick = { state.watchStateFilter = value }) } }
-        } }
-        items(model.visibleWatched, key = { it }) { token ->
-            val evidence = model.watchedEvidence[token] ?: (0 to emptyList<Pair<String, String>>())
-            CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                CapabilityKeyValue(token, if (evidence.first == 0) "Not present in current snapshot" else "${evidence.first} matching evidence item(s)")
-                evidence.second.forEach { CapabilityKeyValue(it.first, it.second) }
-                ExpressiveTextButton("Remove") { state.watched = state.watched - token; model.persistWatched(state.watched) }
+        12 -> {
+            item { CapabilitySectionCard("Diagnostic evidence score") {
+                CapabilityKeyValue("Score", model.driverHealth.score?.let { "$it / 100" } ?: "Unavailable")
+                CapabilityKeyValue("Interpretation", model.driverHealth.level)
+                Text("This heuristic summarizes explicit collection/safety anomalies only. It is not Vulkan conformance, a benchmark, GPU ranking, performance score or vendor-quality claim.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
             } }
+            items(model.driverHealth.factors, key = { "quality:$it" }) { factor -> CapabilityItemCard { Text(factor, modifier = Modifier.padding(14.dp)) } }
         }
-    } else if (state.tab == 5) {
-        item { CapabilitySectionCard("Database permalink & QR") {
-            CapabilityKeyValue("Target", if (model.lastSharedReportId.isBlank()) "VulkanScope Database" else "Last submitted report · ${model.lastSharedReportId.take(12)}…")
-            CapabilityKeyValue("Permalink", model.sharedReportUrl)
-            ExpressiveActionButton("Share link", "Android Sharesheet · no background upload", R.drawable.ic_action_html) {
-                model.shareLink()
+        13 -> {
+            item { CapabilitySectionCard("Database permalink & QR") {
+                CapabilityKeyValue("Target", if (model.lastSharedReportId.isBlank()) "VulkanScope Database" else "Last submitted report · ${model.lastSharedReportId.take(12)}…")
+                CapabilityKeyValue("Permalink", model.sharedReportUrl)
+                ExpressiveActionButton("Share link", "Android Sharesheet · no background upload", R.drawable.ic_share) { model.shareLink() }
+                ExpressiveContainedIconTextButton("Copy link", R.drawable.ic_link) { model.copyLink() }
+            } }
+            item { Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { VulkanQrCode(model.sharedReportUrl, Modifier.size(220.dp)) } }
+        }
+        else -> {
+            item { CapabilitySectionCard("Optional active tests") {
+                Text("Active tests are isolated from capability collection. FAIL means the test failed; it does not rewrite the reported feature as Unsupported.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                CapabilityKeyValue("Target GPU", device?.let { "${it.name} · ${it.vendorId}:${it.deviceId}" } ?: "Unavailable")
+                ExpressiveActionButton("Run Vulkan self-tests", "Selected GPU only · minimal VkDevice, SPIR-V shader-module, pipeline-layout and compute-pipeline creation", R.drawable.ic_self_test, enabled = !state.testRunning && model.selfTestsAvailable) { model.runSelfTests() }
+                if (state.testRunning) LoadingIndicator(color = VulkanAccentSoft, modifier = Modifier.size(32.dp))
+            } }
+            state.testResult?.let { result ->
+                item { CapabilitySectionCard("Self-test result") { CapabilityKeyValue("Status", result.optString("status", "unknown")); result.optString("reason").takeIf { it.isNotBlank() }?.let { CapabilityKeyValue("Reason", it) } } }
+                val tests = result.optJSONArray("tests")
+                if (tests != null) items((0 until tests.length()).mapNotNull { tests.optJSONObject(it) }) { test -> CapabilityItemCard { Column(Modifier.padding(14.dp)) {
+                    CapabilityKeyValue(test.optString("name", "Test"), test.optString("status", "unknown"))
+                    test.optString("detail").takeIf { it.isNotBlank() }?.let { CapabilityKeyValue("Detail", it) }
+                } } }
             }
-            ExpressiveTextButton("Copy link") {
-                model.copyLink()
-            }
-        } }
-        item { Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { VulkanQrCode(model.sharedReportUrl, Modifier.size(220.dp)) } }
-    } else {
-        item { CapabilitySectionCard("Optional active tests") {
-            Text("Active tests are isolated from capability collection. FAIL means the test failed; it does not rewrite the reported feature as unsupported.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-            CapabilityKeyValue("Target GPU", device?.let { "${it.name} · ${it.vendorId}:${it.deviceId}" } ?: "Unavailable")
-            ExpressiveActionButton("Run Vulkan self-tests", "Selected GPU only · VkDevice, minimal SPIR-V shader-module, pipeline-layout and compute-pipeline creation", R.drawable.ic_action_update, enabled = !state.testRunning && model.selfTestsAvailable) { model.runSelfTests() }
-            if (state.testRunning) LoadingIndicator(color = VulkanAccentSoft, modifier = Modifier.size(32.dp))
-        } }
-        val result = state.testResult
-        if (result != null) {
-            item { CapabilitySectionCard("Self-test result") { CapabilityKeyValue("Status", result.optString("status", "unknown")); result.optString("reason").takeIf { it.isNotBlank() }?.let { CapabilityKeyValue("Reason", it) } } }
-            val tests = result.optJSONArray("tests")
-            if (tests != null) items((0 until tests.length()).mapNotNull { tests.optJSONObject(it) }) { test -> CapabilityItemCard { Column(Modifier.padding(14.dp)) {
-                CapabilityKeyValue(test.optString("name", "Test"), test.optString("status", "unknown"))
-                test.optString("detail").takeIf { it.isNotBlank() }?.let { CapabilityKeyValue("Detail", it) }
-            } } }
         }
     }
-
 }
 
+@Composable
+private fun ChevronAffordance(label: String, contentDescription: String, onClick: () -> Unit) {
+    Surface(
+        color = VulkanAccentContainer,
+        shape = RoundedCornerShape(18.dp),
+        modifier = Modifier.semantics { role = Role.Button }
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            modifier = Modifier.padding(start = 12.dp, end = 2.dp, top = 2.dp, bottom = 2.dp)
+        ) {
+            Text(label, color = VulkanAccentSoft, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            IconButton(onClick = onClick, modifier = Modifier.size(44.dp)) {
+                Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = contentDescription, tint = VulkanAccentSoft, modifier = Modifier.size(16.dp))
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun DetailAffordance(onClick: () -> Unit) {
-    TextButton(
-        onClick = onClick,
-        modifier = Modifier.semantics { role = Role.Button },
-        shapes = ButtonDefaults.shapes(
-            shape = RoundedCornerShape(18.dp),
-            pressedShape = RoundedCornerShape(24.dp)
-        ),
-        colors = ButtonDefaults.textButtonColors(
-            containerColor = VulkanAccentContainer,
-            contentColor = VulkanAccentSoft
-        )
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text("Details", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-            Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null, modifier = Modifier.size(16.dp))
-        }
-    }
-}
+private fun DetailAffordance(onClick: () -> Unit) = ChevronAffordance("Details", "Open details", onClick)
 
 @Composable
-private fun ScrollableDetailDialog(title: String, onDismiss: () -> Unit, content: @Composable () -> Unit) {
+private fun ScrollableDetailDialog(title: String, onDismiss: () -> Unit, content: @Composable () -> Unit) = ExpressiveDetailDialog(title, onDismiss, content)
+
+@Composable
+private fun ExpressiveDetailDialog(title: String, onDismiss: () -> Unit, content: @Composable () -> Unit) {
     val scrollState = rememberScrollState()
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
     val horizontalMargin = if (configuration.screenWidthDp < 360) 10.dp else 18.dp
     val verticalMargin = if (configuration.screenHeightDp < 520) 8.dp else 16.dp
-    val bodyMaxHeight = minOf(540.dp, maxOf(140.dp, (configuration.screenHeightDp - 200).dp))
+    val dialogMaxHeight = maxOf(300.dp, configuration.screenHeightDp.dp - verticalMargin * 2)
+    val bodyMaxHeight = minOf(540.dp, maxOf(96.dp, dialogMaxHeight - 170.dp))
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxSize().padding(horizontal = horizontalMargin, vertical = verticalMargin), contentAlignment = Alignment.Center) {
             Surface(
-                modifier = Modifier.fillMaxWidth().widthIn(max = 560.dp),
+                modifier = Modifier.fillMaxWidth().widthIn(max = 560.dp).heightIn(max = dialogMaxHeight),
                 shape = MaterialTheme.shapes.extraLarge,
                 color = VulkanSurfaceRaised,
                 tonalElevation = 4.dp,
                 shadowElevation = 8.dp
             ) {
-                Column(Modifier.fillMaxWidth()) {
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = VulkanTextPrimary)
-                        Text("Detailed Vulkan evidence", style = MaterialTheme.typography.labelMedium, color = VulkanTextSecondary)
+                Column(Modifier.fillMaxWidth().heightIn(max = dialogMaxHeight)) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Surface(shape = RoundedCornerShape(18.dp), color = VulkanAccentContainer) {
+                            Icon(painterResource(R.drawable.ic_info), contentDescription = null, tint = VulkanAccentSoft, modifier = Modifier.padding(10.dp).size(21.dp))
+                        }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = VulkanTextPrimary)
+                            Text("Detailed Vulkan evidence", style = MaterialTheme.typography.labelMedium, color = VulkanTextSecondary)
+                        }
                     }
                     HorizontalDivider(color = VulkanOutlineVariant)
-                    Box(Modifier.fillMaxWidth().heightIn(max = bodyMaxHeight).padding(horizontal = 14.dp, vertical = 12.dp)) {
+                    Box(Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(min = 96.dp, max = bodyMaxHeight).padding(horizontal = 14.dp, vertical = 12.dp)) {
                         Column(
                             Modifier.fillMaxWidth().verticalScroll(scrollState).focusGroup(),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             CompositionLocalProvider(LocalDetailKeyValuePresentation provides true) { content() }
                         }
-                        ScrollBoundaryIndicators(scrollState, Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 6.dp))
+                        ExpressiveScrollHints(scrollState, Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 6.dp))
                     }
                     HorizontalDivider(color = VulkanOutlineVariant)
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 9.dp), horizontalArrangement = Arrangement.End) {
-                        ExpressiveTextButton("Close") { onDismiss() }
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 66.dp).padding(horizontal = 14.dp, vertical = 9.dp),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        ExpressiveContainedIconTextButton("Close", R.drawable.ic_close) { onDismiss() }
                     }
                 }
             }
@@ -5548,18 +7008,46 @@ private fun ScrollableDetailDialog(title: String, onDismiss: () -> Unit, content
     }
 }
 
+private val FORMAT_USAGE_FILTERS = linkedMapOf(
+    "Sampled" to listOf("SAMPLED_IMAGE"),
+    "Storage" to listOf("STORAGE_IMAGE"),
+    "Color attachment" to listOf("COLOR_ATTACHMENT"),
+    "Depth/stencil" to listOf("DEPTH_STENCIL_ATTACHMENT"),
+    "Linear filtering" to listOf("SAMPLED_IMAGE_FILTER_LINEAR"),
+    "Blit source" to listOf("BLIT_SRC"),
+    "Blit destination" to listOf("BLIT_DST"),
+    "Transfer source" to listOf("TRANSFER_SRC"),
+    "Transfer destination" to listOf("TRANSFER_DST"),
+    "Video decode" to listOf("VIDEO_DECODE"),
+    "Video encode" to listOf("VIDEO_ENCODE"),
+    "YCbCr / chroma" to listOf("YCBCR", "CHROMA_SAMPLES")
+)
+
+private fun formatMatchesUsageFilters(format: FormatEntry, selected: Set<String>): Boolean {
+    if (selected.isEmpty()) return true
+    val decoded = listOf(formatFeatureFlags(format.linear), formatFeatureFlags(format.optimal), formatFeatureFlags(format.buffer)).joinToString(" ")
+    return selected.all { label -> FORMAT_USAGE_FILTERS[label].orEmpty().any { token -> decoded.contains(token, true) } }
+}
+
 @Composable
 private fun FormatsPage(device: DeviceReport?) {
     var query by remember { mutableStateOf("") }
     var selected by remember { mutableStateOf<FormatEntry?>(null) }
+    var usageFilters by remember { mutableStateOf<Set<String>>(emptySet()) }
     val formats = remember(device) { device?.formats ?: emptyList() }
-    val filtered = remember(query, formats) { formats.filter { matchesFormatExplorerQuery(it, query) } }
+    val filtered = remember(query, formats, usageFilters) { formats.filter { matchesFormatExplorerQuery(it, query) && formatMatchesUsageFilters(it, usageFilters) } }
     VulkanLazyPage(verticalSpacing = 8.dp) {
         item {
             CapabilitySectionCard("Format explorer") {
             Text("Implementation-reported format capabilities. Bitmasks are expanded to canonical Vulkan feature names; unknown bits remain visible in hexadecimal.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
             ExpressiveSearchField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), placeholderText = "Search · supported:true feature:SAMPLED name:R16")
-            Text("${filtered.size} formats · use Details for full decoded/raw detail", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(vertical = 6.dp))
+            Text("Usage requirements · all selected filters must be present in collected format-feature evidence", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+            ExpressiveMultiFilterBar(FORMAT_USAGE_FILTERS.keys.toList(), usageFilters) { label ->
+                usageFilters = if (label in usageFilters) usageFilters - label else usageFilters + label
+            }
+            if (usageFilters.isNotEmpty()) ExpressiveTextButton("Clear usage filters") { usageFilters = emptySet() }
+            ExpressiveMetricGrid(listOf("Visible formats" to filtered.size.toString(), "Active usage filters" to usageFilters.size.toString()), Modifier.padding(top = 4.dp))
+            Text("Use Details for full decoded/raw format evidence.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
             }
         }
         itemsIndexed(filtered, key = { index, format -> "format:${format.name}:$index" }) { _, format ->
@@ -5647,19 +7135,23 @@ private fun PropertiesPage(device: DeviceReport?, onRequestQuery: (String) -> Un
             CapabilitySectionCard("Properties & limits explorer") {
             Text("Physical-device properties and limits are shown only from runtime Vulkan queries. Advanced query groups keep their explicit availability state.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
             ExpressiveSearchField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), placeholderText = "Search properties and limits…")
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                sections.forEach { section -> ExpressiveFilterChip(selected = filter == section, label = section, onClick = { filter = section }) }
-            }
+            ExpressiveFilterBar(sections, sections.indexOf(filter).coerceAtLeast(0)) { filter = sections[it] }
             }
         }
         item {
-            val summary = when (filter) {
-                "Limits" -> "$limitResultCount limits"
-                "All" -> "$evidenceResultCount evidence rows · $propertyResultCount property/query rows · $safetyEvidenceCount safety diagnostics · $uniquePropertyNames unique names · $limitResultCount limits"
-                "Vulkan Query Safety" -> "$safetyEvidenceCount safety diagnostics · $uniqueSafetyNames unique diagnostics"
-                else -> "$propertyResultCount property/query rows · $uniquePropertyNames unique names"
+            val metrics = when (filter) {
+                "Limits" -> listOf("Limits" to limitResultCount.toString())
+                "All" -> listOf(
+                    "Evidence rows" to evidenceResultCount.toString(),
+                    "Property / query" to propertyResultCount.toString(),
+                    "Safety diagnostics" to safetyEvidenceCount.toString(),
+                    "Unique names" to uniquePropertyNames.toString(),
+                    "Limits" to limitResultCount.toString()
+                )
+                "Vulkan Query Safety" -> listOf("Safety diagnostics" to safetyEvidenceCount.toString(), "Unique diagnostics" to uniqueSafetyNames.toString())
+                else -> listOf("Property / query" to propertyResultCount.toString(), "Unique names" to uniquePropertyNames.toString())
             }
-            Text(summary, color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelMedium)
+            ExpressiveMetricGrid(metrics)
         }
         if (filter == "Limits" || filter == "All") {
             limitGroups.toSortedMap().forEach { (category, entries) ->
@@ -5679,7 +7171,7 @@ private fun PropertiesPage(device: DeviceReport?, onRequestQuery: (String) -> Un
                     else -> "Vulkan 1.4 properties were queried from the active physical device."
                 }
                 if (properties.none { it.section == "Core 1.4" }) {
-                    item { CapabilitySectionCard("Vulkan 1.4 status") { Text(message, color = ComposeColor(0xFFFFC857)) } }
+                    item { CapabilitySectionCard("Vulkan 1.4 status") { Text(message, color = evidenceStateAccent(status)) } }
                 }
             }
             itemsIndexed(filtered, key = { index, property -> "${property.section}:${property.name}:$index" }) { _, property ->
@@ -6449,6 +7941,7 @@ private val VULKANSCOPE_LIBRARY_VERSIONS = listOf(
 @Composable
 private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverMode, collectionStatus: CollectionStatus, onCheckForUpdates: () -> Unit, directUpdatesEnabled: Boolean) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val networkAvailable = LocalValidatedNetwork.current
     val expandedTextLayout = preferExpandedTextLayout()
     val uriHandler = LocalUriHandler.current
     val scope = rememberCoroutineScope()
@@ -6570,15 +8063,15 @@ private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverM
     VulkanLazyPage(verticalSpacing = 14.dp) {
         item {
             CapabilitySectionCard("Developer") {
-                ExpressiveIdentityBlock("Semih Boran", "EFI Shell · VulkanScope developer", R.drawable.ic_info)
-                ExpressiveActionButton("Open GitHub profile", "EFIShell0 · Projects and public profile", R.drawable.ic_action_github) { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/EFIShell0"))) } }
+                ExpressiveIdentityBlock("Semih Boran", "EFI Shell · VulkanScope developer", R.drawable.ic_person)
+                ExpressiveExternalLinkRow("Open GitHub profile", if (networkAvailable) "EFIShell0 · Projects and public profile" else "Unavailable without a validated internet connection", R.drawable.ic_action_github, enabled = networkAvailable) { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/EFIShell0"))) } }
             }
         }
         item {
             CapabilitySectionCard("Application") {
                 ExpressiveVersionBlock("VulkanScope", versionName, versionCode, context.packageName, installedAbi)
-                ExpressiveActionButton("Check for updates", if (directUpdatesEnabled) "Official EFIShell0/VulkanScope GitHub release channel" else "Direct GitHub updates are disabled in Settings", R.drawable.ic_action_update, enabled = directUpdatesEnabled, onClick = onCheckForUpdates)
-                ExpressiveActionButton("Open GitHub repository", "Source, releases and project history", R.drawable.ic_action_github) { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/EFIShell0/VulkanScope"))) } }
+                ExpressiveActionButton("Check for updates", when { !directUpdatesEnabled -> "Direct GitHub updates are disabled in Settings"; !networkAvailable -> "Unavailable without a validated internet connection"; else -> "Official EFIShell0/VulkanScope GitHub release channel" }, R.drawable.ic_download, enabled = directUpdatesEnabled && networkAvailable, onClick = onCheckForUpdates)
+                ExpressiveExternalLinkRow("Open GitHub repository", if (networkAvailable) "Source, releases and project history" else "Unavailable without a validated internet connection", R.drawable.ic_action_github, enabled = networkAvailable) { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/EFIShell0/VulkanScope"))) } }
                 Text(if (directUpdatesEnabled) "Direct update checks use the official VulkanScope GitHub release channel. APK download still requires explicit review and confirmation." else "Direct GitHub update checks are currently disabled. Obtainium can manage updates from the official GitHub Releases source without VulkanScope running its own update discovery.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.bodySmall)
             }
         }
@@ -6647,16 +8140,16 @@ private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverM
         }
         item {
             CapabilitySectionCard("Export complete report") {
-                Text("Export the complete currently collected Vulkan, Android display/HDR and surface report. Phones and tablets use Android's Storage Access Framework; Android TV or document-provider launch failure falls back to Downloads.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
+                Text("Export the complete currently collected Vulkan, Android display/HDR and surface report. VulkanScope opens the system document save picker first. If the picker cannot be opened, the report is saved to the public Downloads collection without requesting broad storage access and a toast reports the result. Fallback filenames are VulkanScope-<GPU>-report.txt and VulkanScope-<GPU>-report.html for a single GPU, or VulkanScope-<N>-GPUs-report.txt and VulkanScope-<N>-GPUs-report.html for multi-GPU reports; destination: public Download.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
                 if (expandedTextLayout) {
                     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        ExpressiveActionButton("Export TXT", if (exportBusy) "Preparing or saving the report" else if (completeReportReady) "Plain-text complete report" else "Waiting for complete Vulkan collection", R.drawable.ic_action_text, Modifier.fillMaxWidth(), completeReportReady && !exportBusy, true) { if (completeReportReady && !exportBusy) exportDocument("$exportStem.txt", "text/plain", textLauncher) { reportToText(context, report, display, mode) } }
-                        ExpressiveActionButton("Export HTML", if (exportBusy) "Preparing or saving the report" else if (completeReportReady) "Styled offline complete report" else "Waiting for complete Vulkan collection", R.drawable.ic_action_html, Modifier.fillMaxWidth(), completeReportReady && !exportBusy, true) { if (completeReportReady && !exportBusy) exportDocument("$exportStem.html", "text/html", htmlLauncher) { reportToHtml(context, report, display, mode) } }
+                        ExpressiveActionButton("Export TXT", if (exportBusy) "Preparing or saving the report" else if (completeReportReady) "Plain-text complete report · system document picker first; if it cannot be opened: public Download / VulkanScope-<GPU>-report.txt (or VulkanScope-<N>-GPUs-report.txt)." else "Waiting for complete Vulkan collection", R.drawable.ic_action_text, Modifier.fillMaxWidth(), completeReportReady && !exportBusy, true) { if (completeReportReady && !exportBusy) exportDocument("$exportStem.txt", "text/plain", textLauncher) { reportToText(context, report, display, mode) } }
+                        ExpressiveActionButton("Export HTML", if (exportBusy) "Preparing or saving the report" else if (completeReportReady) "Styled offline complete report · system document picker first; if it cannot be opened: public Download / VulkanScope-<GPU>-report.html (or VulkanScope-<N>-GPUs-report.html)." else "Waiting for complete Vulkan collection", R.drawable.ic_action_html, Modifier.fillMaxWidth(), completeReportReady && !exportBusy, true) { if (completeReportReady && !exportBusy) exportDocument("$exportStem.html", "text/html", htmlLauncher) { reportToHtml(context, report, display, mode) } }
                     }
                 } else {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        ExpressiveActionButton("Export TXT", if (exportBusy) "Preparing or saving the report" else if (completeReportReady) "Plain-text complete report" else "Waiting for complete Vulkan collection", R.drawable.ic_action_text, Modifier.weight(1f), completeReportReady && !exportBusy, true) { if (completeReportReady && !exportBusy) exportDocument("$exportStem.txt", "text/plain", textLauncher) { reportToText(context, report, display, mode) } }
-                        ExpressiveActionButton("Export HTML", if (exportBusy) "Preparing or saving the report" else if (completeReportReady) "Styled offline complete report" else "Waiting for complete Vulkan collection", R.drawable.ic_action_html, Modifier.weight(1f), completeReportReady && !exportBusy, true) { if (completeReportReady && !exportBusy) exportDocument("$exportStem.html", "text/html", htmlLauncher) { reportToHtml(context, report, display, mode) } }
+                        ExpressiveActionButton("Export TXT", if (exportBusy) "Preparing or saving the report" else if (completeReportReady) "Plain-text complete report · system document picker first; if it cannot be opened: public Download / VulkanScope-<GPU>-report.txt (or VulkanScope-<N>-GPUs-report.txt)." else "Waiting for complete Vulkan collection", R.drawable.ic_action_text, Modifier.weight(1f), completeReportReady && !exportBusy, true) { if (completeReportReady && !exportBusy) exportDocument("$exportStem.txt", "text/plain", textLauncher) { reportToText(context, report, display, mode) } }
+                        ExpressiveActionButton("Export HTML", if (exportBusy) "Preparing or saving the report" else if (completeReportReady) "Styled offline complete report · system document picker first; if it cannot be opened: public Download / VulkanScope-<GPU>-report.html (or VulkanScope-<N>-GPUs-report.html)." else "Waiting for complete Vulkan collection", R.drawable.ic_action_html, Modifier.weight(1f), completeReportReady && !exportBusy, true) { if (completeReportReady && !exportBusy) exportDocument("$exportStem.html", "text/html", htmlLauncher) { reportToHtml(context, report, display, mode) } }
                     }
                 }
                 if (!completeReportReady) Text("TXT and HTML export remain disabled until the complete Vulkan collection pass has finished, matching the Database completeness gate.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
@@ -6665,7 +8158,13 @@ private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverM
         item {
             CapabilitySectionCard("VulkanScope Database") {
                 Text("Submit the complete technical VulkanScope report to the public database. Capability fields cannot be selectively omitted, and sensitive device identifiers or private paths are not included.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
-                ExpressiveActionButton(if (submissionInFlight) "Submitting…" else "Submit complete report", if (submissionInFlight) "Uploading the complete technical dataset" else "Structured JSON + canonical TXT report", R.drawable.ic_action_database, enabled = !submissionInFlight && completeReportReady) {
+                ExpressiveActionButton(if (submissionInFlight) "Submitting…" else "Submit complete report", when {
+                    submissionInFlight -> "Uploading the complete technical dataset"
+                    !completeReportReady && !networkAvailable -> "Waiting for complete Vulkan collection · internet unavailable"
+                    !completeReportReady -> "Waiting for complete Vulkan collection"
+                    !networkAvailable -> "Unavailable without a validated internet connection"
+                    else -> "Structured JSON + canonical TXT report"
+                }, R.drawable.ic_database_submit, enabled = !submissionInFlight && completeReportReady && networkAvailable) {
                     if (!submissionInFlight) {
                         submissionInFlight = true
                         submissionState = "Submitting complete technical report…"
@@ -6679,8 +8178,14 @@ private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverM
                     }
                 }
                 Text(submissionState, color = ComposeColor(0xFFAAAAAA), style = MaterialTheme.typography.bodySmall)
-                if (!completeReportReady) Text("Wait for the complete Vulkan collection pass to finish before submitting.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
-                ExpressiveActionButton("Open VulkanScope Database", "Browse public VulkanScope hardware reports", R.drawable.ic_action_database) { uriHandler.openUri(OFFICIAL_DATABASE_WEB_URL) }
+                if (!completeReportReady && !networkAvailable) {
+                    Text("Database submission is locked for two independent reasons: Vulkan collection is incomplete and Android does not report a validated internet connection.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
+                    Text("When internet returns during collection, the network lock clears immediately; submission still waits for complete report evidence.", color = ComposeColor(0xFF9CCBFF), style = MaterialTheme.typography.bodySmall)
+                } else {
+                    if (!completeReportReady) Text("Wait for the complete Vulkan collection pass to finish before submitting.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
+                    if (!networkAvailable) Text("Database upload and public report browsing are disabled until Android reports a validated internet connection.", color = ComposeColor(0xFF9CCBFF), style = MaterialTheme.typography.bodySmall)
+                }
+                ExpressiveExternalLinkRow("Open VulkanScope Database", if (networkAvailable) "Browse public VulkanScope hardware reports" else "Unavailable without a validated internet connection", R.drawable.ic_database_browse, enabled = networkAvailable) { uriHandler.openUri(OFFICIAL_DATABASE_WEB_URL) }
             }
         }
     }
@@ -6704,21 +8209,54 @@ private fun turnipSupportDescription(support: TurnipSupport): String = when (sup
 }
 
 @Composable
-private fun SettingsPage(report: VulkanReport, mode: DriverMode, turnipSupport: TurnipSupport, onModeChanged: (DriverMode) -> Unit, onInstallDriverBundle: () -> Unit, collectionStatus: CollectionStatus, directUpdatesEnabled: Boolean, onDirectUpdatesChanged: (Boolean) -> Unit) {
+private fun SettingsPage(
+    report: VulkanReport,
+    mode: DriverMode,
+    turnipSupport: TurnipSupport,
+    turnipManagerRevision: Int,
+    turnipManagerBusy: Boolean,
+    onModeChanged: (DriverMode) -> Unit,
+    onInstallDriverBundle: () -> Unit,
+    onActivateTurnipDriver: (Int) -> Unit,
+    onRemoveTurnipDriver: (Int) -> Unit,
+    collectionStatus: CollectionStatus,
+    directUpdatesEnabled: Boolean,
+    onDirectUpdatesChanged: (Boolean) -> Unit
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val completeReportReady = isCompleteReportReady(report, collectionStatus)
-    var bundleInstalled by remember { mutableStateOf(false) }
-    var bundleCheckInFlight by remember { mutableStateOf(false) }
-    LaunchedEffect(mode, turnipSupport, collectionStatus) {
-        if (mode == DriverMode.TURNIP && turnipSupport == TurnipSupport.SUPPORTED) {
-            bundleCheckInFlight = true
-            bundleInstalled = withContext(Dispatchers.IO) { resolveInstalledTurnipLibrary(context.filesDir) != null }
-            bundleCheckInFlight = false
-        } else {
-            bundleInstalled = false
-            bundleCheckInFlight = false
+    val settingsPrefs = remember(context) { context.getSharedPreferences("settings", Context.MODE_PRIVATE) }
+    var drivers by remember { mutableStateOf<List<ManagedTurnipDriver>>(emptyList()) }
+    var managerLoading by remember { mutableStateOf(false) }
+    var detailsDriver by remember { mutableStateOf<ManagedTurnipDriver?>(null) }
+    var removeDriver by remember { mutableStateOf<ManagedTurnipDriver?>(null) }
+    var cachedSystemSummary by remember { mutableStateOf(readSystemDriverSummary(settingsPrefs)) }
+    var detailsSystemDriver by remember { mutableStateOf(false) }
+    val currentSystemSummary = remember(report, mode, completeReportReady) {
+        if (mode == DriverMode.SYSTEM && completeReportReady) systemDriverSummaryFromReport(report) else null
+    }
+    val displayedSystemSummary = currentSystemSummary ?: cachedSystemSummary
+
+    LaunchedEffect(currentSystemSummary) {
+        currentSystemSummary?.let { summary ->
+            cachedSystemSummary = summary
+            withContext(Dispatchers.IO) { persistSystemDriverSummary(settingsPrefs, summary) }
         }
     }
+
+    LaunchedEffect(turnipManagerRevision, turnipSupport, turnipManagerBusy, mode) {
+        if (turnipSupport == TurnipSupport.SUPPORTED && !turnipManagerBusy) {
+            managerLoading = true
+            drivers = withContext(Dispatchers.IO) {
+                readManagedTurnipDrivers(context, context.getSharedPreferences("settings", Context.MODE_PRIVATE), mode)
+            }
+            managerLoading = false
+        } else if (turnipSupport != TurnipSupport.SUPPORTED) {
+            drivers = emptyList()
+            managerLoading = false
+        }
+    }
+
     VulkanLazyPage(verticalSpacing = 14.dp) {
         item {
             CapabilitySectionCard("Updates") {
@@ -6737,20 +8275,422 @@ private fun SettingsPage(report: VulkanReport, mode: DriverMode, turnipSupport: 
             }
         }
         item {
-            CapabilitySectionCard("Vulkan driver") {
-                Text("Choose which Vulkan driver source VulkanScope should request. Driver inspection runs in a dedicated probe process, so changing drivers does not restart the UI process.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
-                DriverOption(DriverMode.SYSTEM, mode == DriverMode.SYSTEM, if (completeReportReady) "Uses Android's system Vulkan loader/driver." else "Waiting for complete Vulkan collection", completeReportReady) { onModeChanged(DriverMode.SYSTEM) }
-                DriverOption(DriverMode.TURNIP, mode == DriverMode.TURNIP, if (completeReportReady) turnipSupportDescription(turnipSupport) else "Waiting for complete Vulkan collection", completeReportReady && turnipSupport == TurnipSupport.SUPPORTED) { onModeChanged(DriverMode.TURNIP) }
-                if (turnipSupport == TurnipSupport.SUPPORTED) Text("Turnip requires an AdrenoTools-compatible driver package (meta.json + Vulkan .so).", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
+            CapabilitySectionCard("Driver manager") {
+                Text("System Vulkan driver is the default source. Turnip packages remain separately managed and become active only after explicit activation and confirmation.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
+                SystemDriverManagerRow(
+                    active = mode == DriverMode.SYSTEM,
+                    enabled = completeReportReady && !turnipManagerBusy,
+                    summary = displayedSystemSummary,
+                    onDetails = { detailsSystemDriver = true },
+                    onActivate = { onModeChanged(DriverMode.SYSTEM) }
+                )
+                if (collectionStatus == CollectionStatus.COLLECTING) {
+                    Text("Driver changes are temporarily locked while VulkanScope is collecting a report. Switching Vulkan drivers mid-collection would mix evidence from different driver sessions.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
+                }
+                HorizontalDivider(color = VulkanOutlineVariant)
+                when (turnipSupport) {
+                    TurnipSupport.UNSUPPORTED -> {
+                        Text("UNAVAILABLE", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                        Text("Turnip requires an arm64-v8a device with a detected Qualcomm Adreno Vulkan implementation. Driver slots and import controls are hidden because this device does not satisfy that eligibility gate.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
+                    }
+                    TurnipSupport.UNKNOWN -> {
+                        Text("UNAVAILABLE", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                        Text("Turnip availability cannot be confirmed until VulkanScope has authoritative platform and Vulkan device evidence.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
+                    }
+                    TurnipSupport.SUPPORTED -> {
+                        val occupied = drivers.size
+                        ExpressiveMetricGrid(
+                            listOf(
+                                "Installed" to occupied.toString(),
+                                "Maximum" to TURNIP_MANAGER_MAX_DRIVERS.toString(),
+                                "Available slots" to (TURNIP_MANAGER_MAX_DRIVERS - occupied).coerceAtLeast(0).toString()
+                            )
+                        )
+                        Text("Drivers are stored only in VulkanScope private storage. Import validates the archive first and does not activate it automatically.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                        ExpressiveActionButton(
+                            title = "Import driver ZIP",
+                            subtitle = when {
+                                managerLoading || turnipManagerBusy -> "Driver manager is busy"
+                                !completeReportReady -> "Waiting for complete Vulkan collection"
+                                occupied >= TURNIP_MANAGER_MAX_DRIVERS -> "The 10-driver limit has been reached"
+                                else -> "System document picker first; if it cannot be opened, place turnip_01.zip through turnip_10.zip in Android/data/com.efishell.vulkanscope/files, Android/data/com.efishell.vulkanscope/files/Download or Android/data/com.efishell.vulkanscope/files/Documents; private files/turnip_imports is also scanned"
+                            },
+                            icon = R.drawable.ic_zip_download,
+                            enabled = completeReportReady && !managerLoading && !turnipManagerBusy && occupied < TURNIP_MANAGER_MAX_DRIVERS,
+                            onClick = onInstallDriverBundle
+                        )
+                        if (managerLoading) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                ExpressiveLinearProgressIndicator(Modifier.width(72.dp))
+                                Text("Reading private driver slots…", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                            }
+                        } else if (drivers.isEmpty()) {
+                            EmptyState("No Turnip drivers imported")
+                        } else {
+                            TurnipDriverManagerTable(
+                                drivers = drivers,
+                                activeMode = mode,
+                                enabled = completeReportReady && !turnipManagerBusy,
+                                onDetails = { detailsDriver = it },
+                                onActivate = onActivateTurnipDriver,
+                                onRemove = { removeDriver = it }
+                            )
+                        }
+                        if (!completeReportReady) Text("Driver import, activation and removal unlock after the complete Vulkan collection pass finishes.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
+                        Text("Turnip packages must use the validated AdrenoTools schema (meta.json + metadata-declared Vulkan .so). Up to 10 private driver packages can be retained.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
             }
         }
-        if (turnipSupport == TurnipSupport.SUPPORTED && mode == DriverMode.TURNIP) {
-            item {
-                CapabilitySectionCard("Turnip / third-party driver bundle") {
-                    CapabilityKeyValue("Status", if (bundleCheckInFlight) "Checking installed bundle" else if (bundleInstalled) "Bundle installed" else "Not installed")
-                    ExpressiveActionButton("Import driver ZIP", if (bundleCheckInFlight) "Checking installed bundle" else if (completeReportReady) "Validate and install an AdrenoTools-compatible bundle" else "Waiting for complete Vulkan collection", R.drawable.ic_action_import, enabled = completeReportReady && !bundleCheckInFlight, onClick = onInstallDriverBundle)
-                    Text("Import an AdrenoTools-compatible Turnip ZIP. The driver remains inside VulkanScope's private storage; Android's system Vulkan driver is never replaced.", color = ComposeColor(0xFF777777), style = MaterialTheme.typography.bodySmall)
-                    if (!completeReportReady) Text("Driver source changes and Turnip package selection unlock after the complete Vulkan collection pass finishes.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
+    }
+
+    if (detailsSystemDriver && displayedSystemSummary != null) {
+        SystemDriverDetailsDialog(
+            summary = displayedSystemSummary,
+            evidenceSource = if (currentSystemSummary != null) "Current completed System report" else "Last completed System report retained in private UI metadata",
+            active = mode == DriverMode.SYSTEM,
+            onDismiss = { detailsSystemDriver = false }
+        )
+    }
+    detailsDriver?.let { driver ->
+        TurnipDriverDetailsDialog(driver = driver, onDismiss = { detailsDriver = null })
+    }
+    removeDriver?.let { driver ->
+        AlertDialog(
+            onDismissRequest = { if (!turnipManagerBusy) removeDriver = null },
+            title = { QuestionDialogTitle("Delete Turnip driver?") },
+            text = { Text((if (driver.selected) "This slot is active. Removing it will deactivate Turnip, switch VulkanScope to the System driver, and delete the private package. " else "") + "Slot %02d · %s will be deleted from VulkanScope private storage. This cannot be undone.".format(java.util.Locale.ROOT, driver.slot, driver.info.zipName ?: driver.info.driverName ?: "Imported driver")) },
+            confirmButton = {
+                ExpressiveContainedIconTextButton("Delete", R.drawable.ic_delete, enabled = !turnipManagerBusy, fontWeight = FontWeight.Bold) {
+                    removeDriver = null
+                    onRemoveTurnipDriver(driver.slot)
+                }
+            },
+            dismissButton = { ExpressiveCancelButton(enabled = !turnipManagerBusy) { removeDriver = null } }
+        )
+    }
+}
+
+@Composable
+private fun SystemDriverManagerRow(
+    active: Boolean,
+    enabled: Boolean,
+    summary: SystemDriverSummary?,
+    onDetails: () -> Unit,
+    onActivate: () -> Unit
+) {
+    CapabilityItemCard(containerColor = if (active) ComposeColor(0xFF21191A) else VulkanSurfaceTonal) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("System Vulkan driver", color = VulkanTextPrimary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                    Text("Uses Android's system Vulkan loader/driver.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                }
+                if (active) TurnipStatePill("ACTIVE", true, true) else ExpressiveContainedTextButton("Activate", enabled = enabled, onClick = onActivate)
+            }
+            if (summary != null) {
+                CapabilityKeyValue("GPU", summary.deviceName)
+                CapabilityKeyValue("Driver", summary.driverName ?: summary.driverInfo ?: summary.driverVersion)
+                CapabilityKeyValue("Version", summary.driverVersion)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    DetailAffordance(onDetails)
+                }
+            } else {
+                Text("Detailed System driver evidence becomes available after a completed System-driver collection. Turnip evidence is never reused as System evidence.", color = VulkanTextMuted, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SystemDriverDetailsDialog(summary: SystemDriverSummary, evidenceSource: String, active: Boolean, onDismiss: () -> Unit) {
+    ScrollableDetailDialog(title = "System Vulkan driver", onDismiss = onDismiss) {
+        CapabilityKeyValue("State", if (active) "Active" else "Inactive · retained System evidence")
+        CapabilityKeyValue("Evidence source", evidenceSource)
+        CapabilityKeyValue("Captured", formatTimestampOrUnavailable(summary.capturedAtMillis))
+        CapabilityKeyValue("GPU", summary.deviceName)
+        CapabilityKeyValue("Vulkan API", summary.apiVersion)
+        CapabilityKeyValue("Driver version", summary.driverVersion)
+        CapabilityKeyValue("Driver name", summary.driverName ?: "Not exposed by the completed System report")
+        CapabilityKeyValue("Driver info", summary.driverInfo ?: "Not exposed by the completed System report")
+        CapabilityKeyValue("Driver ID", summary.driverId ?: "Not exposed by the completed System report")
+        CapabilityKeyValue("Conformance version", summary.conformanceVersion ?: "Not exposed by the completed System report")
+        CapabilityKeyValue("Loader version", summary.loaderVersion)
+        CapabilityKeyValue("Instance API version", summary.instanceApiVersion)
+        CapabilityKeyValue("Vendor ID", summary.vendorId)
+        CapabilityKeyValue("Device ID", summary.deviceId)
+        CapabilityKeyValue("Device type", summary.deviceType)
+        Text("The retained System summary is private UI metadata only and is not added to technicalReport, TXT/HTML exports or VulkanScope Database submissions.", color = VulkanTextMuted, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun UnavailableTurnipKeyValue(key: String, value: String) {
+    Row(Modifier.fillMaxWidth().alpha(0.48f), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
+        Text(key, color = VulkanTextMuted, modifier = Modifier.weight(0.82f), style = MaterialTheme.typography.labelSmall, textDecoration = TextDecoration.LineThrough)
+        Text(value.ifBlank { "Unavailable" }, modifier = Modifier.weight(1.18f), color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall, textDecoration = TextDecoration.LineThrough)
+    }
+}
+
+@Composable
+private fun TurnipDriverManagerTable(
+    drivers: List<ManagedTurnipDriver>,
+    activeMode: DriverMode,
+    enabled: Boolean,
+    onDetails: (ManagedTurnipDriver) -> Unit,
+    onActivate: (Int) -> Unit,
+    onRemove: (ManagedTurnipDriver) -> Unit
+) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val wide = maxWidth >= 620.dp && !preferExpandedTextLayout()
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            if (wide) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 3.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Slot", Modifier.width(48.dp), color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                    Text("Source ZIP", Modifier.weight(1.35f), color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                    Text("Driver", Modifier.weight(1f), color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                    Text("State / actions", Modifier.weight(1f), color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            drivers.forEach { rawDriver ->
+                val driver = if (activeMode == DriverMode.TURNIP) rawDriver else rawDriver.copy(selected = false)
+                val info = driver.info
+                val unavailable = turnipDriverStateLabel(driver) == "UNAVAILABLE"
+                CapabilityItemCard(containerColor = if (driver.selected) ComposeColor(0xFF21191A) else VulkanSurfaceTonal) {
+                    if (wide) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("%02d".format(java.util.Locale.ROOT, driver.slot), Modifier.width(48.dp).alpha(if (unavailable) 0.48f else 1f), fontWeight = FontWeight.Bold, color = if (driver.selected) VulkanAccentSoft else VulkanTextPrimary, textDecoration = if (unavailable) TextDecoration.LineThrough else TextDecoration.None)
+                            Column(Modifier.weight(1.35f).alpha(if (unavailable) 0.48f else 1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(info.zipName ?: "Source name unavailable", fontWeight = FontWeight.SemiBold, textDecoration = if (unavailable) TextDecoration.LineThrough else TextDecoration.None)
+                                Text(info.zipSizeBytes?.let { android.text.format.Formatter.formatShortFileSize(androidx.compose.ui.platform.LocalContext.current, it) } ?: "Size unavailable", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall, textDecoration = if (unavailable) TextDecoration.LineThrough else TextDecoration.None)
+                            }
+                            Column(Modifier.weight(1f).alpha(if (unavailable) 0.48f else 1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(info.driverName ?: if (info.installed) "Package name unavailable" else "Invalid package", fontWeight = FontWeight.Medium, textDecoration = if (unavailable) TextDecoration.LineThrough else TextDecoration.None)
+                                Text(info.driverVersion ?: "Version not provided", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall, textDecoration = if (unavailable) TextDecoration.LineThrough else TextDecoration.None)
+                            }
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(turnipDriverStateLabel(driver), color = turnipDriverStateColor(driver), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    if (!unavailable) DetailAffordance { onDetails(driver) }
+                                    if (!unavailable && !driver.selected) ExpressiveContainedTextButton("Activate", enabled = enabled && info.installed) { onActivate(driver.slot) }
+                                    ExpressiveContainedIconTextButton("Remove", R.drawable.ic_delete, enabled = enabled) { onRemove(driver) }
+                                }
+                            }
+                        }
+                    } else {
+                        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text("Slot %02d".format(java.util.Locale.ROOT, driver.slot), fontWeight = FontWeight.Bold, color = if (driver.selected) VulkanAccentSoft else VulkanTextPrimary)
+                                TurnipStatePill(turnipDriverStateLabel(driver), driver.selected, driver.sourceAvailable && info.installed)
+                            }
+                            if (unavailable) {
+                                UnavailableTurnipKeyValue("Source ZIP", info.zipName ?: "Source name unavailable")
+                                UnavailableTurnipKeyValue("Driver", info.driverName ?: if (info.installed) "Package name unavailable" else "Invalid package")
+                                UnavailableTurnipKeyValue("Version", info.driverVersion ?: "Not provided by package")
+                            } else {
+                                CapabilityKeyValue("Source ZIP", info.zipName ?: "Source name unavailable")
+                                CapabilityKeyValue("Driver", info.driverName ?: if (info.installed) "Package name unavailable" else "Invalid package")
+                                CapabilityKeyValue("Version", info.driverVersion ?: "Not provided by package")
+                            }
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                if (!unavailable) DetailAffordance { onDetails(driver) }
+                                if (!unavailable && !driver.selected) ExpressiveContainedTextButton("Activate", enabled = enabled && info.installed) { onActivate(driver.slot) }
+                                ExpressiveContainedIconTextButton("Remove", R.drawable.ic_delete, enabled = enabled) { onRemove(driver) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun turnipDriverStateLabel(driver: ManagedTurnipDriver): String = when {
+    driver.selected -> "ACTIVE"
+    driver.info.installed && driver.sourceAvailable -> "AVAILABLE"
+    else -> "UNAVAILABLE"
+}
+
+private fun turnipDriverStateColor(driver: ManagedTurnipDriver): ComposeColor = when (turnipDriverStateLabel(driver)) {
+    "ACTIVE" -> ComposeColor(0xFF73C991)
+    "AVAILABLE" -> ComposeColor(0xFF9CCBFF)
+    else -> ComposeColor(0xFFFFC857)
+}
+
+@Composable
+private fun TurnipStatePill(label: String, active: Boolean, valid: Boolean) {
+    val container = when {
+        active -> ComposeColor(0xFF173421)
+        valid -> ComposeColor(0xFF16344F)
+        else -> ComposeColor(0xFF332A16)
+    }
+    val content = when {
+        active -> ComposeColor(0xFF73C991)
+        valid -> ComposeColor(0xFF9CCBFF)
+        else -> ComposeColor(0xFFFFC857)
+    }
+    Surface(shape = RoundedCornerShape(999.dp), color = container) {
+        Text(label, color = content, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
+    }
+}
+
+@Composable
+private fun TurnipDriverDetailsDialog(driver: ManagedTurnipDriver, onDismiss: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val info = driver.info
+    ScrollableDetailDialog(title = "Turnip slot %02d".format(java.util.Locale.ROOT, driver.slot), onDismiss = onDismiss) {
+        CapabilityKeyValue("State", turnipDriverStateLabel(driver).lowercase().replaceFirstChar { it.uppercase() })
+        CapabilityKeyValue("Source availability", if (driver.sourceAvailable) "Available" else "Unavailable")
+        Text("Source ZIP", color = VulkanTextPrimary, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        CapabilityKeyValue("ZIP name", info.zipName ?: "Not available")
+        CapabilityKeyValue("Source location", info.zipLocation ?: "Not available")
+        CapabilityKeyValue("ZIP size", info.zipSizeBytes?.let { android.text.format.Formatter.formatShortFileSize(context, it) } ?: "Not available")
+        CapabilityKeyValue("ZIP modified", formatTimestampOrUnavailable(info.zipModifiedAtMillis))
+        CapabilityKeyValue("Imported", formatTimestampOrUnavailable(info.importedAtMillis))
+        Text("Driver package", color = VulkanTextPrimary, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        CapabilityKeyValue("Driver name", info.driverName ?: "Not provided by package")
+        CapabilityKeyValue("Driver version", info.driverVersion ?: "Not provided by package")
+        CapabilityKeyValue("Driver date", info.driverDate ?: "Not provided by package")
+        CapabilityKeyValue("Package version", info.packageVersion ?: "Not provided by package")
+        CapabilityKeyValue("Vendor", info.vendor ?: "Not provided by package")
+        CapabilityKeyValue("Author", info.author ?: "Not provided by package")
+        CapabilityKeyValue("Minimum Android API", info.minApi?.toString() ?: "Not provided by package")
+        CapabilityKeyValue("Metadata schema", info.schemaVersion?.toString() ?: "Not available")
+        CapabilityKeyValue("Vulkan library", info.libraryName ?: "Not available")
+        CapabilityKeyValue("Library size", info.librarySizeBytes?.let { android.text.format.Formatter.formatShortFileSize(context, it) } ?: "Not available")
+        info.description?.let { CapabilityKeyValue("Description", it) }
+        Text("Source-document provenance is private app metadata and is not added to technicalReport or VulkanScope Database submissions.", color = VulkanTextMuted, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun FallbackTurnipImportDialog(
+    data: FallbackTurnipDialogData,
+    busy: Boolean,
+    onDismiss: () -> Unit,
+    onImport: (List<File>) -> Unit
+) {
+    var selected by remember(data) { mutableStateOf<Set<String>>(emptySet()) }
+    Dialog(onDismissRequest = { if (!busy) onDismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(0.94f).widthIn(max = 720.dp).heightIn(max = 720.dp),
+            color = VulkanSurfaceRaised,
+            shape = MaterialTheme.shapes.extraLarge,
+            tonalElevation = 0.dp
+        ) {
+            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Surface(shape = RoundedCornerShape(18.dp), color = VulkanAccentContainer) {
+                        Icon(painterResource(R.drawable.ic_action_import), contentDescription = null, tint = VulkanAccentSoft, modifier = Modifier.padding(10.dp).size(21.dp))
+                    }
+                    Text("Fallback Turnip import", color = VulkanTextPrimary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                }
+                Text("The system document picker could not be opened. VulkanScope searched only its permissionless app-specific import locations for turnip_01.zip through turnip_10.zip; it does not request all-files access.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                if (data.candidates.isEmpty()) {
+                    EmptyState("No matching Turnip ZIP files found")
+                } else {
+                    Text("${data.candidates.size} file(s) found · ${data.availableSlots} slot(s) available", color = VulkanTextSecondary, style = MaterialTheme.typography.labelMedium)
+                    LazyColumn(Modifier.weight(1f, fill = false).heightIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(data.candidates, key = { it.file.absolutePath }) { candidate ->
+                            val checked = candidate.file.absolutePath in selected
+                            val selectionAllowed = checked || selected.size < data.availableSlots
+                            CapabilityItemCard(containerColor = VulkanSurfaceTonal) {
+                                Row(
+                                    Modifier.fillMaxWidth().toggleable(value = checked, enabled = !busy && selectionAllowed, role = Role.Checkbox, onValueChange = { value -> selected = if (value) selected + candidate.file.absolutePath else selected - candidate.file.absolutePath }).padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Checkbox(checked = checked, onCheckedChange = null, enabled = !busy && selectionAllowed, colors = CheckboxDefaults.colors(checkedColor = VulkanAccent, checkmarkColor = VulkanTextPrimary))
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text(candidate.displayName, fontWeight = FontWeight.SemiBold)
+                                        Text(android.text.format.Formatter.formatShortFileSize(androidx.compose.ui.platform.LocalContext.current, candidate.sizeBytes), color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                                        Text(candidate.file.parentFile?.absolutePath ?: "App-specific import location", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (data.scannedLocations.isNotEmpty()) {
+                    Text("Scanned app-specific locations", color = VulkanTextPrimary, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                    Text(data.scannedLocations.joinToString("\n"), color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                }
+                FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    ExpressiveCancelButton(enabled = !busy) { onDismiss() }
+                    ExpressiveTextButton("Import selected", enabled = !busy && selected.isNotEmpty() && selected.size <= data.availableSlots) {
+                        val files = data.candidates.filter { it.file.absolutePath in selected }.map { it.file }
+                        onImport(files)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FallbackAnalysisImportDialog(
+    data: FallbackAnalysisDialogData,
+    busy: Boolean,
+    onDismiss: () -> Unit,
+    onImport: (File) -> Unit
+) {
+    var selectedPath by remember(data) { mutableStateOf<String?>(null) }
+    val title = when (data.kind) {
+        FallbackAnalysisImportKind.SNAPSHOT -> "Fallback analysis snapshot import"
+        FallbackAnalysisImportKind.MINIMUM -> "Fallback minimum-profile import"
+    }
+    val pattern = when (data.kind) {
+        FallbackAnalysisImportKind.SNAPSHOT -> "VulkanScope-*-analysis.json"
+        FallbackAnalysisImportKind.MINIMUM -> "VulkanScope-*-minimum.json"
+    }
+    Dialog(onDismissRequest = { if (!busy) onDismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(0.94f).widthIn(max = 720.dp).heightIn(max = 720.dp),
+            color = VulkanSurfaceRaised,
+            shape = MaterialTheme.shapes.extraLarge,
+            tonalElevation = 0.dp
+        ) {
+            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Surface(shape = RoundedCornerShape(18.dp), color = VulkanAccentContainer) {
+                        Icon(painterResource(R.drawable.ic_action_import), contentDescription = null, tint = VulkanAccentSoft, modifier = Modifier.padding(10.dp).size(21.dp))
+                    }
+                    Text(title, color = VulkanTextPrimary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                }
+                Text("The system document picker could not be opened. VulkanScope searched only its permissionless app-specific exchange locations for $pattern; it does not request all-files access.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                if (data.candidates.isEmpty()) {
+                    EmptyState("No matching fallback import files found")
+                } else {
+                    Text("${data.candidates.size} bounded file(s) found", color = VulkanTextSecondary, style = MaterialTheme.typography.labelMedium)
+                    LazyColumn(Modifier.weight(1f, fill = false).heightIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(data.candidates, key = { it.file.absolutePath }) { candidate ->
+                            val selected = selectedPath == candidate.file.absolutePath
+                            CapabilityItemCard(containerColor = VulkanSurfaceTonal) {
+                                Row(
+                                    Modifier.fillMaxWidth().selectable(selected = selected, enabled = !busy, role = Role.RadioButton, onClick = { selectedPath = candidate.file.absolutePath }).padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    RadioButton(selected = selected, onClick = null, enabled = !busy, colors = RadioButtonDefaults.colors(selectedColor = VulkanAccentSoft, unselectedColor = VulkanTextMuted))
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text(candidate.displayName, color = VulkanTextPrimary, fontWeight = FontWeight.SemiBold)
+                                        Text(android.text.format.Formatter.formatShortFileSize(androidx.compose.ui.platform.LocalContext.current, candidate.sizeBytes), color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                                        Text(candidate.file.parentFile?.absolutePath ?: "App-specific exchange location", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (data.scannedLocations.isNotEmpty()) {
+                    Text("Scanned app-specific locations", color = VulkanTextPrimary, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                    Text(data.scannedLocations.joinToString("\n"), color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                }
+                FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    ExpressiveCancelButton(enabled = !busy) { onDismiss() }
+                    ExpressiveContainedIconTextButton("Import selected", R.drawable.ic_action_import, enabled = !busy && selectedPath != null) {
+                        data.candidates.firstOrNull { it.file.absolutePath == selectedPath }?.file?.let(onImport)
+                    }
                 }
             }
         }
@@ -6778,6 +8718,7 @@ private fun DriverOption(option: DriverMode, selected: Boolean, description: Str
 @Composable
 private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
     val uriHandler = LocalUriHandler.current
+    val networkAvailable = LocalValidatedNetwork.current
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf("All") }
     var selectedSupported by remember { mutableStateOf<ExtensionEntry?>(null) }
@@ -6803,16 +8744,15 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
             CapabilitySectionCard("Extension explorer") {
             Text("Runtime-enumerated extensions are shown exactly as reported. The checked-in registry-reference subset is supplementary and is never labeled unsupported.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
             if (report.instanceExtensionStatus != "available") {
-                Text("Instance extension enumeration: ${report.instanceExtensionStatus.uppercase()}${if (report.instanceExtensionReason.isBlank()) "" else " — ${report.instanceExtensionReason}"}", color = ComposeColor(0xFFFFD76B), style = MaterialTheme.typography.bodySmall)
+                Text("Instance extension enumeration: ${report.instanceExtensionStatus.uppercase()}${if (report.instanceExtensionReason.isBlank()) "" else " — ${report.instanceExtensionReason}"}", color = evidenceStateAccent(report.instanceExtensionStatus), style = MaterialTheme.typography.bodySmall)
             }
             if (device != null && device.deviceExtensionStatus != "available") {
-                Text("Device extension enumeration: ${device.deviceExtensionStatus.uppercase()}${if (device.deviceExtensionReason.isBlank()) "" else " — ${device.deviceExtensionReason}"}", color = ComposeColor(0xFFFFD76B), style = MaterialTheme.typography.bodySmall)
+                Text("Device extension enumeration: ${device.deviceExtensionStatus.uppercase()}${if (device.deviceExtensionReason.isBlank()) "" else " — ${device.deviceExtensionReason}"}", color = evidenceStateAccent(device.deviceExtensionStatus), style = MaterialTheme.typography.bodySmall)
             }
             ExpressiveSearchField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), placeholderText = "Search · vendor:KHR promoted:1.3 depends:VK_KHR command:vkGet enum:STRUCTURE handler:true")
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("All", "Supported", "Not enumerated").forEach { value -> ExpressiveFilterChip(selected = filter == value, label = value, onClick = { filter = value }) }
-            }
-            Text("$total entries · embedded reference subset ${EMBEDDED_EXTENSION_REFERENCE_NAMES.size}", modifier = Modifier.padding(vertical = 6.dp), color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.labelMedium)
+            val extensionFilters = listOf("All", "Supported", "Not enumerated")
+            ExpressiveFilterBar(extensionFilters, extensionFilters.indexOf(filter).coerceAtLeast(0)) { filter = extensionFilters[it] }
+            ExpressiveMetricGrid(listOf("Visible entries" to total.toString(), "Embedded reference subset" to EMBEDDED_EXTENSION_REFERENCE_NAMES.size.toString()), Modifier.padding(top = 4.dp))
             }
         }
         items(filteredSupported, key = { "supported:${it.scope}:${it.name}:${it.specVersion}" }) { extension ->
@@ -6859,7 +8799,7 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
                 CapabilityKeyValue("Dedicated query handler", group ?: ref.queryGroup.ifBlank { "No dedicated handler cataloged" })
                 CapabilityKeyValue("Related commands", ref.commands.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "See authoritative Khronos extension page")
                 CapabilityKeyValue("Related enums/tokens", ref.enums.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "See authoritative Khronos extension page")
-                ExpressiveTextButton("Open Khronos specification") { uriHandler.openUri(ref.specUrl) }
+                ExpressiveContainedIconTextButton("Open Khronos specification", R.drawable.ic_open_external, enabled = networkAvailable) { uriHandler.openUri(ref.specUrl) }
                 Text("Runtime enumeration, registry metadata and dedicated feature/property query evidence remain separate. The checked-in metadata is generated from the locked Vulkan 1.4.362 registry; the Khronos link remains authoritative for the complete interface definition.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
         }
     }
@@ -6884,7 +8824,7 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
                 CapabilityKeyValue("Dedicated query handler", vulkanExtensionQueryGroup(name) ?: ref.queryGroup.ifBlank { "No dedicated handler cataloged" })
                 CapabilityKeyValue("Related commands", ref.commands.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "See authoritative Khronos extension page")
                 CapabilityKeyValue("Related enums/tokens", ref.enums.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "See authoritative Khronos extension page")
-                ExpressiveTextButton("Open Khronos specification") { uriHandler.openUri(ref.specUrl) }
+                ExpressiveContainedIconTextButton("Open Khronos specification", R.drawable.ic_open_external, enabled = networkAvailable) { uriHandler.openUri(ref.specUrl) }
                 Text("This entry comes from the checked-in Vulkan 1.4.362 registry census. Runtime absence is not an Unsupported claim; runtime enumeration and registry registration remain separate evidence.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
         }
     }
@@ -7082,6 +9022,7 @@ private fun databaseSubmissionJson(context: Context, report: VulkanReport, displ
 }
 
 private suspend fun submitDatabaseReport(context: Context, report: VulkanReport, display: DisplayReport, mode: DriverMode): String = withContext(Dispatchers.IO) {
+    if (!hasValidatedInternet(context)) return@withContext "Submission blocked: no validated internet connection is available."
     if (!report.baseReportComplete) return@withContext "Submission blocked: the native base report did not publish its complete-report marker."
     if (report.devices.isEmpty()) return@withContext "Submission blocked: the complete report contains no Vulkan physical device."
     if (report.error != null) return@withContext "Submission blocked: the Vulkan collection is incomplete. Re-run collection before submitting."
@@ -7272,15 +9213,7 @@ private fun exportResultMessage(mime: String, downloads: Boolean, success: Boole
 }
 
 private fun launchExportPickerOrFallback(context: Context, snapshot: ExportSnapshot, launcher: ActivityResultLauncher<String>, onDownloadsFallback: (ExportSnapshot) -> Unit) {
-    if (isTvDevice(context)) {
-        onDownloadsFallback(snapshot)
-        return
-    }
-    runCatching { launcher.launch(snapshot.filename) }
-        .onFailure { error ->
-            Log.w("VulkanScope", "Document picker unavailable; using Downloads", error)
-            onDownloadsFallback(snapshot)
-        }
+    if (!tryLaunchSystemDocumentPicker { launcher.launch(snapshot.filename) }) onDownloadsFallback(snapshot)
 }
 
 private fun reportGpuSummary(report: VulkanReport): String = when (report.devices.size) {
@@ -7613,11 +9546,9 @@ private enum class SupportFilter { ALL, SUPPORTED, UNSUPPORTED }
 
 @Composable
 private fun SupportFilterRow(selected: SupportFilter, onSelected: (SupportFilter) -> Unit) {
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ExpressiveFilterChip(selected = selected == SupportFilter.ALL, label = "All", onClick = { onSelected(SupportFilter.ALL) })
-        ExpressiveFilterChip(selected = selected == SupportFilter.SUPPORTED, label = "Supported", onClick = { onSelected(SupportFilter.SUPPORTED) })
-        ExpressiveFilterChip(selected = selected == SupportFilter.UNSUPPORTED, label = "Not supported", onClick = { onSelected(SupportFilter.UNSUPPORTED) })
-    }
+    val values = listOf(SupportFilter.ALL, SupportFilter.SUPPORTED, SupportFilter.UNSUPPORTED)
+    val labels = listOf("All", "Supported", "Not supported")
+    ExpressiveFilterBar(labels, values.indexOf(selected).coerceAtLeast(0)) { onSelected(values[it]) }
 }
 
 private val EMBEDDED_EXTENSION_REFERENCE_NAMES = VULKAN_EXTENSION_REFERENCE.keys
@@ -7629,6 +9560,63 @@ private data class NavigationItem(val page: Page, val label: String, val icon: I
 private fun selectedNavigationPage(page: Page): Page = when (page) {
     Page.Features, Page.Memory, Page.Queues, Page.Video, Page.Formats, Page.Properties, Page.Encyclopedia, Page.Analysis, Page.Settings, Page.Info -> Page.Overview
     else -> page
+}
+
+@Composable
+private fun AnimatedNavigationIcon(
+    page: Page,
+    icon: Int,
+    trigger: Int,
+    size: Dp,
+    tint: ComposeColor? = null
+) {
+    val motion = remember(page) { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(trigger) {
+        if (trigger > 0) {
+            motion.snapTo(0f)
+            motion.animateTo(1f, animationSpec = tween(durationMillis = 320))
+            motion.snapTo(0f)
+        }
+    }
+    val wave = kotlin.math.sin(motion.value * kotlin.math.PI).toFloat()
+    val iconModifier = Modifier
+        .size(size)
+        .graphicsLayer {
+            when (page) {
+                Page.Overview -> {
+                    scaleX = 1f + 0.16f * wave
+                    scaleY = 1f + 0.16f * wave
+                }
+                Page.Vulkan -> {
+                    rotationZ = -11f * wave
+                    scaleX = 1f + 0.08f * wave
+                    scaleY = 1f + 0.08f * wave
+                }
+                Page.Surface -> {
+                    translationY = -5f * wave
+                    rotationZ = 4f * wave
+                }
+                Page.Display -> {
+                    scaleX = 1f + 0.12f * wave
+                    scaleY = 1f - 0.10f * wave
+                    alpha = 1f - 0.12f * wave
+                }
+                Page.Extensions -> {
+                    rotationZ = 10f * wave
+                    scaleX = 1f + 0.09f * wave
+                    scaleY = 1f + 0.09f * wave
+                }
+                else -> {
+                    scaleX = 1f + 0.08f * wave
+                    scaleY = 1f + 0.08f * wave
+                }
+            }
+        }
+    if (tint == null) {
+        Icon(painterResource(icon), contentDescription = null, modifier = iconModifier)
+    } else {
+        Icon(painterResource(icon), contentDescription = null, modifier = iconModifier, tint = tint)
+    }
 }
 
 private fun navigationItems(): List<NavigationItem> = listOf(
@@ -7651,9 +9639,9 @@ private fun pageIcon(page: Page): Int = when (page) {
     Page.Formats -> R.drawable.ic_formats
     Page.Properties -> R.drawable.ic_properties
     Page.Extensions -> R.drawable.ic_extensions
-    Page.Profiles -> R.drawable.ic_extensions
-    Page.Encyclopedia -> R.drawable.ic_info
-    Page.Analysis -> R.drawable.ic_features
+    Page.Profiles -> R.drawable.ic_profile
+    Page.Encyclopedia -> R.drawable.ic_book
+    Page.Analysis -> R.drawable.ic_analysis
     Page.Settings -> R.drawable.ic_settings
     Page.Info -> R.drawable.ic_info
 }
@@ -7709,18 +9697,37 @@ private fun VendorLogo(vendorId: Long?, modifier: Modifier) {
 }
 
 @Composable
-private fun UpdateInfoIcon() {
+private fun UpdateAvailableIcon() {
     Surface(
-        shape = RoundedCornerShape(50),
-        color = ComposeColor(0xFF16344F),
-        modifier = Modifier.size(30.dp)
+        shape = RoundedCornerShape(12.dp),
+        color = VulkanAccentContainer,
+        modifier = Modifier.size(34.dp)
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
-                painter = painterResource(R.drawable.ic_info),
+                painter = painterResource(R.drawable.ic_update_available),
                 contentDescription = null,
-                tint = ComposeColor(0xFF5CA9FF),
-                modifier = Modifier.size(18.dp)
+                tint = VulkanAccentSoft,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+
+@Composable
+private fun UpdateSourceIcon() {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = VulkanAccentContainer,
+        modifier = Modifier.size(34.dp)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                painter = painterResource(R.drawable.ic_download),
+                contentDescription = null,
+                tint = VulkanAccentSoft,
+                modifier = Modifier.size(20.dp)
             )
         }
     }
@@ -7730,6 +9737,88 @@ private fun UpdateInfoIcon() {
 private fun UpdateStatusBadge(label: String) {
     Surface(shape = RoundedCornerShape(999.dp), color = ComposeColor(0xFF163D24)) {
         Text(label, color = ComposeColor(0xFF55D98A), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp))
+    }
+}
+
+@Composable
+private fun ConnectivityStatusHost(collectionStatus: CollectionStatus, networkStateKnown: Boolean, networkAvailable: Boolean, transitionState: NetworkBannerState) {
+    var showPersistentOffline by remember { mutableStateOf(false) }
+    LaunchedEffect(networkStateKnown, networkAvailable, transitionState) {
+        showPersistentOffline = false
+        if (networkStateKnown && !networkAvailable && transitionState == NetworkBannerState.HIDDEN) {
+            delay(380L)
+            showPersistentOffline = true
+        }
+    }
+    NetworkStatusBanner(transitionState)
+    AnimatedVisibility(
+        visible = showPersistentOffline,
+        enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(240)) + expandVertically(animationSpec = androidx.compose.animation.core.tween(240)),
+        exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(220)) + shrinkVertically(animationSpec = androidx.compose.animation.core.tween(220))
+    ) {
+        OfflineFeatureAvailabilityBanner(collectionStatus == CollectionStatus.COLLECTING)
+    }
+}
+
+@Composable
+private fun OfflineFeatureAvailabilityBanner(collectionInProgress: Boolean) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
+        color = VulkanSurfaceRaised,
+        shape = MaterialTheme.shapes.large,
+        tonalElevation = 0.dp
+    ) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Surface(shape = RoundedCornerShape(50), color = ComposeColor(0xFF16344F), modifier = Modifier.size(34.dp)) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(painter = painterResource(R.drawable.ic_info), contentDescription = null, tint = ComposeColor(0xFF5CA9FF), modifier = Modifier.size(19.dp))
+                }
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text("Internet features are unavailable", color = ComposeColor(0xFF9CCBFF), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                Text(if (collectionInProgress) "Vulkan collection continues offline. Internet-dependent actions remain locked by network state, while report-dependent actions also remain locked until collection completes." else "Vulkan inspection stays available offline. Database submission/fetching, web links and update checks remain disabled until Android reports a validated internet connection.", color = VulkanTextSecondary, style = MaterialTheme.typography.labelMedium)
+            }
+        }
+    }
+}
+
+@Composable
+private fun NetworkStatusBanner(state: NetworkBannerState) {
+    var renderedState by remember { mutableStateOf(NetworkBannerState.CONNECTED) }
+    LaunchedEffect(state) {
+        if (state != NetworkBannerState.HIDDEN) renderedState = state
+    }
+    AnimatedVisibility(
+        visible = state != NetworkBannerState.HIDDEN,
+        enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(240)) + expandVertically(animationSpec = androidx.compose.animation.core.tween(240)),
+        exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(360)) + shrinkVertically(animationSpec = androidx.compose.animation.core.tween(360))
+    ) {
+        val connected = renderedState == NetworkBannerState.CONNECTED
+        val stateColor = if (connected) ComposeColor(0xFF55D98A) else ComposeColor(0xFFFF7676)
+        val stateContainer = if (connected) ComposeColor(0xFF163D24) else ComposeColor(0xFF431C20)
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
+            color = VulkanSurfaceRaised,
+            shape = MaterialTheme.shapes.large,
+            tonalElevation = 0.dp
+        ) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(shape = RoundedCornerShape(50), color = stateContainer, modifier = Modifier.size(34.dp)) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            painter = painterResource(if (connected) R.drawable.ic_network_connected else R.drawable.ic_network_disconnected),
+                            contentDescription = null,
+                            tint = stateColor,
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    Text(if (connected) "Connected to network" else "No internet connection", color = stateColor, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                    Text(if (connected) "Android reports a validated default network." else "Android does not currently report a validated default network.", color = VulkanTextSecondary, style = MaterialTheme.typography.labelMedium)
+                }
+            }
+        }
     }
 }
 
@@ -7750,8 +9839,8 @@ private fun UpdateStatusBanner(status: UpdateStatus, onInstallUpdate: (AppUpdate
                 when (status) {
                     UpdateStatus.Checking -> { ExpressiveLinearProgressIndicator(Modifier.width(72.dp)); Text("Checking for updates…", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)) }
                     UpdateStatus.UpToDate -> { UpdateStatusBadge("UP TO DATE"); Text("VulkanScope is up to date.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)) }
-                    UpdateStatus.DirectUpdatesDisabledIntro -> { UpdateStatusBadge("INFO"); Text("Direct GitHub updates are currently disabled. Obtainium can manage updates externally, or direct updates can be enabled in Settings.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)) }
-                    is UpdateStatus.Available -> { UpdateInfoIcon(); Text("VulkanScope ${status.update.version} available", color = ComposeColor(0xFF9CCBFF), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)); ExpressiveTextButton("Review") { onInstallUpdate(status.update) } }
+                    UpdateStatus.DirectUpdatesDisabledIntro -> { UpdateSourceIcon(); Text("Direct GitHub updates are currently disabled. Obtainium can manage updates externally, or direct updates can be enabled in Settings.", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)) }
+                    is UpdateStatus.Available -> { UpdateAvailableIcon(); Text("VulkanScope ${status.update.version} available", color = VulkanAccentSoft, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f)); ChevronAffordance("Review", "Review update") { onInstallUpdate(status.update) } }
                     is UpdateStatus.Downloading -> { ExpressiveLinearProgressIndicator(Modifier.width(72.dp)); Text("Downloading update…", color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)) }
                     is UpdateStatus.Failed -> Text(status.message, color = ComposeColor(0xFFFF8A8A), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
                     UpdateStatus.Hidden -> Unit
@@ -7789,20 +9878,20 @@ private fun DirectUpdatesConsentDialog(appName: String, releaseSource: String, o
         shape = MaterialTheme.shapes.extraLarge,
         containerColor = VulkanSurfaceRaised,
         tonalElevation = 0.dp,
-        title = { Text("Enable direct GitHub updates?", fontWeight = FontWeight.SemiBold) },
+        title = { QuestionDialogTitle("Enable direct GitHub updates?") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("$appName will check for updates and download APKs directly from $releaseSource.")
                 Text("If you use Obtainium, leave this disabled so Obtainium remains the single update manager. Enabling direct updates makes the app independently check the same official GitHub Releases source and may duplicate update notifications.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
             }
         },
-        confirmButton = { ExpressivePrimaryButton("Enable direct updates", onConfirm) },
-        dismissButton = { ExpressiveTextButton("Cancel", onDismiss) }
+        confirmButton = { ExpressivePrimaryButton("Enable direct updates", onClick = onConfirm) },
+        dismissButton = { ExpressiveCancelButton(onClick = onDismiss) }
     )
 }
 
 @Composable
-private fun UpdateConfirmationDialog(update: AppUpdate, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+private fun UpdateConfirmationDialog(update: AppUpdate, networkAvailable: Boolean, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     val expandedTextLayout = preferExpandedTextLayout()
     val releaseNotesMaxHeight = if (expandedTextLayout) 220.dp else 360.dp
     AlertDialog(
@@ -7811,8 +9900,8 @@ private fun UpdateConfirmationDialog(update: AppUpdate, onDismiss: () -> Unit, o
         containerColor = VulkanSurfaceRaised,
         tonalElevation = 0.dp,
         title = {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Download VulkanScope ${update.version}?", fontWeight = FontWeight.SemiBold)
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                SemanticDialogTitle("Download VulkanScope ${update.version}?", R.drawable.ic_update_available)
                 Text("Review the target build and release notes before any APK download starts.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
             }
         },
@@ -7833,10 +9922,11 @@ private fun UpdateConfirmationDialog(update: AppUpdate, onDismiss: () -> Unit, o
                     ReleaseNotesContent(update.releaseNotes, Modifier.fillMaxWidth().heightIn(max = releaseNotesMaxHeight))
                 }
                 Text("The APK is validated for official release provenance, package identity, signing certificate, versionCode and versionName before Android's installer is opened.", color = ComposeColor(0xFF8F8F8F), style = MaterialTheme.typography.labelSmall)
+                if (!networkAvailable) Text("Download is disabled until Android reports a validated internet connection.", color = ComposeColor(0xFF9CCBFF), style = MaterialTheme.typography.labelSmall)
             }
         },
-        confirmButton = { ExpressivePrimaryButton("Download APK", onConfirm) },
-        dismissButton = { ExpressiveTextButton("Cancel", onDismiss) }
+        confirmButton = { ExpressivePrimaryIconTextButton("Download update", R.drawable.ic_download_update, enabled = networkAvailable, onClick = onConfirm) },
+        dismissButton = { ExpressiveCancelButton(onClick = onDismiss) }
     )
 }
 
@@ -7855,7 +9945,7 @@ private fun ReleaseNotesContent(markdown: String, modifier: Modifier = Modifier)
                 ReleaseNoteLine(raw)
             }
         }
-        ScrollBoundaryIndicators(listState, Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 6.dp))
+        ExpressiveScrollHints(listState, Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 6.dp))
     }
 }
 
@@ -8032,17 +10122,45 @@ private fun EmptyState(message: String) {
 }
 
 private fun capabilitySectionIcon(title: String): Int = when {
-    title.contains("quick access", true) || title.contains("explore", true) -> R.drawable.ic_home
+    title.equals("Developer", true) -> R.drawable.ic_code
+    title.equals("Application", true) -> R.drawable.vulkanscope_scope_wordmark
+    title.equals("Libraries", true) -> R.drawable.ic_library
+    title.equals("Build toolchain", true) -> R.drawable.ic_build
+    title.equals("Device ABI", true) -> R.drawable.ic_cpu
+    title.equals("Android", true) || title.equals("Android runtime", true) || title.equals("Operating system", true) -> R.drawable.ic_android
+    title.equals("Updates", true) -> R.drawable.ic_download
+    title.equals("Encyclopedia", true) -> R.drawable.ic_book
+    title.equals("Global Vulkan report search", true) -> R.drawable.ic_search
+    title.equals("Analysis workspace", true) -> R.drawable.ic_analysis
+    title.equals("Local session history", true) -> R.drawable.ic_history
+    title.equals("Watched evidence", true) -> R.drawable.ic_watch_add
+    title.equals("A/B summary", true) || title.equals("Diff summary", true) || title.equals("Offline report compare", true) || title.equals("System driver ↔ Turnip A/B", true) -> R.drawable.ic_compare
+    title.equals("Capability dependency graph", true) || title.equals("Visual registry-reference graph", true) -> R.drawable.ic_graph
+    title.equals("Optional active tests", true) || title.equals("Self-test result", true) -> R.drawable.ic_test
+    title.equals("Vulkan registry / query engine", true) || title.equals("Raw structured technical Report", true) -> R.drawable.ic_registry
+    title.equals("Export complete report", true) -> R.drawable.ic_surface
+    title.equals("Compare with VulkanScope Database", true) -> R.drawable.ic_action_database
+    title.equals("Database comparison summary", true) -> R.drawable.ic_compare
+    title.equals("Database permalink & QR", true) -> R.drawable.ic_qr
+    title.contains("Database", true) -> R.drawable.ic_action_database
+    title.contains("profile", true) -> R.drawable.ic_profile
+    title.contains("diagnostic", true) || title.equals("Query overview", true) || title.equals("Collection diagnostics", true) -> R.drawable.ic_evidence
+    title.equals("Extension explorer", true) -> R.drawable.ic_extensions
+    title.equals("Explore", true) -> R.drawable.ic_compass
+    title.contains("quick access", true) -> R.drawable.ic_home
     title.contains("snapshot", true) || title.contains("inspection", true) -> R.drawable.ic_vulkan
     title.startsWith("Vulkan", true) -> R.drawable.ic_vulkan
+    title.contains("driver", true) -> R.drawable.ic_vulkan
     title.contains("display", true) || title.contains("HDR", true) -> R.drawable.ic_display
     title.contains("surface", true) || title.contains("present", true) -> R.drawable.ic_surface
-    title.contains("feature", true) -> R.drawable.ic_features
+    title.contains("feature", true) || title.contains("requirement", true) || title.contains("evaluation", true) || title.contains("minimum", true) -> R.drawable.ic_features
+    title.equals("Memory heaps", true) -> R.drawable.ic_memory_heap
+    title.equals("Memory types", true) -> R.drawable.ic_memory_type
     title.contains("memory", true) || title.startsWith("Heap", true) -> R.drawable.ic_memory
     title.contains("queue", true) -> R.drawable.ic_queues
     title.contains("format", true) || title.contains("color space", true) -> R.drawable.ic_formats
-    title.contains("extension", true) || title.contains("layer", true) || title.contains("profile", true) -> R.drawable.ic_extensions
-    title.contains("property", true) || title.contains("limit", true) || title.contains("runtime", true) || title.contains("operating system", true) -> R.drawable.ic_properties
+    title.contains("extension", true) || title.contains("layer", true) -> R.drawable.ic_extensions
+    title.contains("property", true) || title.contains("limit", true) || title.contains("runtime", true) -> R.drawable.ic_properties
     else -> R.drawable.ic_info
 }
 
@@ -8097,12 +10215,14 @@ private fun ExpressiveSearchField(
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
     labelText: String? = null,
+    enabled: Boolean = true,
     placeholderText: String? = null
 ) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         modifier = modifier,
+        enabled = enabled,
         singleLine = true,
         shape = RoundedCornerShape(24.dp),
         leadingIcon = {
@@ -8133,10 +10253,11 @@ private fun ExpressiveSearchField(
 }
 
 @Composable
-private fun ExpressiveFilterChip(selected: Boolean, label: String, onClick: () -> Unit) {
+private fun ExpressiveFilterChip(selected: Boolean, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     FilterChip(
         selected = selected,
         onClick = onClick,
+        modifier = modifier.heightIn(min = 48.dp),
         shapes = FilterChipDefaults.shapes(
             shape = RoundedCornerShape(18.dp),
             selectedShape = RoundedCornerShape(22.dp),
@@ -8240,11 +10361,44 @@ private fun ExpressiveRadioButton(selected: Boolean, enabled: Boolean, onClick: 
     }
 }
 
+@Composable
+private fun QuestionDialogTitle(text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Surface(shape = RoundedCornerShape(18.dp), color = VulkanAccentContainer) {
+            Icon(painterResource(R.drawable.ic_question), contentDescription = null, tint = VulkanAccentSoft, modifier = Modifier.padding(9.dp).size(20.dp))
+        }
+        Text(text, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = VulkanTextPrimary, modifier = Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun SemanticDialogTitle(text: String, icon: Int) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Surface(shape = RoundedCornerShape(18.dp), color = VulkanAccentContainer) {
+            Icon(painterResource(icon), contentDescription = null, tint = VulkanAccentSoft, modifier = Modifier.padding(9.dp).size(20.dp))
+        }
+        Text(text, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = VulkanTextPrimary, modifier = Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun ExpressiveCancelButton(enabled: Boolean = true, onClick: () -> Unit) {
+    TextButton(onClick = onClick, enabled = enabled, colors = ButtonDefaults.textButtonColors(contentColor = VulkanAccentSoft, disabledContentColor = VulkanTextMuted)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
+                Icon(painterResource(R.drawable.ic_close), contentDescription = null, modifier = Modifier.size(17.dp))
+            }
+            Text("Cancel", fontWeight = FontWeight.Normal, style = MaterialTheme.typography.labelLarge)
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun ExpressivePrimaryButton(label: String, onClick: () -> Unit) {
+private fun ExpressivePrimaryButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
     Button(
         onClick = onClick,
+        enabled = enabled,
         shapes = ButtonDefaults.shapes(
             shape = RoundedCornerShape(20.dp),
             pressedShape = RoundedCornerShape(26.dp)
@@ -8260,9 +10414,35 @@ private fun ExpressivePrimaryButton(label: String, onClick: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun ExpressiveTextButton(label: String, onClick: () -> Unit) {
+private fun ExpressivePrimaryIconTextButton(label: String, icon: Int, enabled: Boolean = true, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        shapes = ButtonDefaults.shapes(
+            shape = RoundedCornerShape(20.dp),
+            pressedShape = RoundedCornerShape(26.dp)
+        ),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = VulkanAccent,
+            contentColor = VulkanTextPrimary,
+            disabledContainerColor = VulkanSurfaceLow,
+            disabledContentColor = VulkanTextMuted
+        ),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(18.dp))
+            Text(label, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ExpressiveTextButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
     TextButton(
         onClick = onClick,
+        enabled = enabled,
         shapes = ButtonDefaults.shapes(
             shape = RoundedCornerShape(18.dp),
             pressedShape = RoundedCornerShape(24.dp)
@@ -8270,6 +10450,51 @@ private fun ExpressiveTextButton(label: String, onClick: () -> Unit) {
         colors = ButtonDefaults.textButtonColors(contentColor = VulkanAccentSoft)
     ) {
         Text(label, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun ExpressiveContainedTextButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        shapes = ButtonDefaults.shapes(
+            shape = RoundedCornerShape(18.dp),
+            pressedShape = RoundedCornerShape(24.dp)
+        ),
+        colors = ButtonDefaults.textButtonColors(
+            containerColor = VulkanAccentContainer,
+            contentColor = VulkanAccentSoft,
+            disabledContainerColor = VulkanSurfaceLow,
+            disabledContentColor = VulkanTextMuted
+        )
+    ) {
+        Text(label, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun ExpressiveContainedIconTextButton(label: String, icon: Int, modifier: Modifier = Modifier, enabled: Boolean = true, fontWeight: FontWeight = FontWeight.SemiBold, onClick: () -> Unit) {
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.heightIn(min = 48.dp),
+        shapes = ButtonDefaults.shapes(
+            shape = RoundedCornerShape(18.dp),
+            pressedShape = RoundedCornerShape(24.dp)
+        ),
+        colors = ButtonDefaults.textButtonColors(
+            containerColor = VulkanAccentContainer,
+            contentColor = VulkanAccentSoft,
+            disabledContainerColor = VulkanSurfaceLow,
+            disabledContentColor = VulkanTextMuted
+        ),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.heightIn(min = 24.dp)) {
+            Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(18.dp))
+            Text(label, fontWeight = fontWeight, style = MaterialTheme.typography.labelLarge)
+        }
     }
 }
 
@@ -8283,6 +10508,186 @@ private fun ExpressiveLinearProgressIndicator(modifier: Modifier = Modifier) {
 }
 
 @Composable
+private fun SectionHeaderIcon(title: String, sectionIcon: Int) {
+    when {
+        sectionIcon == R.drawable.vulkanscope_scope_wordmark -> {
+            Image(
+                painter = painterResource(sectionIcon),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.padding(horizontal = 5.dp, vertical = 11.dp).width(32.dp).height(18.dp)
+            )
+        }
+        sectionIcon == R.drawable.ic_android -> {
+            Image(
+                painter = painterResource(sectionIcon),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.padding(horizontal = 7.dp, vertical = 12.dp).width(27.dp).height(16.dp)
+            )
+        }
+        title.equals("Queue query safety", true) -> {
+            Box(Modifier.padding(7.dp).size(27.dp)) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_queues),
+                    contentDescription = null,
+                    tint = VulkanAccentSoft,
+                    modifier = Modifier.align(Alignment.TopStart).size(21.dp)
+                )
+                Surface(shape = RoundedCornerShape(4.dp), color = VulkanSurface, modifier = Modifier.align(Alignment.BottomEnd)) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_shield),
+                        contentDescription = null,
+                        tint = VulkanAccentSoft,
+                        modifier = Modifier.padding(1.3.dp).size(9.dp)
+                    )
+                }
+            }
+        }
+        title.equals("Export complete report", true) -> {
+            Box(Modifier.padding(7.dp).size(27.dp)) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_surface),
+                    contentDescription = null,
+                    tint = VulkanAccentSoft,
+                    modifier = Modifier.align(Alignment.TopStart).size(21.dp)
+                )
+                Surface(shape = RoundedCornerShape(4.dp), color = VulkanSurface, modifier = Modifier.align(Alignment.BottomEnd)) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_export),
+                        contentDescription = null,
+                        tint = VulkanAccentSoft,
+                        modifier = Modifier.padding(1.3.dp).size(9.dp)
+                    )
+                }
+            }
+        }
+        title.equals("Surface + Display presentation evidence", true) -> {
+            Box(Modifier.padding(7.dp).size(27.dp)) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_display),
+                    contentDescription = null,
+                    tint = VulkanAccentSoft,
+                    modifier = Modifier.align(Alignment.TopStart).size(21.dp)
+                )
+                Surface(shape = RoundedCornerShape(4.dp), color = VulkanSurface, modifier = Modifier.align(Alignment.BottomEnd)) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_surface),
+                        contentDescription = null,
+                        tint = VulkanAccentSoft,
+                        modifier = Modifier.padding(1.5.dp).size(9.dp)
+                    )
+                }
+            }
+        }
+        title.equals("Raw structured technical Report", true) -> {
+            Box(Modifier.padding(7.dp).size(27.dp)) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_registry),
+                    contentDescription = null,
+                    tint = VulkanAccentSoft,
+                    modifier = Modifier.align(Alignment.TopStart).size(21.dp)
+                )
+                Surface(
+                    shape = RoundedCornerShape(3.dp),
+                    color = VulkanSurface,
+                    modifier = Modifier.align(Alignment.BottomEnd).border(0.7.dp, VulkanAccentSoft, RoundedCornerShape(3.dp))
+                ) {
+                    Text(
+                        "JSON",
+                        color = VulkanAccentSoft,
+                        fontSize = 4.2.sp,
+                        lineHeight = 4.5.sp,
+                        fontWeight = FontWeight.Black,
+                        modifier = Modifier.padding(horizontal = 1.1.dp, vertical = 0.8.dp)
+                    )
+                }
+            }
+        }
+        title.equals("Compare with VulkanScope Database", true) -> {
+            Box(Modifier.padding(7.dp).size(27.dp)) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_action_database),
+                    contentDescription = null,
+                    tint = VulkanAccentSoft,
+                    modifier = Modifier.align(Alignment.TopStart).size(21.dp)
+                )
+                Surface(shape = RoundedCornerShape(4.dp), color = VulkanSurface, modifier = Modifier.align(Alignment.BottomEnd)) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_compare),
+                        contentDescription = null,
+                        tint = VulkanAccentSoft,
+                        modifier = Modifier.padding(1.2.dp).size(9.dp)
+                    )
+                }
+            }
+        }
+        title.equals("HDR capabilities", true) || title.equals("HDR / wide-color surface detection", true) -> {
+            DisplaySectionBadgeIcon("HDR")
+        }
+        title.equals("Supported display modes", true) -> {
+            DisplaySectionBadgeIcon("MODE")
+        }
+        title.equals("Display ↔ Vulkan interpretation", true) -> {
+            Box(Modifier.padding(7.dp).size(27.dp)) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_display),
+                    contentDescription = null,
+                    tint = VulkanAccentSoft,
+                    modifier = Modifier.align(Alignment.TopStart).size(22.dp)
+                )
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = VulkanSurface,
+                    modifier = Modifier.align(Alignment.BottomEnd)
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_surface),
+                        contentDescription = null,
+                        tint = VulkanAccentSoft,
+                        modifier = Modifier.padding(1.5.dp).size(8.dp)
+                    )
+                }
+            }
+        }
+        else -> {
+            Icon(
+                painter = painterResource(sectionIcon),
+                contentDescription = null,
+                tint = VulkanAccentSoft,
+                modifier = Modifier.padding(10.dp).size(21.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun DisplaySectionBadgeIcon(label: String) {
+    Box(Modifier.padding(7.dp).size(27.dp)) {
+        Icon(
+            painter = painterResource(R.drawable.ic_display),
+            contentDescription = null,
+            tint = VulkanAccentSoft,
+            modifier = Modifier.align(Alignment.TopStart).size(22.dp)
+        )
+        Surface(
+            shape = RoundedCornerShape(3.dp),
+            color = VulkanSurface,
+            modifier = Modifier.align(Alignment.BottomEnd).border(0.7.dp, VulkanAccentSoft, RoundedCornerShape(3.dp))
+        ) {
+            Text(
+                label,
+                color = VulkanAccentSoft,
+                fontSize = if (label == "MODE") 4.2.sp else 5.2.sp,
+                lineHeight = if (label == "MODE") 4.5.sp else 5.4.sp,
+                fontWeight = FontWeight.Black,
+                modifier = Modifier.padding(horizontal = 1.2.dp, vertical = 0.8.dp)
+            )
+        }
+    }
+}
+
+@Composable
 private fun CapabilitySectionCard(title: String, content: @Composable () -> Unit) {
     val shape = MaterialTheme.shapes.extraLarge
     Surface(
@@ -8292,13 +10697,9 @@ private fun CapabilitySectionCard(title: String, content: @Composable () -> Unit
     ) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                val sectionIcon = capabilitySectionIcon(title)
                 Surface(shape = RoundedCornerShape(18.dp), color = ComposeColor(0xFF351719)) {
-                    Icon(
-                        painter = painterResource(capabilitySectionIcon(title)),
-                        contentDescription = null,
-                        tint = ComposeColor(0xFFE2676A),
-                        modifier = Modifier.padding(10.dp).size(21.dp)
-                    )
+                    SectionHeaderIcon(title, sectionIcon)
                 }
                 Text(
                     title,
@@ -8326,7 +10727,192 @@ private fun CapabilityItemCard(
 }
 
 @Composable
-private fun CapabilityKeyValue(key: String, value: String) {
+private fun ExpressiveFilterCarousel(
+    labels: List<String>,
+    selectedIndex: Int?,
+    modifier: Modifier = Modifier,
+    arrowTint: ComposeColor = VulkanTextPrimary,
+    isSelected: (Int) -> Boolean,
+    onSelected: (Int) -> Unit
+) {
+    if (labels.isEmpty()) return
+    val state = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val layoutDirection = LocalLayoutDirection.current
+    LaunchedEffect(selectedIndex, labels.size) {
+        val index = selectedIndex ?: return@LaunchedEffect
+        if (index in labels.indices) state.animateScrollToItem(index)
+    }
+    val leftMovesBackward = layoutDirection == LayoutDirection.Ltr
+    val canMoveLeft = if (leftMovesBackward) state.canScrollBackward else state.canScrollForward
+    val canMoveRight = if (leftMovesBackward) state.canScrollForward else state.canScrollBackward
+    val leftVisualAlpha by animateFloatAsState(if (canMoveLeft) 1f else 0.42f, tween(220), label = "filterLeftAlpha")
+    val rightVisualAlpha by animateFloatAsState(if (canMoveRight) 1f else 0.42f, tween(220), label = "filterRightAlpha")
+    val leftScale by animateFloatAsState(if (canMoveLeft) 1f else 0.92f, tween(220), label = "filterLeftScale")
+    val rightScale by animateFloatAsState(if (canMoveRight) 1f else 0.92f, tween(220), label = "filterRightScale")
+    val leftContinuationAlpha by animateFloatAsState(if (canMoveLeft) 1f else 0f, tween(220), label = "filterLeftContinuation")
+    val rightContinuationAlpha by animateFloatAsState(if (canMoveRight) 1f else 0f, tween(220), label = "filterRightContinuation")
+    fun move(backward: Boolean) {
+        scope.launch {
+            val visible = state.layoutInfo.visibleItemsInfo
+            val target = if (backward) {
+                ((visible.firstOrNull()?.index ?: state.firstVisibleItemIndex) - 1).coerceAtLeast(0)
+            } else {
+                ((visible.lastOrNull()?.index ?: state.firstVisibleItemIndex) + 1).coerceAtMost(labels.lastIndex)
+            }
+            state.animateScrollToItem(target)
+        }
+    }
+    Box(modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+        LazyRow(
+            state = state,
+            modifier = Modifier.fillMaxWidth().focusGroup(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 60.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            itemsIndexed(labels, key = { index, label -> "$index:$label" }) { index, label ->
+                ExpressiveFilterChip(selected = isSelected(index), label = label, onClick = { onSelected(index) })
+            }
+        }
+        Box(
+            Modifier.align(Alignment.CenterStart).width(82.dp).heightIn(min = 48.dp).alpha(leftContinuationAlpha).background(
+                Brush.horizontalGradient(listOf(VulkanSurfaceRaised, VulkanSurfaceRaised.copy(alpha = 0.94f), VulkanSurfaceRaised.copy(alpha = 0.62f), ComposeColor.Transparent))
+            )
+        )
+        Box(
+            Modifier.align(Alignment.CenterEnd).width(82.dp).heightIn(min = 48.dp).alpha(rightContinuationAlpha).background(
+                Brush.horizontalGradient(listOf(ComposeColor.Transparent, VulkanSurfaceRaised.copy(alpha = 0.62f), VulkanSurfaceRaised.copy(alpha = 0.94f), VulkanSurfaceRaised))
+            )
+        )
+        IconButton(
+            onClick = { move(leftMovesBackward) },
+            enabled = canMoveLeft,
+            colors = IconButtonDefaults.iconButtonColors(
+                containerColor = VulkanAccentContainer,
+                contentColor = VulkanTextPrimary,
+                disabledContainerColor = VulkanAccentContainer.copy(alpha = 0.72f),
+                disabledContentColor = VulkanTextPrimary.copy(alpha = 0.72f)
+            ),
+            modifier = Modifier.align(Alignment.CenterStart).size(48.dp).alpha(leftVisualAlpha).graphicsLayer(scaleX = leftScale, scaleY = leftScale)
+        ) {
+            Icon(painterResource(R.drawable.ic_chevron_left), contentDescription = "Scroll filters left", modifier = Modifier.size(23.dp))
+        }
+        IconButton(
+            onClick = { move(!leftMovesBackward) },
+            enabled = canMoveRight,
+            colors = IconButtonDefaults.iconButtonColors(
+                containerColor = VulkanAccentContainer,
+                contentColor = VulkanTextPrimary,
+                disabledContainerColor = VulkanAccentContainer.copy(alpha = 0.72f),
+                disabledContentColor = VulkanTextPrimary.copy(alpha = 0.72f)
+            ),
+            modifier = Modifier.align(Alignment.CenterEnd).size(48.dp).alpha(rightVisualAlpha).graphicsLayer(scaleX = rightScale, scaleY = rightScale)
+        ) {
+            Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = "Scroll filters right", modifier = Modifier.size(23.dp))
+        }
+    }
+}
+
+@Composable
+private fun ExpressiveFilterBar(labels: List<String>, selectedIndex: Int, arrowTint: ComposeColor = VulkanTextPrimary, onSelected: (Int) -> Unit) {
+    ExpressiveFilterCarousel(labels, selectedIndex, arrowTint = arrowTint, isSelected = { it == selectedIndex }, onSelected = onSelected)
+}
+
+@Composable
+private fun ExpressiveMultiFilterBar(labels: List<String>, selectedLabels: Set<String>, onToggle: (String) -> Unit) {
+    ExpressiveFilterCarousel(labels, null, isSelected = { labels[it] in selectedLabels }, onSelected = { onToggle(labels[it]) })
+}
+
+@Composable
+private fun ExpressiveToggleRow(title: String, subtitle: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        ExpressiveSwitch(checked = checked, onCheckedChange = onCheckedChange)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            Text(subtitle, style = MaterialTheme.typography.labelSmall, color = VulkanTextSecondary)
+        }
+    }
+}
+
+@Composable
+private fun ExpressiveMetric(label: String, value: String, modifier: Modifier = Modifier) {
+    Surface(shape = MaterialTheme.shapes.medium, color = VulkanSurfaceTonal, modifier = modifier) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(value, color = VulkanTextPrimary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Text(label, color = VulkanTextSecondary, style = MaterialTheme.typography.labelMedium)
+        }
+    }
+}
+
+@Composable
+private fun ExpressiveMetricGrid(metrics: List<Pair<String, String>>, modifier: Modifier = Modifier) {
+    if (metrics.isEmpty()) return
+    val expandedText = preferExpandedTextLayout()
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        val columns = when {
+            expandedText || maxWidth < 360.dp -> 1
+            maxWidth < 760.dp -> 2
+            else -> 3
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            metrics.chunked(columns).forEach { rowMetrics ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    rowMetrics.forEach { (label, value) -> ExpressiveMetric(label, value, Modifier.weight(1f)) }
+                    repeat(columns - rowMetrics.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExpressiveStatus(state: String) {
+    val positive = when (state.uppercase()) {
+        "PASS", "SATISFIED", "SUPPORTED", "AVAILABLE", "COMPATIBLE EVIDENCE", "NO REJECTION" -> true
+        "FAIL", "NOT SATISFIED", "UNSUPPORTED", "SAFETY REJECTED" -> false
+        else -> null
+    }
+    CapabilityStatusBadge(state, positive)
+}
+
+private fun copyEvidenceText(context: Context, label: String, text: String) {
+    (context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager)?.setPrimaryClip(android.content.ClipData.newPlainText(label, text))
+}
+
+private fun shareEvidenceText(context: Context, text: String) {
+    runCatching { context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), "Share VulkanScope evidence")) }
+}
+
+@Composable
+private fun EvidenceInspectorDialog(key: String, value: String, onDismiss: () -> Unit, onWatch: ((String) -> Unit)? = null) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val environment = LocalEvidenceActionEnvironment.current
+    val provenance = remember(key, value) { evidenceProvenance(key, value) }
+    val referenceToken = remember(key, value) { evidenceTokenForReference(key, value) }
+    val resolvedWatch = onWatch ?: environment?.addWatch
+    ExpressiveDetailDialog("Evidence provenance", onDismiss) {
+        ExpressiveEvidenceRow("Evidence key", key)
+        ExpressiveEvidenceRow("Value", value.ifBlank { "Unavailable" })
+        ExpressiveEvidenceRow("Evidence class", provenance.evidenceClass)
+        ExpressiveEvidenceRow("Source", provenance.source)
+        ExpressiveEvidenceRow("Query/API path", provenance.queryPath)
+        ExpressiveEvidenceRow("Query group", provenance.queryGroup)
+        ExpressiveEvidenceRow("Registry relationship", provenance.registryRelation)
+        Text(provenance.interpretation, color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+        ExpressiveActionButton("Copy name + value", "Copy the exact displayed evidence pair", R.drawable.ic_copy) { copyEvidenceText(context, "VulkanScope evidence", "$key = $value") }
+        ExpressiveActionButton("Share evidence", "Android Sharesheet · explicit user action", R.drawable.ic_share) { shareEvidenceText(context, "$key = $value") }
+        ExpressiveActionButton("Add to watched evidence", "Local bounded watch list", R.drawable.ic_watch_add, enabled = referenceToken.isNotBlank() && resolvedWatch != null) { resolvedWatch?.invoke(referenceToken) }
+        ExpressiveActionButton("Open in Encyclopedia", "Open the closest Vulkan symbol/reference token", R.drawable.ic_book, enabled = referenceToken.isNotBlank() && environment != null) { environment?.openEncyclopedia?.invoke(referenceToken) }
+    }
+}
+
+@Composable
+private fun ExpressiveEvidenceRow(key: String, value: String) {
     val expandedTextLayout = preferExpandedTextLayout()
     val detailPresentation = LocalDetailKeyValuePresentation.current
     BoxWithConstraints(Modifier.fillMaxWidth()) {
@@ -8357,13 +10943,7 @@ private fun CapabilityKeyValue(key: String, value: String) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(key, color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(0.88f))
-                    Text(
-                        value.ifBlank { "Unavailable" },
-                        color = ComposeColor(0xFFE7DFE1),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.weight(1.12f)
-                    )
+                    Text(value.ifBlank { "Unavailable" }, color = ComposeColor(0xFFE7DFE1), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1.12f))
                 }
             }
         }
@@ -8371,19 +10951,113 @@ private fun CapabilityKeyValue(key: String, value: String) {
 }
 
 @Composable
-private fun CapabilityStatusBadge(label: String, positive: Boolean? = null) {
-    val background = when (positive) {
-        true -> ComposeColor(0xFF173421)
-        false -> ComposeColor(0xFF3A1D20)
-        null -> ComposeColor(0xFF332A16)
+private fun CapabilityKeyValue(key: String, value: String) {
+    var showEvidenceActions by remember(key, value) { mutableStateOf(false) }
+    var pressed by remember(key, value) { mutableStateOf(false) }
+    val pressScale by animateFloatAsState(if (pressed) 0.985f else 1f, tween(110), label = "evidenceHoldScale")
+    val pressHighlightAlpha by animateFloatAsState(if (pressed) 0.58f else 0f, tween(110), label = "evidenceHoldHighlight")
+    Box(
+        Modifier.fillMaxWidth()
+            .graphicsLayer(scaleX = pressScale, scaleY = pressScale)
+            .background(VulkanAccentContainer.copy(alpha = pressHighlightAlpha), RoundedCornerShape(14.dp))
+            .pointerInput(key, value) {
+                detectTapGestures(
+                    onPress = {
+                        pressed = true
+                        try {
+                            tryAwaitRelease()
+                        } finally {
+                            pressed = false
+                        }
+                    },
+                    onLongPress = { showEvidenceActions = true }
+                )
+            }
+            .semantics {
+                customActions = listOf(CustomAccessibilityAction("Evidence actions") { showEvidenceActions = true; true })
+            }
+    ) {
+        ExpressiveEvidenceRow(key, value)
     }
-    val foreground = when (positive) {
-        true -> ComposeColor(0xFF73C991)
-        false -> ComposeColor(0xFFFF8A8A)
-        null -> ComposeColor(0xFFFFC857)
+    if (showEvidenceActions) EvidenceInspectorDialog(key, value, onDismiss = { showEvidenceActions = false })
+}
+
+private fun evidenceStateAccent(state: String): ComposeColor = when (state.trim().uppercase().replace('_', ' ')) {
+    "SUPPORTED", "PASS" -> ComposeColor(0xFF73C991)
+    "AVAILABLE" -> ComposeColor(0xFF7CC4FF)
+    "UNSUPPORTED", "FAIL" -> ComposeColor(0xFFFF8A8A)
+    "UNAVAILABLE" -> ComposeColor(0xFFFFC857)
+    "INCOMPLETE" -> ComposeColor(0xFFD3A4FF)
+    "NOT APPLICABLE" -> ComposeColor(0xFFC4C4C4)
+    "UNKNOWN", "UNRESOLVED" -> ComposeColor(0xFFA8A8A8)
+    else -> VulkanTextSecondary
+}
+
+@Composable
+private fun CapabilityStatusBadge(label: String, positive: Boolean? = null) {
+    val normalized = label.trim().uppercase().replace('_', ' ')
+    val available = positive == null && (normalized == "AVAILABLE" || normalized.startsWith("AVAILABLE "))
+    val unknown = positive == null && (normalized == "UNKNOWN" || normalized.startsWith("UNKNOWN ") || normalized == "UNRESOLVED")
+    val unavailable = positive == null && (normalized == "UNAVAILABLE" || normalized.startsWith("UNAVAILABLE "))
+    val incomplete = positive == null && normalized == "INCOMPLETE"
+    val notApplicable = positive == null && (normalized == "NOT APPLICABLE" || normalized.startsWith("NOT APPLICABLE "))
+    val background = when {
+        positive == true -> ComposeColor(0xFF173421)
+        positive == false -> ComposeColor(0xFF3A1D20)
+        available -> ComposeColor(0xFF172B3A)
+        unavailable -> ComposeColor(0xFF332A16)
+        incomplete -> ComposeColor(0xFF30243A)
+        notApplicable -> ComposeColor(0xFF272727)
+        unknown -> ComposeColor(0xFF252525)
+        else -> VulkanSurfaceTonal
+    }
+    val foreground = when {
+        positive == true -> ComposeColor(0xFF73C991)
+        positive == false -> ComposeColor(0xFFFF8A8A)
+        available -> ComposeColor(0xFF7CC4FF)
+        unavailable -> ComposeColor(0xFFFFC857)
+        incomplete -> ComposeColor(0xFFD3A4FF)
+        notApplicable -> ComposeColor(0xFFC4C4C4)
+        unknown -> ComposeColor(0xFFA8A8A8)
+        else -> VulkanTextSecondary
     }
     Surface(shape = RoundedCornerShape(999.dp), color = background) {
         Text(label, color = foreground, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp))
+    }
+}
+
+@Composable
+private fun ActionButtonIconArtwork(title: String, icon: Int, tint: ComposeColor) {
+    val badge = when {
+        title.equals("Export TXT", true) -> "TXT"
+        title.equals("Export HTML", true) -> "HTML"
+        else -> null
+    }
+    if (badge == null) {
+        Icon(painter = painterResource(icon), contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+        return
+    }
+    Box(Modifier.size(24.dp)) {
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.align(Alignment.TopStart).size(19.dp)
+        )
+        Surface(
+            shape = RoundedCornerShape(3.dp),
+            color = VulkanSurface,
+            modifier = Modifier.align(Alignment.BottomEnd).border(0.7.dp, tint, RoundedCornerShape(3.dp))
+        ) {
+            Text(
+                badge,
+                color = tint,
+                fontSize = if (badge == "HTML") 3.7.sp else 4.4.sp,
+                lineHeight = if (badge == "HTML") 4.0.sp else 4.7.sp,
+                fontWeight = FontWeight.Black,
+                modifier = Modifier.padding(horizontal = if (badge == "HTML") 0.8.dp else 1.0.dp, vertical = 0.7.dp)
+            )
+        }
     }
 }
 
@@ -8404,12 +11078,10 @@ private fun ExpressiveActionButton(
     val accent = if (enabled) ComposeColor(0xFFE2676A) else ComposeColor(0xFF606064)
     val titleColor = if (enabled) ComposeColor(0xFFF7F2F3) else ComposeColor(0xFF6C696A)
     val detailColor = if (enabled) ComposeColor(0xFFB6ACAE) else ComposeColor(0xFF5A5758)
-    Card(
-        onClick = onClick,
-        enabled = enabled,
-        colors = CardDefaults.cardColors(containerColor = container),
+    Surface(
+        color = container,
         shape = shape,
-        modifier = modifier.onFocusChanged { focused = it.isFocused }.border(if (focused && enabled) 2.dp else 0.dp, if (focused && enabled) ComposeColor(0xFFE2676A) else ComposeColor.Transparent, shape)
+        modifier = modifier.border(if (focused && enabled) 2.dp else 0.dp, if (focused && enabled) ComposeColor(0xFFE2676A) else ComposeColor.Transparent, shape)
     ) {
         if (compact) {
             Column(
@@ -8418,15 +11090,20 @@ private fun ExpressiveActionButton(
             ) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Surface(shape = RoundedCornerShape(17.dp), color = iconContainer) {
-                        Icon(painter = painterResource(icon), contentDescription = null, tint = accent, modifier = Modifier.padding(10.dp).size(21.dp))
+                        Box(Modifier.padding(9.dp)) { ActionButtonIconArtwork(title, icon, accent) }
                     }
-                    Surface(shape = RoundedCornerShape(999.dp), color = if (enabled) ComposeColor(0xFF291719) else ComposeColor(0xFF171717)) {
-                        Icon(painter = painterResource(R.drawable.ic_chevron_right), contentDescription = null, tint = accent, modifier = Modifier.padding(8.dp).size(18.dp))
+                    IconButton(
+                        onClick = onClick,
+                        enabled = enabled,
+                        modifier = Modifier.size(48.dp).onFocusChanged { focused = it.isFocused },
+                        colors = IconButtonDefaults.iconButtonColors(containerColor = if (enabled) ComposeColor(0xFF291719) else ComposeColor(0xFF171717), contentColor = accent, disabledContentColor = accent)
+                    ) {
+                        Icon(painter = painterResource(R.drawable.ic_chevron_right), contentDescription = "Open $title", modifier = Modifier.size(18.dp))
                     }
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(title, color = titleColor, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(subtitle, color = detailColor, style = MaterialTheme.typography.labelSmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    Text(subtitle, color = detailColor, style = MaterialTheme.typography.labelSmall)
                 }
             }
         } else {
@@ -8436,15 +11113,38 @@ private fun ExpressiveActionButton(
                 horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Surface(shape = RoundedCornerShape(18.dp), color = iconContainer) {
-                    Icon(painter = painterResource(icon), contentDescription = null, tint = accent, modifier = Modifier.padding(11.dp).size(22.dp))
+                    Box(Modifier.padding(10.dp)) { ActionButtonIconArtwork(title, icon, accent) }
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(title, color = titleColor, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(subtitle, color = detailColor, style = MaterialTheme.typography.labelSmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    Text(subtitle, color = detailColor, style = MaterialTheme.typography.labelSmall)
                 }
-                Surface(shape = RoundedCornerShape(999.dp), color = if (enabled) ComposeColor(0xFF291719) else ComposeColor(0xFF171717)) {
-                    Icon(painter = painterResource(R.drawable.ic_chevron_right), contentDescription = null, tint = accent, modifier = Modifier.padding(9.dp).size(19.dp))
+                IconButton(
+                    onClick = onClick,
+                    enabled = enabled,
+                    modifier = Modifier.size(48.dp).onFocusChanged { focused = it.isFocused },
+                    colors = IconButtonDefaults.iconButtonColors(containerColor = if (enabled) ComposeColor(0xFF291719) else ComposeColor(0xFF171717), contentColor = accent, disabledContentColor = accent)
+                ) {
+                    Icon(painter = painterResource(R.drawable.ic_chevron_right), contentDescription = "Open $title", modifier = Modifier.size(19.dp))
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExpressiveExternalLinkRow(title: String, subtitle: String, icon: Int, enabled: Boolean = true, onOpen: () -> Unit) {
+    Surface(color = if (enabled) ComposeColor(0xFF1A1718) else ComposeColor(0xFF111111), shape = MaterialTheme.shapes.largeIncreased, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Surface(shape = RoundedCornerShape(18.dp), color = if (enabled) ComposeColor(0xFF351719) else ComposeColor(0xFF181818)) {
+                Icon(painterResource(icon), contentDescription = null, tint = if (enabled) VulkanAccentSoft else VulkanTextMuted, modifier = Modifier.padding(11.dp).size(22.dp))
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(title, color = if (enabled) VulkanTextPrimary else VulkanTextMuted, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge)
+                Text(subtitle, color = if (enabled) VulkanTextSecondary else VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+            }
+            IconButton(onClick = onOpen, enabled = enabled, colors = IconButtonDefaults.iconButtonColors(containerColor = if (enabled) VulkanAccentContainer else VulkanSurfaceLow, contentColor = VulkanAccentSoft, disabledContentColor = VulkanTextMuted), modifier = Modifier.size(48.dp)) {
+                Icon(painterResource(R.drawable.ic_open_external), contentDescription = "Open external link", modifier = Modifier.size(20.dp))
             }
         }
     }
@@ -8476,7 +11176,7 @@ private fun ExpressiveVersionBlock(application: String, version: String, version
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(13.dp)) {
                 Surface(shape = RoundedCornerShape(19.dp), color = ComposeColor(0xFF351719)) {
-                    Icon(painter = painterResource(R.drawable.ic_info), contentDescription = null, tint = ComposeColor(0xFFE2676A), modifier = Modifier.padding(11.dp).size(23.dp))
+                    Image(painter = painterResource(R.drawable.vulkanscope_logo_foreground), contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.size(46.dp))
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                     Text(application, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)

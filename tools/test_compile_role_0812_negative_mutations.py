@@ -7,6 +7,8 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
 verifier = root / 'tools/verify_compile_role_0812.py'
+current_gradle = (root / 'app/build.gradle.kts').read_text(encoding='utf-8')
+successor = 'versionName = "0.80.12"' not in current_gradle
 
 def run(candidate, *extra):
     return subprocess.run([sys.executable, str(verifier), '--root', str(candidate), *extra], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -24,18 +26,19 @@ def mutate_and_expect_failure(relative, old, new, label, skip_version=False):
         if result.returncode == 0:
             raise SystemExit(f'negative mutation unexpectedly passed: {label}')
 
-current = run(root)
+current = run(root, *(['--skip-version'] if successor else []))
 if current.returncode != 0:
     raise SystemExit(current.stdout)
 mutate_and_expect_failure('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt', 'import androidx.compose.ui.semantics.role\n', '', 'missing role extension import', True)
 mutate_and_expect_failure('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt', 'Modifier.semantics { role = Role.Button }', 'Modifier.semantics { }', 'lost explicit button role', True)
-mutate_and_expect_failure('app/build.gradle.kts', 'versionCode = 812', 'versionCode = 810', 'stale versionCode')
+if not successor:
+    mutate_and_expect_failure('app/build.gradle.kts', 'versionCode = 812', 'versionCode = 810', 'stale versionCode')
 with tempfile.TemporaryDirectory(prefix='vulkanscope-0812-control-') as td:
     candidate = Path(td) / 'tree'
     shutil.copytree(root, candidate)
     path = candidate / 'changelog.md'
     path.write_text(path.read_text(encoding='utf-8') + '\nUnrelated documentation control.\n', encoding='utf-8')
-    result = run(candidate)
+    result = run(candidate, *(['--skip-version'] if successor else []))
     if result.returncode != 0:
         raise SystemExit('false-positive control failed:\n' + result.stdout)
 print('PASS 0.80.12 Compose role negative mutations and false-positive control')

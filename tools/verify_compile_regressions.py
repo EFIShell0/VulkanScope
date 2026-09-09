@@ -47,6 +47,21 @@ expected_table = 'table("Device layer enumeration", "<th>Property</th><th>Value<
 if expected_table not in kt:
     errors.append('Device layer enumeration HTML export is not routed through the existing table helper')
 
+
+if 'ExpressiveFilterBar(devices.mapIndexed { index, device -> "GPU ${index + 1} · ${device.name.ifBlank { "Unknown" }.take(48)}" }, selectedIndex, onSelected)' in kt:
+    errors.append('compile-breaking positional PhysicalDeviceSelector callback remains after arrowTint parameter insertion')
+if 'ExpressiveFilterBar(devices.mapIndexed { index, device -> "GPU ${index + 1} · ${device.name.ifBlank { "Unknown" }.take(48)}" }, selectedIndex, onSelected = onSelected)' not in kt:
+    errors.append('PhysicalDeviceSelector must bind the callback through named onSelected to preserve default-parameter type safety')
+
+if 'ExpressiveTextButton("Cancel", onDismiss)' in kt or 'ExpressiveCancelButton(onDismiss)' in kt:
+    errors.append('compile-breaking positional default-parameter Cancel callback remains')
+if 'private fun ExpressiveCancelButton(enabled: Boolean = true, onClick: () -> Unit)' in kt:
+    if kt.count('ExpressiveCancelButton(onClick = onDismiss)') != 2:
+        errors.append('both update-dialog Cancel callbacks must use the named onClick argument')
+else:
+    if kt.count('ExpressiveTextButton("Cancel", onClick = onDismiss)') != 2:
+        errors.append('both update-dialog Cancel callbacks must use the named onClick argument')
+
 if errors:
     for error in errors:
         print('FAIL:', error)

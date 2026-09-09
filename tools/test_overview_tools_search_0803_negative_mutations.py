@@ -12,7 +12,7 @@ def mutate(label, rel, fn, expect=False):
     if (r.returncode==0)!=expect: raise SystemExit(label+' unexpected result\n'+r.stdout)
 main=Path('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt'); idx=Path('app/src/main/java/com/efishell/vulkanscope/VulkanSymbolIndex.kt'); gen=Path('tools/generate_encyclopedia_symbols.py')
 mutate('re-embed analysis in Overview',main,lambda s:s.replace('    VulkanLazyPage(verticalSpacing = 14.dp) {','    val analysisModel = rememberAnalysisWorkspaceModel(report, device, display, driverMode)\n    VulkanLazyPage(verticalSpacing = 14.dp) {',1))
-mutate('remove Encyclopedia route',main,lambda s:s.replace('        Page.Encyclopedia -> EncyclopediaPage()\n','',1))
+mutate('remove Encyclopedia route',main,lambda s:s.replace('        Page.Encyclopedia -> EncyclopediaPage(encyclopediaSeed)\n','',1))
 mutate('restore double escaped generated separator',idx,lambda s:s.replace('vkAcquireDrmDisplayEXT\\tVulkan command\\t','vkAcquireDrmDisplayEXT\\\\tVulkan command\\\\t',1))
 mutate('remove malformed decoder guard',idx,lambda s:s.replace('    if (first <= 0 || second <= first + 1) return null\n','',1))
 mutate('remove malformed search-row guard',idx,lambda s:s.replace('            if (tab <= 0) continue\n','',1))

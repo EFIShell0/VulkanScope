@@ -46,12 +46,12 @@ if SYSTEM_FONT_POLICY != {
     raise SystemExit('system font fallback model drifted')
 
 UPDATE_STATES = {
-    'available': ('info', 'blue'),
+    'available': ('update', 'accent'),
     'completed_collection': ('check', 'green'),
     'failed_collection': ('close', 'red'),
 }
-if UPDATE_STATES['available'] != ('info', 'blue'):
-    raise SystemExit('update-available state is not distinct blue information evidence')
+if UPDATE_STATES['available'] != ('update', 'accent'):
+    raise SystemExit('update-available state is not distinct semantic update evidence')
 if len(set(UPDATE_STATES.values())) != 3:
     raise SystemExit('status icon/color semantics collapsed')
-print(f'PASS 0.80.7 locale/bidi/font fallback state model ({len(SAMPLES)} Unicode fixtures) and update-info state')
+print(f'PASS 0.80.7 locale/bidi/font fallback state model ({len(SAMPLES)} Unicode fixtures) and semantic update state')

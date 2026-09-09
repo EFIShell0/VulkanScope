@@ -90,7 +90,7 @@ require(re.search(r'private fun LazyListScope\.analysisWorkspaceItems\s*\(', kt)
 analysis_body = function_body('analysisWorkspaceItems')
 require('items(model.diffRows' in analysis_body, 'Analysis diff collection is not retained as lazy items')
 require('items(model.profileResults' in analysis_body, 'Analysis profile collection is not retained as lazy items')
-require('items(model.graphEntries.drop(1)' in analysis_body, 'Analysis dependency graph collection is not retained as lazy items')
+require('items(model.graphEntries' in analysis_body, 'Analysis dependency graph collection is not retained as lazy items')
 require('items(model.visibleWatched' in analysis_body, 'Analysis watch collection is not retained as lazy items')
 require('CapabilitySectionCard("Analysis workspace")' in analysis_body, 'Analysis workspace presentation heading missing')
 

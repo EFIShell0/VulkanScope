@@ -35,7 +35,7 @@ mutate('scroll arrow TalkBack noise', 'contentDescription = null,\n            t
 mutate('large-font threshold removal', 'return configuration.fontScale >= 1.3f || configuration.screenWidthDp < 360', 'return configuration.screenWidthDp < 360')
 mutate('Quick Access fixed height regression', 'modifier = modifier.heightIn(min = 72.dp)', 'modifier = modifier.height(72.dp)')
 mutate('Quick Access large-text adaptation regression', 'expandedTextLayout || maxWidth < 300.dp -> 1', 'maxWidth < 300.dp -> 1')
-mutate('collection live-region removal', '.semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }', '.semantics(mergeDescendants = true) { }')
+mutate('collection live-region removal', 'val failed = status == CollectionStatus.FAILED\n        Surface(\n            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },', 'val failed = status == CollectionStatus.FAILED\n        Surface(\n            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).semantics(mergeDescendants = true) { },')
 mutate('key-value TalkBack merge removal', 'modifier = Modifier.fillMaxWidth().then(tvBrowseModifier(shape)).semantics(mergeDescendants = true) { }', 'modifier = Modifier.fillMaxWidth().then(tvBrowseModifier(shape))')
 mutate('section heading removal', '.weight(1f).semantics { heading() }', '.weight(1f)')
 mutate('switch duplicate action restoration', 'ExpressiveSwitch(checked = directUpdatesEnabled, onCheckedChange = null)', 'ExpressiveSwitch(checked = directUpdatesEnabled, onCheckedChange = onDirectUpdatesChanged)')

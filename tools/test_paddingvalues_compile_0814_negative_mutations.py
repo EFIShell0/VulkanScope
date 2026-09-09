@@ -7,6 +7,8 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
 verifier = root / 'tools/verify_paddingvalues_compile_0814.py'
+current_gradle = (root / 'app/build.gradle.kts').read_text(encoding='utf-8')
+exact_0815 = 'versionCode = 815' in current_gradle
 
 def run(target):
     return subprocess.run([sys.executable, str(verifier), '--root', str(target)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -27,7 +29,8 @@ mutate('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt', 'import and
 mutate('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt', 'import androidx.compose.foundation.layout.fillMaxSize\n', 'import androidx.compose.foundation.layout.calculateBottomPadding\nimport androidx.compose.foundation.layout.fillMaxSize\n', 'restore invalid bottom import')
 mutate('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt', 'navigationPadding.calculateTopPadding()', '0.dp', 'remove top member call')
 mutate('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt', 'navigationPadding.calculateBottomPadding()', '0.dp', 'remove bottom member call')
-mutate('app/build.gradle.kts', 'versionCode = 815', 'versionCode = 813', 'stale versionCode')
+if exact_0815:
+    mutate('app/build.gradle.kts', 'versionCode = 815', 'versionCode = 813', 'stale versionCode')
 with tempfile.TemporaryDirectory() as td:
     dst = Path(td) / 'repo'
     shutil.copytree(root, dst)

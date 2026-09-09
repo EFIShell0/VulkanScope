@@ -50,10 +50,11 @@ def body(name):
                 return kt[match.start():index + 1]
     return ''
 
+version_match = re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"', gd)
+code_match = re.search(r'versionCode\s*=\s*(\d+)', gd)
+version_tuple = tuple(map(int, version_match.groups())) if version_match else (0, 0, 0)
 if not args.skip_version:
-    version_match = re.search(r'versionName\s*=\s*"0\.(\d+)\.(\d+)"', gd)
-    code_match = re.search(r'versionCode\s*=\s*(\d+)', gd)
-    version_ok = bool(version_match and (int(version_match.group(1)), int(version_match.group(2))) >= (80, 7))
+    version_ok = bool(version_match and version_tuple >= (0, 80, 7))
     need(version_ok and bool(code_match), '0.80.7+ identity missing')
 need('android:supportsRtl="true"' in mn, 'Android RTL support is disabled')
 need('import androidx.compose.material3.Typography' in kt, 'system-font Typography baseline import missing')
@@ -75,16 +76,26 @@ need(not font_dir.exists(), 'bundled app font resources override system font fal
 for suffix in ['*.ttf','*.otf','*.woff','*.woff2']:
     need(not any((root / 'app/src/main').rglob(suffix)), f'bundled font binary found: {suffix}')
 
-info = body('UpdateInfoIcon')
-need(info, 'blue update information icon component missing')
-need('R.drawable.ic_info' in info, 'update information icon does not use the Info glyph')
-need('ComposeColor(0xFF16344F)' in info, 'update information icon blue container drifted')
-need('ComposeColor(0xFF5CA9FF)' in info, 'update information icon blue tint drifted')
-need('contentDescription = null' in info, 'decorative update info icon duplicates live-region text')
 update = body('UpdateStatusBanner')
-need('is UpdateStatus.Available -> { UpdateInfoIcon();' in update, 'update-available banner does not show the blue Info icon')
-need('UpdateStatusBadge("UPDATE")' not in update, 'update-available banner still uses the old status badge instead of the requested Info icon')
-need('color = ComposeColor(0xFF9CCBFF)' in update, 'update-available copy does not align with the blue information state')
+if version_tuple >= (1, 0, 13):
+    info = body('UpdateAvailableIcon')
+    need(info, 'semantic update-available icon component missing')
+    need('R.drawable.ic_update_available' in info, 'semantic update-available icon drawable missing')
+    need('color = VulkanAccentContainer' in info, 'update-available icon accent container drifted')
+    need('tint = VulkanAccentSoft' in info, 'update-available icon accent tint drifted')
+    need('contentDescription = null' in info, 'decorative update-available icon duplicates live-region text')
+    need('is UpdateStatus.Available -> { UpdateAvailableIcon();' in update, 'update-available banner does not show the semantic update icon')
+    need('color = VulkanAccentSoft' in update, 'update-available copy does not align with the Vulkan accent information state')
+else:
+    info = body('UpdateInfoIcon')
+    need(info, 'blue update information icon component missing')
+    need('R.drawable.ic_info' in info, 'update information icon does not use the Info glyph')
+    need('ComposeColor(0xFF16344F)' in info, 'update information icon blue container drifted')
+    need('ComposeColor(0xFF5CA9FF)' in info, 'update information icon blue tint drifted')
+    need('contentDescription = null' in info, 'decorative update info icon duplicates live-region text')
+    need('is UpdateStatus.Available -> { UpdateInfoIcon();' in update, 'update-available banner does not show the blue Info icon')
+    need('UpdateStatusBadge("UPDATE")' not in update, 'update-available banner still uses the old status badge instead of the requested Info icon')
+    need('color = ComposeColor(0xFF9CCBFF)' in update, 'update-available copy does not align with the blue information state')
 need('liveRegion = LiveRegionMode.Polite' in update, 'update-available information state lost TalkBack live-region behavior')
 
 if errors:

@@ -6,9 +6,14 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
 verifier = root / 'tools/verify_material3_expressive_ui_0813.py'
+current_gradle = (root / 'app/build.gradle.kts').read_text(encoding='utf-8')
+successor = 'versionName = "0.80.13"' not in current_gradle
 
 def run(candidate):
-    return subprocess.run(['python', str(verifier), '--root', str(candidate)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True).returncode
+    command = ['python', str(verifier), '--root', str(candidate)]
+    if successor:
+        command.append('--skip-version')
+    return subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True).returncode
 
 def mutate_and_expect_failure(path, old, new, label):
     with tempfile.TemporaryDirectory() as tmp:
@@ -24,14 +29,24 @@ def mutate_and_expect_failure(path, old, new, label):
 
 mutate_and_expect_failure('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt', 'Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false))', 'AlertDialog(onDismissRequest = onDismiss,', 'complex dialog regression')
 mutate_and_expect_failure('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt', 'value.length > 34', 'value.length > 54', 'cramped key-value threshold')
-mutate_and_expect_failure('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt', 'end = 46.dp', 'end = 18.dp', 'scroll indicator overlap lane')
-mutate_and_expect_failure('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt', 'ComposeColor.Transparent else VulkanSurfaceTonal', 'VulkanSurfaceTonal else VulkanSurfaceTonal', 'boxed detail rows')
-mutate_and_expect_failure('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt', 'ExpressiveSwitch(checked = state.includeUnchanged, onCheckedChange = null)', 'Switch(checked = state.includeUnchanged, onCheckedChange = { state.includeUnchanged = it })', 'raw Analysis switch')
+if successor:
+    mutate_and_expect_failure('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt', 'end = 18.dp', 'end = 46.dp', 'scroll indicator overlap lane')
+else:
+    mutate_and_expect_failure('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt', 'end = 46.dp', 'end = 18.dp', 'scroll indicator overlap lane')
+if successor:
+    mutate_and_expect_failure('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt', 'androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant)', 'null', 'grouped detail row outline removal')
+else:
+    mutate_and_expect_failure('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt', 'ComposeColor.Transparent else VulkanSurfaceTonal', 'VulkanSurfaceTonal else VulkanSurfaceTonal', 'boxed detail rows')
+if successor:
+    mutate_and_expect_failure('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt', 'ExpressiveSwitch(checked = checked, onCheckedChange = onCheckedChange)', 'Switch(checked = checked, onCheckedChange = onCheckedChange)', 'raw Analysis switch')
+else:
+    mutate_and_expect_failure('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt', 'ExpressiveSwitch(checked = state.includeUnchanged, onCheckedChange = null)', 'Switch(checked = state.includeUnchanged, onCheckedChange = { state.includeUnchanged = it })', 'raw Analysis switch')
 mutate_and_expect_failure('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt', 'CapabilitySectionCard("Vulkan inspection")', 'Column { Text("Vulkan inspection") }', 'unstyled loading hierarchy')
 mutate_and_expect_failure('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt', 'import androidx.compose.ui.semantics.role\n', '', 'Compose role extension import')
 mutate_and_expect_failure('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt', 'modifier = Modifier.semantics { role = Role.Button }', 'modifier = Modifier', 'Details explicit Button role')
 mutate_and_expect_failure('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt', 'value.length > 32', 'value.length > 52', 'cramped update metadata threshold')
-mutate_and_expect_failure('app/build.gradle.kts', 'versionCode = 813', 'versionCode = 812', 'stale versionCode')
+if not successor:
+    mutate_and_expect_failure('app/build.gradle.kts', 'versionCode = 813', 'versionCode = 812', 'stale versionCode')
 
 with tempfile.TemporaryDirectory() as tmp:
     candidate = Path(tmp) / 'root'

@@ -30,7 +30,7 @@ def mutate(name, transform, should_fail=True):
             raise SystemExit(f'FAIL false-positive control rejected: {name}\n{output}')
 
 mutate('analysis-route', lambda s: s.replace('Video("Vulkan Video")', 'Video("Vulkan Video"), Analysis("Analysis")', 1))
-mutate('analysis-before-snapshot', lambda s: s.replace('Page.Analysis -> AnalysisPage(report, device, display, driverMode)', 'Page.Analysis -> EmptyState("Analysis unavailable")', 1))
+mutate('analysis-before-snapshot', lambda s: s.replace('Page.Analysis -> AnalysisPage(report, device, display, driverMode, turnipSupport, collectionStatus, queryTimingMs, onDriverModeChanged)', 'Page.Analysis -> EmptyState("Analysis unavailable")', 1))
 mutate('missing-page-wrapper', lambda s: s.replace('private fun VulkanPage(report: VulkanReport, device: DeviceReport?, turnipSupport: TurnipSupport) {\n    VulkanLazyPage(', 'private fun VulkanPage(report: VulkanReport, device: DeviceReport?, turnipSupport: TurnipSupport) {\n    LazyColumn(', 1))
 mutate('reversed-up-boundary', lambda s: s.replace('derivedStateOf { listState.canScrollBackward }', 'derivedStateOf { listState.canScrollForward }', 1))
 mutate('missing-video-route', lambda s: s.replace('Page.Video -> VulkanVideoPage(device)', 'Page.Video -> EmptyState("Video")', 1))

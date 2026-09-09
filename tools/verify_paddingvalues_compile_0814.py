@@ -17,7 +17,7 @@ def require(condition, message):
         errors.append(message)
 
 if not args.skip_version:
-    require(any(f'versionCode = {code}' in gradle and f'versionName = "{name}"' in gradle for name, code in [('0.80.14', 814), ('0.80.15', 815)]), 'release identity is not a retained 0.80.14+ compile-compatible identity')
+    require(any(f'versionCode = {code}' in gradle and f'versionName = "{name}"' in gradle for name, code in [('0.80.14', 814), ('0.80.15', 815), ('1.0.0', 1000), ('1.0.1', 1001), ('1.0.2', 1002), ('1.0.3', 1003), ('1.0.4', 1004), ('1.0.5', 1005), ('1.0.6', 1006), ('1.0.7', 1007), ('1.0.8', 1008), ('1.0.9', 1009), ('1.0.10', 1010)]), 'release identity is not a retained 0.80.14+ compile-compatible identity')
 require('import androidx.compose.foundation.layout.calculateBottomPadding' not in main, 'invalid calculateBottomPadding package import remains')
 require('import androidx.compose.foundation.layout.calculateTopPadding' not in main, 'invalid calculateTopPadding package import remains')
 require('navigationPadding.calculateTopPadding()' in main, 'PaddingValues calculateTopPadding member call was removed')

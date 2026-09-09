@@ -1,10 +1,190 @@
+## 1.0.19
+- Replaced the Direct GitHub Updates / Check for updates artwork with a simple downward-arrow download glyph while keeping Turnip ZIP import on the ZIP-folder/download glyph.
+- Changed only horizontal filter-carousel arrow colors to VulkanScope red containers with white chevrons; vertical scroll arrows, geometry and motion are unchanged.
+- Added queue+shield artwork for Queue query safety, Surface+export artwork for complete report export, TXT/HTML badges for their export actions, and a compass for Explore.
+- Retained Vulkan 1.4.362 collection/report semantics, Database 1.0.8 compatibility, fixed HTTPS update/Database routes and the 1.0.18 compile-safe filter callback binding.
+
+## 1.0.18
+
+- Fixes the release Kotlin compile regression in `PhysicalDeviceSelector` by binding the `ExpressiveFilterBar` callback through the named `onSelected` parameter after the `arrowTint` default parameter was introduced.
+- Extends the compile-regression gate so the same positional-callback/type-mismatch defect cannot pass source verification again.
+- Performs a full retained security, memory/resource, crash/recovery, Vulkan registry/query, Database transport, UI/accessibility and package-regression audit without changing Vulkan collection or report semantics.
+- Revalidates Vulkan 1.4.362/header 362 against the current Khronos registry published 2026-09-04 and keeps Database 1.0.8 schema 2 / technicalReport 3 / normalizer 16 compatibility.
+- Keeps all 1.0.17 semantic icon and design corrections unchanged.
+
+## 1.0.17
+
+- Restores the Semih Boran developer identity-row icon to the existing person glyph while keeping the `</>` code glyph only on the Developer section header.
+- Converts the shipped VulkanScope launcher/identity foreground artwork to transparent-white presentation by removing opaque black artwork pixels while preserving the white VulkanScope wordmark; the SCOPE Application header wordmark remains unchanged.
+- Uses one ZIP-folder + download composite glyph for Check for updates, Direct GitHub update presentation and Turnip Import driver ZIP without changing update/download/import behavior.
+- Recolors only the Core-version source-filter carousel arrows to the VulkanScope red accent; geometry, navigation and selection behavior are unchanged.
+- Uses the Display HDR badge for Quick access HDR & Color, a magnifier for Global Vulkan report search, Display+Surface composite artwork for presentation evidence, registry+JSON treatment for Raw structured technical Report, and Database+Compare composite artwork for Database comparison.
+- Corrects the Analysis section title from `Raw structured technicalReport` to `Raw structured technical Report` while preserving the canonical schema key `technicalReport` everywhere report serialization or Database interchange requires it.
+- Revalidates VulkanScope Database 1.0.8 compatibility for explicit schema-2 / technicalReport-3 POST submission and compact report lookup; normalizer 16, Vulkan 1.4.362, fixed HTTPS origin, 2 MiB fail-closed ceiling, report privacy and no-background-upload rules remain unchanged.
+
+## 1.0.16
+
+- Replaces the Info/Application section glyph with the exact SCOPE wordmark cropped from the already shipped VulkanScope horizontal logo and uses the shipped adaptive-launcher foreground artwork beside the VulkanScope application identity.
+- Replaces Developer person glyphs with a code `</>` symbol, gives Memory heaps and Memory types distinct RAM symbols, and gives Run Vulkan self-tests a chip/check diagnostic symbol.
+- Gives Check for updates a dedicated downward-arrow glyph without the lower tray/short line while retaining the separate download/tray glyph in the update-download confirmation flow.
+- Keeps all requested artwork local and packaged; no runtime image generation, font substitution, icon-network dependency or capability inference is introduced.
+- Revalidates VulkanScope Database 1.0.8 compatibility for explicit schema-2 / technicalReport-3 POST submission and bounded compact report lookup, retaining normalizer 16, the 2 MiB fail-closed transport ceiling and fixed official HTTPS origin.
+- Retains Vulkan 1.4.362/header 362, native collection, report serialization, Turnip/update security, three release ABIs and existing privacy/resource ceilings unchanged.
+
+## 1.0.15
+
+- Fixes false `SAF unavailable` fallback routing by removing PackageManager/default-handler and Android-TV availability guesses for system document pickers.
+- Turnip import, Analysis snapshot/minimum-profile import/export, raw structured technicalReport export and complete TXT/HTML export now attempt the registered system document picker first and use bounded fallback only when picker launch throws ActivityNotFoundException or SecurityException.
+- Keeps user cancellation as a normal picker result rather than treating it as missing SAF, narrows picker-launch exception handling, and replaces false global SAF-unavailable wording with truthful document-picker fallback messaging.
+- Preserves exact bounded fallback roots/filename families, no broad storage permission, existing export-path toasts, Vulkan 1.4.362/header 362, schema 2/technicalReport 3, Database 1.0.2, native collection and security/resource ceilings.
+- Restores the 1.0.14 compile-fix suite to the aggregate quality gate and adds 1.0.15 launch-first failing-before-fix, state-machine and negative-mutation coverage.
+- Separates Share link from Copy link with a semantic share glyph, gives Database permalink & QR a dedicated QR glyph, and adds monitor-based HDR/MODE/Surface badges to the Display/HDR section headers without changing capability semantics.
+- Adds finite 320 ms click animations to the five primary navigation icons in both the bottom bar and landscape/TV rail, with distinct home/Vulkan/Surface/Display/Extensions motion and no background or infinite animation.
+
+## 1.0.14
+
+- Fixes the release-blocking Kotlin type mismatch in the no-SAF Analysis/minimum-profile fallback import dialog by passing the selected candidate's validated `File` to the existing `(File) -> Unit` callback.
+- Gives the first-install Direct-GitHub-disabled/Obtainium information banner a semantic GitHub source icon instead of the generic INFO badge, without changing update opt-in, network or download behavior.
+- Retains Vulkan 1.4.362/header 362, schema 2/technicalReport 3, Database 1.0.2, SAF fallback bounds, update validation, native collection and security/resource ceilings.
+
+## 1.0.13
+
+- Recolors the supplied Android-head artwork into VulkanScope's established red/tone icon palette while retaining the exact supplied geometry and two-tone detail.
+- Replaces the generic update-available information treatment with a dedicated update-available glyph and a contained Review affordance using the same right-chevron interaction pattern as Details.
+- Gives the update confirmation dialog a semantic update glyph, keeps Cancel as the uncontained X action, and makes the positive Download update action a contained download-icon button while retaining validated-network gating and explicit APK validation.
+- Differentiates VulkanScope Database actions: public-report fetch uses a download/database glyph, complete-report submission uses upload/database, browsing uses database/search, comparison cards use compare, and permalink/QR uses link.
+- Retains Vulkan 1.4.362/header 362, submission schema 2, technicalReport schema 3, Database 1.0.2, SAF/no-SAF fallback behavior, native Vulkan collection, report semantics, active-driver exclusivity and security/resource ceilings.
+
+## 1.0.12
+
+- Fixes Storage Access Framework availability detection by resolving the launch-equivalent default document handler with `MATCH_DEFAULT_ONLY` at action time, while preserving Android TV and launch-failure fallback behavior.
+- Adds Turnip-style bounded no-SAF selection dialogs for Analysis snapshot and minimum-profile JSON imports. Candidates remain confined to VulkanScope app-specific Documents, app-specific Download and private `files/analysis_exchange` roots with existing filename/size ceilings.
+- Makes no-SAF Analysis snapshot, minimum-profile and raw structured technicalReport exports show a toast containing the exact saved path; complete TXT/HTML public-Download fallback keeps its existing result toast.
+- Keeps Turnip fallback import limited to exact `turnip_01.zip` through `turnip_10.zip` in the existing bounded app-specific/private roots and routes it through the shared launch-equivalent SAF check.
+- Fixes the dark `Fallback Turnip import` title by using the explicit primary text color and adds the semantic import glyph; the new Analysis fallback dialogs use the same title treatment.
+- Replaces the generic Android outline with a packaged VectorDrawable conversion of the supplied Android-head artwork, preserving its green/dark artwork and rendering it without Vulkan-red tint.
+- Simplifies the Updates / Check for updates glyph to a download arrow and tray by removing the unwanted outer circular-arrow path.
+- Retains Vulkan 1.4.362, submission schema 2, technicalReport schema 3, Database 1.0.2, native Vulkan collection, report semantics, Turnip package validation, ABI/dependency pins and storage/security ceilings.
+
+## 1.0.11
+
+- Prevents System Vulkan and Turnip from being shown as active at the same time: a Turnip slot is visually ACTIVE only while Turnip is the current driver mode, with mode changes forcing manager refresh and stale selection suppression.
+- Makes Local session history `Use as baseline` and `Delete` use equal-width contained Material 3 Expressive actions with matching geometry; `Use as baseline` gains a dedicated baseline/flag glyph.
+- Aligns Overview Encyclopedia and Analysis destination chevrons with the established Vulkan-red trailing action affordance while keeping the chevron as the only activation target.
+- Replaces generic information glyphs with semantic packaged vector icons across Developer, Android, Application, Updates, Encyclopedia, Analysis, Profiles, libraries, build/ABI/registry/history/comparison/test/export and related actions.
+- Gives Check for updates and Settings Updates a dedicated update/download-history glyph; Analysis import/export, A/B, save, self-test, copy/share/watch and Encyclopedia actions use matching semantic icons.
+- Retains Vulkan 1.4.362/header 362, schema 2/technicalReport 3, Database 1.0.2 compatibility, no-SAF bounds, validated-network gating, Turnip package security and the 1.0.10 PaddingValues compile repair.
+
+## 1.0.10
+
+- Fixes the release-blocking Kotlin compilation failure in `ExpressiveContainedIconTextButton` by importing `androidx.compose.foundation.layout.PaddingValues` for the existing 16 dp horizontal / 8 dp vertical content padding.
+- Preserves all 1.0.9 driver-manager, Analysis, no-SAF, Database, detail-dialog, action-target, report, Vulkan 1.4.362 and security behavior unchanged.
+- Records the supplied immutable-1.0.9 `:app:assembleRelease` failure at `MainActivity.kt:10199:26` as a compile regression and adds a dedicated failing-before-fix/negative-mutation gate.
+
+## 1.0.9
+
+- Repairs shared detailed-evidence dialog sizing so long Extensions/reference content cannot squeeze the Close footer into a clipped sliver; contained icon/text actions now use a 48 dp minimum target with vertically aligned glyph and label.
+- Makes trailing chevrons the sole activation target for chevron-ended action/navigation surfaces, including Overview destinations, Analysis evidence actions, update checks and other shared action rows.
+- Adds retained System Vulkan driver evidence/details from completed System collections without reusing Turnip evidence, while preserving explicit System/Turnip activation semantics.
+- Contains Evidence provenance, Add to watch list and Share Copy link actions with dedicated evidence/watch/link glyphs, and adds visible press feedback while holding evidence rows for their long-press inspector.
+- Locks Database report-id entry and fetch while validated internet is unavailable and shows the reason in amber.
+- Expands every no-SAF import/export explanation with the exact bounded filename family and app-specific/public fallback location used by the implementation.
+
+## 1.0.8
+
+- Reworked Settings into one Driver manager with System Vulkan and managed Turnip activation state, explicit confirmation affordances and safer unavailable-slot removal presentation.
+- Improved Overview active-driver emphasis, Analysis status color semantics, local-history actions, evidence actions and external-link affordances.
+- Added bounded app-specific import/export fallback behavior for Analysis JSON flows when no Storage Access Framework document provider is available; report exports retain Downloads fallback.
+- Standardized question dialogs, Cancel X actions, contained destructive/confirmation actions and external-link icon handling across the affected surfaces.
+
+## 1.0.7
+- Simplifies driver-source Settings so System Vulkan driver remains the only source selector while Turnip driver manager stays as a separate persistent section below it.
+- Shows only an amber UNAVAILABLE explanation when Turnip eligibility is unsupported or cannot be established; installed metrics, import controls and slot rows are hidden in that state.
+- Separates managed-slot state into ACTIVE, AVAILABLE and UNAVAILABLE using validated private-driver state plus recorded Source ZIP reachability without changing Vulkan capability evidence.
+- Keeps collection and validated-network state independent so offline/connected transition feedback remains visible during collection and Database submission explains collection-only, network-only or combined locks.
+- Reworks shared filter carousels with reserved edge-control space, surface-colored continuation masks and 220 ms arrow/mask state motion instead of abrupt black edge clipping.
+- Adds trash iconography to Turnip Remove, a shared info glyph to Extensions/detail headers and an X glyph to contained Close actions while retaining the established Details affordance.
+- Preserves Vulkan 1.4.362/header 362, schema 2/technicalReport 3, Database 1.0.2 compatibility, Turnip package safety bounds, three release ABIs and existing report/security semantics.
+
+## 1.0.6
+- Fixed Turnip source selection so returning from System to an already active Turnip package requests the real driver switch and the selector reflects the confirmed active mode.
+- Added mandatory confirmation for System/Turnip source switches and managed Turnip activation; active-driver removal now explicitly discloses System fallback.
+- Added an amber collection-time explanation below the driver selector describing why driver changes are locked during report collection.
+- Reworked default-network transition handling to consume ordered NetworkCallback evidence so repeated genuine connection-loss events reliably produce Disconnected notifications without callback-time capability re-query races.
+- Replaced the harsh filter-carousel black edge block with a softer multi-stop continuation shadow while retaining arrows, RTL, TalkBack and TV behavior.
+- Aligned Turnip Details with the shared Extensions Details affordance and moved Turnip Remove plus common dialog Close actions into the Vulkan accent container.
+- Retained Vulkan 1.4.362/header 362, report schemas, Database 1.0.2 compatibility, Turnip archive/provenance security bounds and the three-ABI release policy.
+
+# VulkanScope 1.0.5
+
+- Fixed the release-blocking Kotlin call-site regression in the direct-update consent and update-confirmation dialogs.
+- Both Cancel actions now pass `onDismiss` explicitly as the `onClick` named argument to `ExpressiveTextButton`, preserving its default `enabled = true` parameter.
+- No runtime Vulkan query, report, Database, Turnip, connectivity, updater-validation, resource-ceiling or dependency behavior changed from 1.0.4.
+
+# VulkanScope 1.0.4
+
+- Fixes connectivity-status exit rendering so a green Connected notice never changes into a disconnected notice while its exit animation is finishing.
+- Adds a persistent blue offline information surface whenever Android reports no validated default network; it yields to active Vulkan collection status to avoid competing status banners.
+- Disables built-in internet-dependent actions while offline, including Database submission/fetch/browsing, GitHub/Khronos web links and direct update checks/download confirmation, with fail-closed request-time network validation.
+- Replaces direct Turnip-picker behavior with a private 10-slot Turnip driver manager for import, details, activation and removal. Import never activates a driver automatically.
+- Persists each imported ZIP's bounded source provenance beside its private driver slot so ZIP name, source location, size, modified time and import time remain available after restart without entering technical reports or Database submissions.
+- When SAF is unavailable, searches only permissionless VulkanScope app-specific locations for exact `turnip_01.zip` through `turnip_10.zip` names and presents selectable results; no all-files permission is requested.
+- Adds edge fade/shadow treatment to shared Material 3 Expressive filter carousels so partially clipped Core/filter chips have a deliberate scroll affordance while preserving RTL, TalkBack and TV focus behavior.
+- Preserves Vulkan 1.4.362/header 362 and all canonical collector/report evidence semantics; the 2026-09-07 upstream recheck still reports Vulkan Registry 1.4.362 dated 2026-09-04.
+
+# VulkanScope 1.0.3
+
+- Fixes the release-blocking Kotlin compilation errors caused by unsupported `\s`, `\.`, and `\d` escapes in four regular-expression literals introduced before 1.0.2 packaging.
+- Converts only those regex literals to Kotlin raw strings, preserving their intended matching semantics for custom minimum API/limit parsing and Vulkan core dependency parsing.
+- Preserves all 1.0.2 Material 3 Expressive filter, network-state, Turnip metadata, TalkBack/RTL/TV, Vulkan 1.4.362, report, Database, security and resource behavior unchanged.
+- Keeps companion VulkanScope Database 1.0.2 and schema 2 / technicalReport 3 unchanged.
+
+# VulkanScope 1.0.2
+
+- Replaces chip-style filter strips throughout the app with a shared Material 3 Expressive carousel that has explicit left/right controls, RTL-aware direction, selected-item auto-visibility, Android TV focus compatibility and accessible arrow descriptions.
+- Replaces flat evidence/property/query/limit count sentences with responsive expressive metric cards that adapt to narrow displays and enlarged text.
+- Adds transient validated-network state notifications using Android's default-network capabilities only: green connected and red disconnected states use distinct icons, polite live regions and a bounded 4.5-second display without an HTTP/DNS probe.
+- Expands the Turnip bundle surface with selected ZIP name/SAF location/size/modified time/import time plus authoritative AdrenoTools package metadata, driver version/date when declared, min API and Vulkan library details.
+- Keeps Turnip source-document provenance app-private and out of technicalReport, TXT/HTML, Analysis snapshots and VulkanScope Database submission; missing package metadata remains explicitly unavailable rather than inferred.
+- Retains Vulkan 1.4.362/header 362, 304 providers, 110 structs, 104 query groups, 47 Vulkan Video exact profiles, schema 2 / technicalReport 3, three release ABIs and existing Turnip/update/report security bounds.
+- Updates the companion VulkanScope Database producer identity to 1.0.2 / versionCode 1002 without a D1 schema, normalizer or historical report rewrite.
+
+# VulkanScope 1.0.1
+
+- Makes bounded local Analysis history storage fail closed on directory/write/rename/read/delete I/O failures instead of allowing storage exceptions to escape the workflow.
+- Uses exact decimal comparisons for custom minimum limits so 64-bit Vulkan values above 2^53 are not rounded through `Double`.
+- Rejects invalid feature expectation tokens as Unknown and refuses ambiguous feature/limit suffix matches until an exact evidence key is supplied.
+- Preserves Unknown/Incomplete/Unavailable/Not applicable states in dependency runtime evidence instead of reporting false-negative API/extension absence.
+- Builds the heavy schema-v3 technicalReport leaf tree only for Raw JSON/Database Compare or explicit export.
+- Resolves one watched-evidence writer per explicit action and corrects Query Diagnostics timing wording.
+- Replaces the shared horizontally hidden filter strip with responsive Material 3 Expressive `FlowRow` wrapping for narrow, large-text, translated and RTL layouts.
+- Keeps Vulkan 1.4.362/header 362, 304 providers, 110 structs, 104 query groups, 47 Vulkan Video profiles, report schema 2/technicalReport 3 and established security/resource ceilings unchanged.
+- Updates the companion VulkanScope Database to 1.0.1.
+
+# VulkanScope 1.0.0
+
+- Adds an evidence/provenance inspector to ordinary key/value evidence with explicit Copy, Share, Watch and Encyclopedia actions; registry/reference metadata remains separate from runtime support evidence.
+- Adds complete-current-report global search across extension, feature, property, limit, format, Surface, display, queue, profile and query evidence with bounded lazy results.
+- Adds a guided and manual System-driver ↔ Turnip A/B workflow backed by private bounded local session history; differences are evidence changes rather than performance or quality rankings.
+- Adds collection diagnostics with explicit report/query/safety state plus app-side elapsed timing for dedicated query groups collected during the current session; missing native per-query timing is never fabricated.
+- Adds an extension/API requirement resolver that evaluates referenced tokens individually against authoritative runtime evidence without turning registry dependency expressions into inferred global support.
+- Extends Format Explorer with combinable usage/capability filters for sampled/storage/attachment/filtering/blit/transfer/video/YCbCr paths.
+- Adds a Vulkan Video Matrix combining each retained exact profile with matching queue-operation evidence, bounded sampled-format evidence and retained capability properties without promoting associations into codec-wide support.
+- Adds a Surface + Android Display presentation-evidence view that reports compatible/separate evidence paths without claiming end-to-end HDR/gamut presentation support.
+- Adds bounded local custom minimum profiles with PASS/FAIL/UNKNOWN evaluation and `VulkanScopeMinimumProfile1` JSON import/export.
+- Adds a searchable raw schema-v3 `technicalReport` tree and explicit structured JSON export.
+- Adds explicit fixed-origin VulkanScope Database report fetch + local structured comparison against the current technical report; no background report download or upload is introduced.
+- Adds private compressed bounded session history with local baseline reuse and deletion.
+- Consolidates shared Material 3 Expressive evidence rows, filters, metrics, status surfaces, toggle rows, detail dialogs and scroll hints so new analysis tools reuse one UI system.
+- Preserves Vulkan 1.4.362/header 362, 304 provider extensions, 110 structs / 104 query groups, 47 exact Vulkan Video profiles, Encyclopedia 842/6248/2461/476, schema 2 / technicalReport 3, Database 1.0.0 compatibility and existing security/privacy/resource ceilings.
+
 # VulkanScope 0.80.15
 
 - Moves shared scroll-boundary hints back over page content instead of permanently reserving a right-side lane, restoring full content width on phone layouts.
 - Enlarges the shared up/down arrows and makes them activity-aware: the Up hint overlays the viewport top, the Down hint overlays the viewport bottom; top=Down, middle=Up+Down, bottom=Up. Hints fade after scrolling stops and return when scrolling resumes.
 - Reworks Extension/Format detail dialogs into compact grouped Material 3 Expressive evidence cards with responsive stacked rows on narrow/large-text/long-string layouts and a bounded sticky Close action.
 - Replaces the horizontally clipped Overview Explore strip and fixed four-column Quick access phone grid with width-aware wrapping grids.
-- Preserves Vulkan 1.4.362/header 362, 304/110/104 registry-query coverage, 47 Vulkan Video profile combinations, schema 2 / technicalReport 3, Database 0.39.27 compatibility and all report/security/privacy semantics.
+- Preserves Vulkan 1.4.362/header 362, 304/110/104 registry-query coverage, 47 Vulkan Video profile combinations, schema 2 / technicalReport 3, Database 1.0.0 compatibility and all report/security/privacy semantics.
 
 # VulkanScope 0.80.14
 
@@ -21,7 +201,7 @@
 - Moves Details to the shared expressive morphing TextButton treatment, normalizes Format/Extension cards to the common capability-card hierarchy and removes the remaining direct Analysis Switch bypass.
 - Extends the Material 3 1.5.0-alpha27 shape scale with largeIncreased, extraLargeIncreased and extraExtraLarge, and routes major shared cards/dialogs through the application shape system.
 - Reworks startup loading and empty states into the same dark-neutral / Vulkan-red Material 3 Expressive hierarchy and allows action-card titles/subtitles to wrap instead of truncating important labels.
-- Preserves Vulkan 1.4.362/header 362, 304 provider extensions, 110 structs / 104 query groups, the Encyclopedia/Vulkan Video corpora, schema 2 / technicalReport 3, Database endpoint/privacy/security/resource behavior and explicit Details-only activation semantics. Companion Database metadata advances to 0.39.27 without a schema change.
+- Preserves Vulkan 1.4.362/header 362, 304 provider extensions, 110 structs / 104 query groups, the Encyclopedia/Vulkan Video corpora, schema 2 / technicalReport 3, Database endpoint/privacy/security/resource behavior and explicit Details-only activation semantics. Companion Database metadata advances to 1.0.0 without a schema change.
 
 # VulkanScope 0.80.12
 

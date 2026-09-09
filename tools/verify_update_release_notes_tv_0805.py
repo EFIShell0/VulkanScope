@@ -51,10 +51,11 @@ def body(name):
     return ''
 
 
+vm = re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"', gd)
+vc = re.search(r'versionCode\s*=\s*(\d+)', gd)
+version_tuple = tuple(map(int, vm.groups())) if vm else (0, 0, 0)
 if not args.skip_version:
-    vm = re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"', gd)
-    vc = re.search(r'versionCode\s*=\s*(\d+)', gd)
-    need(bool(vm and vc and tuple(map(int, vm.groups())) >= (0, 80, 5) and int(vc.group(1)) >= 805), '0.80.5+ compatible identity missing')
+    need(bool(vm and vc and version_tuple >= (0, 80, 5) and int(vc.group(1)) >= 805), '0.80.5+ compatible identity missing')
 need('androidx.compose.foundation:foundation:1.12.0' in gd, 'Compose Foundation 1.12.0 TV lazy-layout baseline drifted')
 release = body('ReleaseNotesContent')
 line = body('ReleaseNoteLine')
@@ -68,7 +69,7 @@ need('state = listState' in release, 'release notes LazyColumn is not bound to i
 need('focusGroup()' in release, 'release notes list lacks TV focus grouping')
 need('userScrollEnabled = true' in release, 'release notes touch/user scrolling is not explicitly preserved')
 need('itemsIndexed(lines' in release and 'ReleaseNoteLine(raw)' in release, 'release-note rows are not emitted as indexed lazy items')
-need('ScrollBoundaryIndicators(listState' in release, 'release notes lack shared up/down boundary indicators')
+need('ExpressiveScrollHints(listState' in release, 'release notes lack shared up/down boundary indicators')
 need(line, 'ReleaseNoteLine missing')
 need('then(tvBrowseModifier(shape))' in line, 'release-note rows are not TV focus/bring-into-view targets')
 need('RoundedCornerShape(10.dp)' in line, 'release-note focus surface shape is not design-aligned')
@@ -79,8 +80,12 @@ need(('shape = RoundedCornerShape(32.dp)' in dialog or 'shape = MaterialTheme.sh
 need(dialog.count('RoundedCornerShape(20.dp)') >= 2 or dialog.count('shape = MaterialTheme.shapes.medium') >= 2, 'update metadata/release-note inner surfaces lost matching expressive geometry')
 need('heightIn(max = releaseNotesMaxHeight)' in dialog or 'ReleaseNotesContent(update.releaseNotes, Modifier.fillMaxWidth().heightIn(max = 360.dp))' in dialog, 'release-note viewport is no longer bounded to the established update-dialog height')
 need('releaseNotesMaxHeight = if (expandedTextLayout) 220.dp else 360.dp' in dialog or 'heightIn(max = 360.dp)' in dialog, 'release-note viewport no longer retains the 360dp normal-scale ceiling')
-need('ExpressivePrimaryButton("Download APK", onConfirm)' in dialog and 'ExpressiveTextButton("Cancel", onDismiss)' in dialog, 'update dialog action hierarchy drifted')
-need('ExpressiveTextButton("Review")' in update_banner, 'update banner Review action missing')
+if version_tuple >= (1, 0, 13):
+    need('ExpressivePrimaryIconTextButton("Download update", R.drawable.ic_download_update, enabled = networkAvailable, onClick = onConfirm)' in dialog and 'ExpressiveCancelButton(onClick = onDismiss)' in dialog, 'update dialog 1.0.13+ semantic action hierarchy drifted')
+    need('ChevronAffordance("Review", "Review update")' in update_banner, 'update banner 1.0.13+ Review chevron action missing')
+else:
+    need(('ExpressivePrimaryButton("Download APK", onConfirm)' in dialog or 'ExpressivePrimaryButton("Download APK", enabled = networkAvailable, onClick = onConfirm)' in dialog) and ('ExpressiveTextButton("Cancel", onDismiss)' in dialog or 'ExpressiveTextButton("Cancel", onClick = onDismiss)' in dialog or 'ExpressiveCancelButton(onClick = onDismiss)' in dialog), 'update dialog action hierarchy drifted')
+    need('ExpressiveTextButton("Review")' in update_banner, 'update banner Review action missing')
 need(('RoundedCornerShape(24.dp)' in update_banner or 'shape = MaterialTheme.shapes.large' in update_banner) and 'color = VulkanSurfaceRaised' in update_banner, 'update banner geometry/color drifted from application design language')
 need('.onKeyEvent' not in release and '.onPreviewKeyEvent' not in release, 'release notes add custom D-pad interception instead of standard Compose focus scrolling')
 if errors:

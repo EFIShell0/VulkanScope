@@ -68,7 +68,7 @@ if version_tuple == (0, 80, 2):
     encyclopedia = function_body('EncyclopediaOverviewCard')
 else:
     encyclopedia = function_body('EncyclopediaPage')
-    require('Page.Encyclopedia -> EncyclopediaPage()' in kt, 'successor Encyclopedia destination missing')
+    require('Page.Encyclopedia -> EncyclopediaPage(' in kt, 'successor Encyclopedia destination missing')
 require(encyclopedia, 'Encyclopedia surface missing')
 require('CapabilitySectionCard("Encyclopedia")' in encyclopedia, 'Encyclopedia design-system card missing')
 require('ExpressiveSearchField(' in encyclopedia, 'Encyclopedia local symbol search missing')

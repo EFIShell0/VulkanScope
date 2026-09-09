@@ -20,6 +20,8 @@ def need(condition, message):
 
 kt = main.read_text(encoding='utf-8')
 gd = gradle.read_text(encoding='utf-8')
+vm = re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"', gd)
+release_version = tuple(map(int, vm.groups())) if vm else (0, 0, 0)
 
 
 def body(name):
@@ -52,9 +54,8 @@ def body(name):
 
 
 if not args.skip_version:
-    vm = re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"', gd)
     vc = re.search(r'versionCode\s*=\s*(\d+)', gd)
-    need(bool(vm and vc and tuple(map(int, vm.groups())) >= (0, 80, 6) and int(vc.group(1)) >= 806), '0.80.6+ compatible identity missing')
+    need(bool(vm and vc and release_version >= (0, 80, 6) and int(vc.group(1)) >= 806), '0.80.6+ compatible identity missing')
 need('import androidx.compose.foundation.selection.selectable' in kt, 'selectable accessibility import missing')
 need('import androidx.compose.foundation.selection.toggleable' in kt, 'toggleable accessibility import missing')
 need('import androidx.compose.ui.semantics.LiveRegionMode' in kt, 'live-region semantics import missing')
@@ -84,7 +85,12 @@ need('.heightIn(min = 54.dp)' in rail, 'navigation rail item still uses clipping
 need('maxLines = if (expandedTextLayout) 2 else 1' in rail, 'navigation rail label does not gain a second line for large text')
 need('Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 4.dp)' in rail, 'navigation rail content still forces fillMaxSize instead of natural growable height')
 need('fontSize = if (expandedTextLayout) 11.sp else 9.sp' in rail, 'navigation rail label size does not adapt under large text')
-need('contentDescription = null' in rail, 'navigation rail icon duplicates visible label for TalkBack')
+if release_version >= (1, 0, 15):
+    animated_nav = body('AnimatedNavigationIcon')
+    need('AnimatedNavigationIcon(' in rail, 'navigation rail no longer routes through the shared animated icon wrapper')
+    need('contentDescription = null' in animated_nav, 'shared animated navigation icon duplicates visible labels for TalkBack')
+else:
+    need('contentDescription = null' in rail, 'navigation rail icon duplicates visible label for TalkBack')
 
 quick = body('QuickAccessCard')
 need('.heightIn(min = 72.dp)' in quick, 'Quick Access card still uses fixed height')
@@ -100,7 +106,7 @@ header = body('AppHeader')
 need('val expandedTextLayout = preferExpandedTextLayout()' in header, 'AppHeader large-text layout state missing')
 need('if (expandedTextLayout)' in header and 'VulkanScope · ${page.title}' in header, 'AppHeader does not replace fixed logo/title geometry for large text')
 
-key_value = body('CapabilityKeyValue')
+key_value = body('ExpressiveEvidenceRow')
 need('preferExpandedTextLayout()' in key_value, 'key/value rows do not stack for large text')
 need('semantics(mergeDescendants = true)' in key_value, 'key/value rows are not merged into one TalkBack reading unit')
 
@@ -145,8 +151,12 @@ info = body('InfoPage')
 need('val expandedTextLayout = preferExpandedTextLayout()' in info, 'Info page lacks large-text layout state')
 need('CapabilitySectionCard("Export complete report")' in info and 'if (expandedTextLayout)' in info and 'Modifier.fillMaxWidth(), completeReportReady && !exportBusy, true' in info, 'Info export actions remain forced side-by-side under large text')
 
-bottom_nav_section = kt[kt.find('ShortNavigationBar('):kt.find('ShortNavigationBar(', kt.find('ShortNavigationBar(')) + 1800]
-need('contentDescription = null' in bottom_nav_section, 'bottom navigation icon duplicates its visible label for TalkBack')
+bottom_nav_section = kt[kt.find('ShortNavigationBar('):kt.find('ShortNavigationBar(', kt.find('ShortNavigationBar(')) + 2200]
+if release_version >= (1, 0, 15):
+    need('AnimatedNavigationIcon(' in bottom_nav_section, 'bottom navigation no longer routes through the shared animated icon wrapper')
+    need('contentDescription = null' in body('AnimatedNavigationIcon'), 'bottom navigation animated icon duplicates its visible label for TalkBack')
+else:
+    need('contentDescription = null' in bottom_nav_section, 'bottom navigation icon duplicates its visible label for TalkBack')
 
 if errors:
     for error in errors:

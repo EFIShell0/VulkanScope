@@ -30,9 +30,9 @@ def mutate(name, old, new, expect_pass=False):
             raise SystemExit(f'{name}: verifier returned {got}; expected {wanted}')
 
 
-mutate('release-note boundary indicators removal', 'ScrollBoundaryIndicators(listState, Modifier.align(Alignment.CenterEnd).padding(end = 2.dp))', 'Spacer(Modifier.size(1.dp))')
+mutate('release-note boundary indicators removal', 'ExpressiveScrollHints(listState, Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 6.dp))', 'Spacer(Modifier.size(1.dp))')
 mutate('release-note TV focus removal', 'color = ComposeColor.Transparent,\n        shape = shape,\n        modifier = Modifier.fillMaxWidth().then(tvBrowseModifier(shape))', 'color = ComposeColor.Transparent,\n        shape = shape,\n        modifier = Modifier.fillMaxWidth()')
-mutate('release-note focus group removal', 'modifier = Modifier.fillMaxWidth().focusGroup().padding(end = 28.dp),', 'modifier = Modifier.fillMaxWidth().padding(end = 28.dp),')
+mutate('release-note focus group removal', 'modifier = Modifier.fillMaxWidth().focusGroup(),', 'modifier = Modifier.fillMaxWidth(),')
 mutate('release-note user scroll removal', 'verticalArrangement = Arrangement.spacedBy(5.dp),\n            userScrollEnabled = true', 'verticalArrangement = Arrangement.spacedBy(5.dp),\n            userScrollEnabled = false')
 mutate('release-note viewport bound removal', 'ReleaseNotesContent(update.releaseNotes, Modifier.fillMaxWidth().heightIn(max = releaseNotesMaxHeight))', 'ReleaseNotesContent(update.releaseNotes, Modifier.fillMaxWidth())')
 mutate('update dialog design geometry drift', 'Text("Release notes", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)\n                Surface(shape = MaterialTheme.shapes.medium, color = ComposeColor(0xFF0D0D0D))', 'Text("Release notes", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)\n                Surface(shape = RoundedCornerShape(8.dp), color = ComposeColor(0xFF0D0D0D))')

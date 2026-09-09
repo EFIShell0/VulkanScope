@@ -20,7 +20,7 @@ for rel,a,b,name in mutations:
 with tempfile.TemporaryDirectory(prefix='vs0809-fp-') as d:
     dst=Path(d)/'root';shutil.copytree(root,dst)
     p=dst/mainrel;s=p.read_text(encoding='utf-8')
-    needle='use Details for full decoded/raw detail'
+    needle='Use Details for full decoded/raw format evidence.'
     if needle not in s:raise SystemExit('FAIL false-positive source absent')
     p.write_text(s.replace(needle,needle+' ',1),encoding='utf-8')
     r=subprocess.run([sys.executable,str(ver),'--root',str(dst)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)

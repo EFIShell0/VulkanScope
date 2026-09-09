@@ -21,7 +21,7 @@ for token,label in [
     ('DetailAffordance { selected = format }','format Details button action missing'),
     ('DetailAffordance { selectedSupported = extension }','supported extension Details button action missing'),
     ('DetailAffordance { selectedCatalog = name }','catalog extension Details button action missing'),
-    ('use Details for full decoded/raw detail','format helper does not describe button-only interaction')]:
+    ('Use Details for full decoded/raw format evidence.','format helper does not describe button-only interaction')]:
     if token not in main: errors.append(label)
 if errors: raise SystemExit('FAIL 0.80.9 detail-button-only contract\n- '+'\n- '.join(errors))
 print('PASS 0.80.9 detail-button-only contract')

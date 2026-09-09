@@ -3,9 +3,13 @@ import shutil, subprocess, tempfile
 from pathlib import Path
 root=Path(__file__).resolve().parents[1]
 verifier=root/'tools/verify_responsive_overlay_ui_0815.py'
+current_gradle=(root/'app/build.gradle.kts').read_text(encoding='utf-8')
+successor='versionName = "0.80.15"' not in current_gradle
 
 def run(candidate):
-    return subprocess.run(['python',str(verifier),'--root',str(candidate)],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True).returncode
+    command=['python',str(verifier),'--root',str(candidate)]
+    if successor: command.append('--skip-version')
+    return subprocess.run(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True).returncode
 
 def mutate(path,old,new,label):
     with tempfile.TemporaryDirectory() as tmp:
@@ -26,7 +30,7 @@ mutate(main,'androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant
 mutate(main,'maxWidth < 420.dp','maxWidth < 300.dp','loosen detail stacking')
 mutate(main,'BoxWithConstraints(Modifier.fillMaxWidth()) {\n            val columns = when {','Row(Modifier.horizontalScroll(rememberScrollState())) {\n            val columns = when {','restore Explore horizontal strip')
 mutate(main,'maxWidth < 540.dp -> 2','maxWidth < 540.dp -> 4','restore fixed-narrow Quick access')
-mutate('app/build.gradle.kts','versionCode = 815','versionCode = 814','stale versionCode')
+if not successor: mutate('app/build.gradle.kts','versionCode = 815','versionCode = 814','stale versionCode')
 with tempfile.TemporaryDirectory() as tmp:
     candidate=Path(tmp)/'root'; shutil.copytree(root,candidate)
     p=candidate/'changelog.md'; p.write_text(p.read_text(encoding='utf-8')+'\nUnrelated wording false-positive control.\n',encoding='utf-8')

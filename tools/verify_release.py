@@ -19,8 +19,8 @@ wrapper_properties = (root / 'gradle/wrapper/gradle-wrapper.properties').read_te
 if 'gradle-9.7.1-bin.zip' not in wrapper_properties: errors.append('Gradle wrapper 9.7.1 pin mismatch')
 version = re.search(r'versionName\s*=\s*"([^"]+)"', gradle)
 code = re.search(r'versionCode\s*=\s*(\d+)', gradle)
-if not version or version.group(1) != '0.80.15': errors.append('versionName mismatch')
-if not code or code.group(1) != '815': errors.append('versionCode mismatch')
+if not version or version.group(1) != '1.0.19': errors.append('versionName mismatch')
+if not code or code.group(1) != '1019': errors.append('versionCode mismatch')
 abi_line = re.search(r'abiFilters \+= listOf\(([^\n]+)\)', gradle)
 if not abi_line or any(x not in abi_line.group(1) for x in ['arm64-v8a', 'armeabi-v7a', 'x86_64']): errors.append('required ABI set is incomplete')
 if '"x86"' in gradle: errors.append('x86 ABI must remain excluded')
@@ -35,7 +35,7 @@ if manifest_json.get('baseline') != 'Vulkan 1.4.362': errors.append('generated m
 if snapshot.get('baseline') != 'Vulkan 1.4.362': errors.append('coverage snapshot baseline mismatch')
 
 lock_path = root / 'registry/registry_lock.json'
-contract_path = root / 'tests/golden/0.80.14_regression_contract.json'
+contract_path = root / 'tests/golden/1.0.18_regression_contract.json'
 regression_verifier_path = root / 'tools/verify_regression_contracts.py'
 quality_gate_path = root / 'tools/quality_gate.py'
 upstream_verifier_path = root / 'tools/verify_upstream_registry.py'
@@ -124,6 +124,86 @@ audit_0815_path = root / 'rules/0.80.15_RESPONSIVE_OVERLAY_DIALOG_UI_AUDIT.md'
 responsive_0815_verifier_path = root / 'tools/verify_responsive_overlay_ui_0815.py'
 responsive_0815_state_machine_path = root / 'tools/test_responsive_overlay_ui_0815_state_machine.py'
 responsive_0815_negative_path = root / 'tools/test_responsive_overlay_ui_0815_negative_mutations.py'
+audit_1000_path = root / 'rules/1.0.0_ADVANCED_ANALYSIS_EVIDENCE_WORKFLOW_AUDIT.md'
+audit_1001_path = root / 'rules/1.0.1_FULL_SECURITY_SPEC_CORRECTNESS_USABILITY_AUDIT.md'
+audit_1002_path = root / 'rules/1.0.2_EXPRESSIVE_CONNECTIVITY_TURNIP_ACCESSIBILITY_AUDIT.md'
+audit_1003_path = root / 'rules/1.0.3_KOTLIN_REGEX_COMPILE_FIX_AUDIT.md'
+audit_1004_path = root / 'rules/1.0.4_OFFLINE_TURNIP_MANAGER_FILTER_EDGE_AUDIT.md'
+audit_1005_path = root / 'rules/1.0.5_KOTLIN_DEFAULT_PARAMETER_COMPILE_FIX_AUDIT.md'
+audit_1006_path = root / 'rules/1.0.6_DRIVER_CONFIRMATION_NETWORK_UI_AUDIT.md'
+audit_1007_path = root / 'rules/1.0.7_TURNIP_CONNECTIVITY_FILTER_DIALOG_AUDIT.md'
+audit_1008_path = root / 'rules/1.0.8_DRIVER_MANAGER_DIALOG_STORAGE_UI_AUDIT.md'
+audit_1009_path = root / 'rules/1.0.9_DETAIL_ACTION_DRIVER_FALLBACK_UI_AUDIT.md'
+audit_1010_path = root / 'rules/1.0.10_PADDINGVALUES_IMPORT_COMPILE_AUDIT.md'
+audit_1011_path = root / 'rules/1.0.11_ICON_ACTIVE_STATE_UI_AUDIT.md'
+audit_1012_path = root / 'rules/1.0.12_SAF_FALLBACK_ANDROID_ICON_AUDIT.md'
+audit_1013_path = root / 'rules/1.0.13_UPDATE_SEMANTIC_ICON_AUDIT.md'
+audit_1014_path = root / 'rules/1.0.14_FALLBACK_IMPORT_COMPILE_INTRO_ICON_AUDIT.md'
+audit_1015_path = root / 'rules/1.0.15_SAF_LAUNCH_FIRST_FULL_AUDIT.md'
+saf_1015_verifier_path = root / 'tools/verify_saf_launch_first_full_audit_1015.py'
+saf_1015_state_machine_path = root / 'tools/test_saf_launch_first_full_audit_1015_state_machine.py'
+saf_1015_negative_path = root / 'tools/test_saf_launch_first_full_audit_1015_negative_mutations.py'
+ui_1015_verifier_path = root / 'tools/verify_share_display_navigation_ui_1015.py'
+ui_1015_state_machine_path = root / 'tools/test_share_display_navigation_ui_1015_state_machine.py'
+ui_1015_negative_path = root / 'tools/test_share_display_navigation_ui_1015_negative_mutations.py'
+audit_1016_path = root / 'rules/1.0.16_INFO_MEMORY_DATABASE_ICON_AUDIT.md'
+info_1016_verifier_path = root / 'tools/verify_info_memory_database_ui_1016.py'
+info_1016_state_machine_path = root / 'tools/test_info_memory_database_ui_1016_state_machine.py'
+info_1016_negative_path = root / 'tools/test_info_memory_database_ui_1016_negative_mutations.py'
+audit_1017_path = root / 'rules/1.0.17_SEMANTIC_ICON_CORRECTIONS_DATABASE_1.0.8_AUDIT.md'
+info_1017_verifier_path = root / 'tools/verify_semantic_icon_corrections_1017.py'
+info_1017_state_machine_path = root / 'tools/test_semantic_icon_corrections_1017_state_machine.py'
+info_1017_negative_path = root / 'tools/test_semantic_icon_corrections_1017_negative_mutations.py'
+audit_1018_path = root / 'rules/1.0.18_COMPILE_FULL_REAUDIT.md'
+compile_1018_verifier_path = root / 'tools/verify_compile_full_audit_1018.py'
+compile_1018_state_machine_path = root / 'tools/test_compile_full_audit_1018_state_machine.py'
+compile_1018_negative_path = root / 'tools/test_compile_full_audit_1018_negative_mutations.py'
+audit_1019_path = root / 'rules/1.0.19_SEMANTIC_UI_REFINEMENT_AUDIT.md'
+ui_1019_verifier_path = root / 'tools/verify_semantic_ui_refinement_1019.py'
+ui_1019_state_machine_path = root / 'tools/test_semantic_ui_refinement_1019_state_machine.py'
+ui_1019_negative_path = root / 'tools/test_semantic_ui_refinement_1019_negative_mutations.py'
+advanced_1000_verifier_path = root / 'tools/verify_advanced_analysis_1000.py'
+advanced_1000_state_machine_path = root / 'tools/test_advanced_analysis_1000_state_machine.py'
+advanced_1000_negative_path = root / 'tools/test_advanced_analysis_1000_negative_mutations.py'
+full_1001_verifier_path = root / 'tools/verify_full_audit_1001.py'
+full_1001_state_machine_path = root / 'tools/test_full_audit_1001_state_machine.py'
+full_1001_negative_path = root / 'tools/test_full_audit_1001_negative_mutations.py'
+expressive_1002_verifier_path = root / 'tools/verify_expressive_connectivity_turnip_1002.py'
+expressive_1002_state_machine_path = root / 'tools/test_expressive_connectivity_turnip_1002_state_machine.py'
+expressive_1002_negative_path = root / 'tools/test_expressive_connectivity_turnip_1002_negative_mutations.py'
+regex_1003_verifier_path = root / 'tools/verify_kotlin_regex_compile_1003.py'
+regex_1003_negative_path = root / 'tools/test_kotlin_regex_compile_1003_negative_mutations.py'
+offline_1004_verifier_path = root / 'tools/verify_offline_turnip_manager_1004.py'
+offline_1004_state_machine_path = root / 'tools/test_offline_turnip_manager_1004_state_machine.py'
+offline_1004_negative_path = root / 'tools/test_offline_turnip_manager_1004_negative_mutations.py'
+defaultparam_1005_verifier_path = root / 'tools/verify_kotlin_default_parameter_compile_1005.py'
+defaultparam_1005_negative_path = root / 'tools/test_kotlin_default_parameter_compile_1005_negative_mutations.py'
+driverui_1006_verifier_path = root / 'tools/verify_driver_confirmation_network_ui_1006.py'
+driverui_1006_state_machine_path = root / 'tools/test_driver_confirmation_network_ui_1006_state_machine.py'
+driverui_1006_negative_path = root / 'tools/test_driver_confirmation_network_ui_1006_negative_mutations.py'
+turnipui_1007_verifier_path = root / 'tools/verify_turnip_connectivity_filter_dialog_1007.py'
+turnipui_1007_state_machine_path = root / 'tools/test_turnip_connectivity_filter_dialog_1007_state_machine.py'
+turnipui_1007_negative_path = root / 'tools/test_turnip_connectivity_filter_dialog_1007_negative_mutations.py'
+driverui_1008_verifier_path = root / 'tools/verify_driver_manager_dialog_storage_ui_1008.py'
+driverui_1008_state_machine_path = root / 'tools/test_driver_manager_dialog_storage_ui_1008_state_machine.py'
+driverui_1008_negative_path = root / 'tools/test_driver_manager_dialog_storage_ui_1008_negative_mutations.py'
+detailui_1009_verifier_path = root / 'tools/verify_detail_action_driver_fallback_ui_1009.py'
+detailui_1009_state_machine_path = root / 'tools/test_detail_action_driver_fallback_ui_1009_state_machine.py'
+detailui_1009_negative_path = root / 'tools/test_detail_action_driver_fallback_ui_1009_negative_mutations.py'
+paddingimport_1010_verifier_path = root / 'tools/verify_paddingvalues_import_compile_1010.py'
+paddingimport_1010_negative_path = root / 'tools/test_paddingvalues_import_compile_1010_negative_mutations.py'
+iconui_1011_verifier_path = root / 'tools/verify_icon_active_state_ui_1011.py'
+iconui_1011_state_machine_path = root / 'tools/test_icon_active_state_ui_1011_state_machine.py'
+iconui_1011_negative_path = root / 'tools/test_icon_active_state_ui_1011_negative_mutations.py'
+safui_1012_verifier_path = root / 'tools/verify_saf_fallback_android_icon_1012.py'
+safui_1012_state_machine_path = root / 'tools/test_saf_fallback_android_icon_1012_state_machine.py'
+safui_1012_negative_path = root / 'tools/test_saf_fallback_android_icon_1012_negative_mutations.py'
+updateui_1013_verifier_path = root / 'tools/verify_update_semantic_icons_1013.py'
+updateui_1013_state_machine_path = root / 'tools/test_update_semantic_icons_1013_state_machine.py'
+updateui_1013_negative_path = root / 'tools/test_update_semantic_icons_1013_negative_mutations.py'
+compileintro_1014_verifier_path = root / 'tools/verify_fallback_import_compile_intro_1014.py'
+compileintro_1014_state_machine_path = root / 'tools/test_fallback_import_compile_intro_1014_state_machine.py'
+compileintro_1014_negative_path = root / 'tools/test_fallback_import_compile_intro_1014_negative_mutations.py'
 paddingvalues_0814_verifier_path = root / 'tools/verify_paddingvalues_compile_0814.py'
 paddingvalues_0814_negative_path = root / 'tools/test_paddingvalues_compile_0814_negative_mutations.py'
 material3_0813_verifier_path = root / 'tools/verify_material3_expressive_ui_0813.py'
@@ -147,7 +227,7 @@ probe_timeout_state_machine_path = root / 'tools/test_probe_timeout_state_machin
 probe_timeout_recovery_path = root / 'tools/verify_probe_timeout_recovery.py'
 probe_cancellation_state_machine_path = root / 'tools/test_probe_cancellation_state_machine.py'
 probe_cancellation_recovery_path = root / 'tools/verify_probe_cancellation_recovery.py'
-for required_path in [lock_path, contract_path, regression_verifier_path, quality_gate_path, upstream_verifier_path, spec_regression_path, spec_361_regression_path, registry_snapshot_path, concurrency_resource_path, cmake_registry_lock_path, compile_regression_path, probe_lifecycle_regression_path, probe_publication_state_machine_path, probe_publication_handshake_path, package_reproducibility_path, resource_budget_path, bundled_registry_path, audit_361_path, audit_4133_path, audit_4134_path, audit_4135_path, audit_4136_path, audit_4137_path, audit_4138_path, audit_4139_path, audit_4140_path, audit_4141_path, audit_4142_path, audit_4143_path, audit_4144_path, profile_lock_path, profile_state_machine_path, profile_requirements_path, profile_negative_path, audit_4145_path, video_registry_lock_path, video_registry_source_path, video_registry_generated_path, video_registry_generator_path, video_registry_verifier_path, video_registry_state_machine_path, video_registry_negative_path, audit_4146_path, audit_0800_path, hardening_0800_verifier_path, hardening_0800_state_machine_path, hardening_0800_negative_path, audit_0801_path, audit_0802_path, encyclopedia_0802_verifier_path, encyclopedia_0802_negative_path, encyclopedia_symbol_generator_path, encyclopedia_symbol_index_path, audit_0803_path, overview_tools_0803_verifier_path, encyclopedia_search_0803_state_machine_path, overview_tools_0803_negative_path, audit_0804_path, detail_tv_0804_verifier_path, detail_tv_0804_state_machine_path, detail_tv_0804_negative_path, audit_0805_path, update_release_0805_verifier_path, update_release_0805_state_machine_path, update_release_0805_negative_path, audit_0806_path, accessibility_0806_verifier_path, accessibility_0806_state_machine_path, accessibility_0806_negative_path, audit_0807_path, system_language_0807_verifier_path, system_language_0807_state_machine_path, system_language_0807_negative_path, audit_0808_path, final_0808_verifier_path, final_0808_state_machine_path, final_0808_negative_path, audit_0809_path, detail_0809_verifier_path, detail_0809_state_machine_path, detail_0809_negative_path, audit_0813_path, audit_0814_path, audit_0815_path, responsive_0815_verifier_path, responsive_0815_state_machine_path, responsive_0815_negative_path, paddingvalues_0814_verifier_path, paddingvalues_0814_negative_path, material3_0813_verifier_path, material3_0813_state_machine_path, material3_0813_negative_path, ui_architecture_verifier_path, scroll_indicator_state_machine_path, ui_architecture_negative_path, driver_surface_state_machine_path, driver_surface_rebind_path, driver_surface_negative_path, html_presentation_path, html_presentation_negative_path, report_surface_integrity_path, report_surface_integrity_state_machine_path, report_surface_integrity_negative_path, report_semantics_state_machine_path, report_semantics_path, base_terminal_json_state_machine_path, base_terminal_json_path, probe_timeout_state_machine_path, probe_timeout_recovery_path, probe_cancellation_state_machine_path, probe_cancellation_recovery_path, probe_terminal_ownership_state_machine_path, probe_terminal_ownership_path]:
+for required_path in [lock_path, contract_path, regression_verifier_path, quality_gate_path, upstream_verifier_path, spec_regression_path, spec_361_regression_path, registry_snapshot_path, concurrency_resource_path, cmake_registry_lock_path, compile_regression_path, probe_lifecycle_regression_path, probe_publication_state_machine_path, probe_publication_handshake_path, package_reproducibility_path, resource_budget_path, bundled_registry_path, audit_361_path, audit_4133_path, audit_4134_path, audit_4135_path, audit_4136_path, audit_4137_path, audit_4138_path, audit_4139_path, audit_4140_path, audit_4141_path, audit_4142_path, audit_4143_path, audit_4144_path, profile_lock_path, profile_state_machine_path, profile_requirements_path, profile_negative_path, audit_4145_path, video_registry_lock_path, video_registry_source_path, video_registry_generated_path, video_registry_generator_path, video_registry_verifier_path, video_registry_state_machine_path, video_registry_negative_path, audit_4146_path, audit_0800_path, hardening_0800_verifier_path, hardening_0800_state_machine_path, hardening_0800_negative_path, audit_0801_path, audit_0802_path, encyclopedia_0802_verifier_path, encyclopedia_0802_negative_path, encyclopedia_symbol_generator_path, encyclopedia_symbol_index_path, audit_0803_path, overview_tools_0803_verifier_path, encyclopedia_search_0803_state_machine_path, overview_tools_0803_negative_path, audit_0804_path, detail_tv_0804_verifier_path, detail_tv_0804_state_machine_path, detail_tv_0804_negative_path, audit_0805_path, update_release_0805_verifier_path, update_release_0805_state_machine_path, update_release_0805_negative_path, audit_0806_path, accessibility_0806_verifier_path, accessibility_0806_state_machine_path, accessibility_0806_negative_path, audit_0807_path, system_language_0807_verifier_path, system_language_0807_state_machine_path, system_language_0807_negative_path, audit_0808_path, final_0808_verifier_path, final_0808_state_machine_path, final_0808_negative_path, audit_0809_path, detail_0809_verifier_path, detail_0809_state_machine_path, detail_0809_negative_path, audit_0813_path, audit_0814_path, audit_0815_path, audit_1000_path, audit_1001_path, audit_1002_path, audit_1003_path, audit_1004_path, audit_1005_path, audit_1006_path, audit_1007_path, audit_1008_path, driverui_1008_verifier_path, driverui_1008_state_machine_path, driverui_1008_negative_path, audit_1009_path, detailui_1009_verifier_path, detailui_1009_state_machine_path, detailui_1009_negative_path, audit_1010_path, paddingimport_1010_verifier_path, paddingimport_1010_negative_path, audit_1011_path, iconui_1011_verifier_path, iconui_1011_state_machine_path, iconui_1011_negative_path, audit_1012_path, safui_1012_verifier_path, safui_1012_state_machine_path, safui_1012_negative_path, audit_1013_path, updateui_1013_verifier_path, updateui_1013_state_machine_path, updateui_1013_negative_path, full_1001_verifier_path, full_1001_state_machine_path, full_1001_negative_path, expressive_1002_verifier_path, expressive_1002_state_machine_path, expressive_1002_negative_path, regex_1003_verifier_path, regex_1003_negative_path, offline_1004_verifier_path, offline_1004_state_machine_path, offline_1004_negative_path, defaultparam_1005_verifier_path, defaultparam_1005_negative_path, driverui_1006_verifier_path, driverui_1006_state_machine_path, driverui_1006_negative_path, turnipui_1007_verifier_path, turnipui_1007_state_machine_path, turnipui_1007_negative_path, advanced_1000_verifier_path, advanced_1000_state_machine_path, advanced_1000_negative_path, responsive_0815_verifier_path, responsive_0815_state_machine_path, responsive_0815_negative_path, paddingvalues_0814_verifier_path, paddingvalues_0814_negative_path, material3_0813_verifier_path, material3_0813_state_machine_path, material3_0813_negative_path, ui_architecture_verifier_path, scroll_indicator_state_machine_path, ui_architecture_negative_path, driver_surface_state_machine_path, driver_surface_rebind_path, driver_surface_negative_path, html_presentation_path, html_presentation_negative_path, report_surface_integrity_path, report_surface_integrity_state_machine_path, report_surface_integrity_negative_path, report_semantics_state_machine_path, report_semantics_path, base_terminal_json_state_machine_path, base_terminal_json_path, probe_timeout_state_machine_path, probe_timeout_recovery_path, probe_cancellation_state_machine_path, probe_cancellation_recovery_path, probe_terminal_ownership_state_machine_path, probe_terminal_ownership_path]:
     if not required_path.is_file(): errors.append(f'0.41.39 quality-gate artifact missing: {required_path.relative_to(root)}')
 if lock_path.is_file():
     registry_lock = json.loads(lock_path.read_text(encoding='utf-8'))
@@ -191,8 +271,8 @@ for source_path in list((root / 'app/src/main/java').rglob('*.kt')) + list((root
         if re.search(r'^\s*//|^\s*/\*', source_text, re.MULTILINE): errors.append(f'source-code comment remains: {source_path.relative_to(root)}')
 if 'android:usesCleartextTraffic="false"' not in manifest: errors.append('cleartext traffic must be disabled')
 database_setup = (root / 'DATABASE_SETUP.md').read_text(encoding='utf-8')
-if 'VulkanScope 0.80.15 uses the fixed official VulkanScope Database Worker root:' not in database_setup: errors.append('DATABASE_SETUP current application version mismatch')
-if 'VulkanScope Database 0.39.27 is the companion Database for VulkanScope 0.80.15' not in database_setup: errors.append('DATABASE_SETUP current companion mismatch')
+if 'VulkanScope 1.0.19 uses the fixed official VulkanScope Database Worker root:' not in database_setup: errors.append('DATABASE_SETUP current application version mismatch')
+if 'VulkanScope Database 1.0.8 is the companion Database for VulkanScope 1.0.19' not in database_setup: errors.append('DATABASE_SETUP current companion mismatch')
 for needle in ['packageSigningCertificatesMatch', 'archiveVersionCode <= installedVersionCode', 'toHttpUrlOrNull', 'baseUrl.username.isNotEmpty()', 'target.parentFile?.canonicalFile']:
     if needle not in kt: errors.append(f'missing update/network hardening: {needle}')
 if 'private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverMode, collectionStatus: CollectionStatus, onCheckForUpdates: () -> Unit, directUpdatesEnabled: Boolean)' not in kt or 'Page.Info -> InfoPage(report, display, driverMode, collectionStatus, onCheckForUpdates, directUpdatesEnabled)' not in kt:
@@ -220,7 +300,7 @@ for needle in [
     if needle not in kt: errors.append(f'missing 0.32.5 update/export UX requirement: {needle}')
 if not re.search(r'ExpressiveActionButton\("Export TXT"[^\n]+completeReportReady', kt) or not re.search(r'ExpressiveActionButton\("Export HTML"[^\n]+completeReportReady', kt):
     errors.append('TXT and HTML must both use the complete-report collection gate')
-if 'Download APK' not in kt or 'Downloaded versionCode' not in kt:
+if ('Download APK' not in kt and 'Download update' not in kt) or 'Downloaded versionCode' not in kt:
     errors.append('update confirmation must expose explicit download approval and APK version verification state')
 
 
@@ -238,13 +318,14 @@ for forbidden in [
 ]:
     if forbidden in kt: errors.append(f'post-0.32.4 Turnip behavior remains: {forbidden}')
 
-for needle in [
-    'completeReportReady && turnipSupport == TurnipSupport.SUPPORTED',
-    'if (completeReportReady) "Uses Android\'s system Vulkan loader/driver." else "Waiting for complete Vulkan collection"',
-    'ExpressiveActionButton("Import driver ZIP"',
-    'if (completeReportReady) "Validate and install an AdrenoTools-compatible bundle" else "Waiting for complete Vulkan collection"'
-]:
-    if needle not in kt: errors.append(f'missing 0.33.1 collection driver gate: {needle}')
+if 'TurnipSupport.SUPPORTED ->' not in kt or 'enabled = completeReportReady && !managerLoading && !turnipManagerBusy' not in kt:
+    errors.append('missing collection-gated supported Turnip manager controls')
+if 'SystemDriverManagerRow(' not in kt or 'enabled = completeReportReady && !turnipManagerBusy' not in kt:
+    errors.append('missing collection-gated System driver manager control')
+if not (('ExpressiveActionButton("Import driver ZIP"' in kt) or ('title = "Import driver ZIP"' in kt)):
+    errors.append('missing 0.33.1 Turnip import action')
+if not (('if (completeReportReady) "Validate and install an AdrenoTools-compatible bundle" else "Waiting for complete Vulkan collection"' in kt) or ('!completeReportReady -> "Waiting for complete Vulkan collection"' in kt)):
+    errors.append('missing 0.33.1 Turnip import collection-state presentation')
 
 if 'SectionCard("Application updates")' in kt:
     errors.append('manual update control must no longer be hosted in Settings')
@@ -411,7 +492,7 @@ for needle in [
     'val uniquePropertyNames = filtered.asSequence().filterNot { it.section == "Vulkan Query Safety" }.map { it.name }.distinct().count()',
     'val uniqueSafetyNames = filtered.asSequence().filter { it.section == "Vulkan Query Safety" }.map { it.name }.distinct().count()',
     'val limitResultCount = visibleLimits.size',
-    '"Limits" -> "$limitResultCount limits"'
+    '"Limits" -> listOf("Limits" to limitResultCount.toString())'
 ]:
     if needle not in kt: errors.append(f'missing Properties & Limits summary-semantics requirement: {needle}')
 if 'filtered.size + visibleLimits.size' in kt:
@@ -644,7 +725,7 @@ if 'vulkanExtensionQueryGroup(name) != null || ref.queryGroup.isNotBlank()' not 
 for entry in ext_ref.get('entries', []):
     if not re.fullmatch(r'VK_[A-Z0-9]+_[A-Za-z0-9_]+', str(entry.get('name',''))): errors.append('0.41.0 extension reference contains non-extension token'); break
     if not str(entry.get('specUrl','')).startswith('https://registry.khronos.org/vulkan/specs/latest/man/html/VK_'): errors.append('0.41.0 extension reference has non-authoritative URL'); break
-for needle in ['dependencyGraphEntries', 'maxDepth: Int = 4', 'maxNodes: Int = 64', 'Heuristic diagnostic evidence score', 'not a Vulkan conformance result', 'depends:VK_KHR', '"command" -> ref.commands.any', '"enum" -> ref.enums.any', 'VulkanQrCode(model.sharedReportUrl', 'databaseReportUrl(lastSharedReportId)', 'database_share', 'watchedEvidence']:
+for needle in ['dependencyGraphEntries', 'maxDepth: Int = 4', 'maxNodes: Int = 64', 'Diagnostic evidence score', 'It is not Vulkan conformance', 'depends:VK_KHR', '"command" -> ref.commands.any', '"enum" -> ref.enums.any', 'VulkanQrCode(model.sharedReportUrl', 'databaseReportUrl(lastSharedReportId)', 'database_share', 'watchedEvidence']:
     if needle not in kt: errors.append(f'missing 0.41.0 advanced-analysis requirement: {needle}')
 
 graph_kt_path = root / 'app/src/main/java/com/efishell/vulkanscope/VulkanDependencyGraph.kt'
@@ -696,7 +777,7 @@ if 'preview += key to value' not in kt or 'ArrayList<Pair<String, String>>(10)' 
     errors.append('watched evidence must retain a bounded explicit Pair preview')
 if 'currentEntries.filter' in kt and '.toList()' in kt[kt.find('val watchedEvidence'):kt.find('val visibleWatched')]:
     errors.append('watched evidence must not materialize an unbounded match list')
-if 'val diffRows = remember(state.tab, state.baseline, current, state.includeUnchanged, state.diffQuery, state.diffStateFilter, state.diffKindFilter)' not in kt:
+if 'val diffRows = remember(state.baseline, current, state.includeUnchanged, state.diffQuery, state.diffStateFilter, state.diffKindFilter)' not in kt:
     errors.append('Analysis diff calculation is not hoisted and filter-aware at composable scope')
 if 'val visualGraphNodes = remember(graphEntries, report, device)' not in kt:
     errors.append('0.41.1 graph calculation is not hoisted to composable scope')
@@ -764,7 +845,9 @@ for needle in [
     'val evidenceResultCount = filtered.size',
     'val safetyEvidenceCount = filtered.count { it.section == "Vulkan Query Safety" }',
     'val propertyResultCount = evidenceResultCount - safetyEvidenceCount',
-    '$evidenceResultCount evidence rows · $propertyResultCount property/query rows · $safetyEvidenceCount safety diagnostics',
+    '"Evidence rows" to evidenceResultCount.toString()',
+    '"Property / query" to propertyResultCount.toString()',
+    '"Safety diagnostics" to safetyEvidenceCount.toString()',
     '$detailedPropertyCount property/query rows; $detailedSafetyCount safety diagnostics',
     '$htmlDetailedPropertyCount property/query rows; $htmlDetailedSafetyCount safety diagnostics'
 ]:
@@ -879,7 +962,7 @@ for needle in [
     'put("videoCodecOperations", if (queueVideoCodecEvidenceRetained(q)) q.videoCodecOperations else JSONObject.NULL)',
     'put("videoCodecOperationsU64", if (queueVideoCodecEvidenceRetained(q)) q.videoCodecOperations.toULong().toString() else JSONObject.NULL)',
     'verticalScroll(scrollState)',
-    'unique diagnostics'
+    '"Unique diagnostics" to uniqueSafetyNames.toString()'
 ]:
     if needle not in kt:
         errors.append(f'missing 0.41.4 reporting/security/usability hardening: {needle}')
@@ -986,8 +1069,8 @@ for needle in [
     'diffKindFilter',
     'graphDepth',
     'watchStateFilter',
-    'Heuristic diagnostic evidence score',
-    'if (state.tab == 3) heuristicDiagnosticEvidenceScore',
+    'Diagnostic evidence score',
+    'val driverHealth = remember(report, device) { heuristicDiagnosticEvidenceScore(report, device) }',
     'databaseReportUrl(lastSharedReportId)',
     '/#reports/',
     'runVulkanSelfTests(target.vendorIdRaw, target.deviceIdRaw)',
@@ -1006,7 +1089,7 @@ for needle in [
     'putCompatible("feature/${item.name}"',
     'putCompatible("limit/${item.first}"',
     'putCompatible("format/${item.name}"',
-    'if (state.tab == 0 || state.tab == 4) vulkanAnalysisSnapshot',
+    'val current = remember(report, device, display, mode, applicationVersion) { vulkanAnalysisSnapshot(report, device, display, mode, applicationVersion) }',
     'entries["surface/formatQuerySecondAttempted"] == "true"',
     'entries["surface/formatQueryResultSecond"] == "0"',
 ]:
@@ -1547,10 +1630,10 @@ for needle in [
     'if (!ensureTurnipNativeLibrariesReadOnly(bundleScan))',
     'if (!ensureTurnipNativeLibrariesReadOnly(scan)) return null',
     'if (library.canWrite()) return null',
-    'private suspend fun installDriverBundleIo(uri: Uri)',
-    'withContext(Dispatchers.IO) { probeMutex.withLock { installDriverBundleIo(uri) } }',
+    'private suspend fun installDriverBundleIo',
+    'probeMutex.withLock { installDriverBundleIo',
     'importContext.ensureActive()',
-    'if (driverImportInFlight) return',
+    'if (driverImportInFlight',
     'driverPickerInFlight || driverImportInFlight',
     'output.fd.sync()'
 ]:
@@ -1570,13 +1653,13 @@ for needle in [
     'MediaStore.Downloads.IS_PENDING, 1',
     'runCatching { context.contentResolver.delete(uri, null, null) }',
     'val driverPaths = withContext(Dispatchers.IO)',
-    'bundleInstalled = withContext(Dispatchers.IO) { resolveInstalledTurnipLibrary(context.filesDir) != null }',
+    'withContext(Dispatchers.IO) {',
     'private fun completeReportMutationReady(): Boolean',
     'driverPickerInFlight = true',
     'driverPickerInFlight = false',
-    'if (driverPickerInFlight || driverImportInFlight)',
+    'driverPickerInFlight || driverImportInFlight',
     'if (driverImportInFlight) {\n            collectionPending = true\n            return\n        }',
-    'activateImportedTurnipDriver()',
+    'activateManagedTurnipDriver',
     'applyDriverModeChange(DriverMode.TURNIP, true)'
 ]:
     if needle not in kt:
@@ -1610,10 +1693,10 @@ for needle in [
     'val children = runCatching { directory.listFiles() }.getOrNull() ?: return null',
     'canonicalEntry.path != entry.absoluteFile.path',
     'if (!seenCanonicalPaths.add(canonicalEntry.path)) return null',
-    'val bundleScan = scanTurnipBundle(tempDir, maxEntries)',
-    'val scan = scanTurnipBundle(File(filesDir, "turnip"), 2048)',
+    'val bundleScan = scanTurnipBundle(tempBundleRoot, maxEntries)',
+    'readTurnipBundleInfo',
     '@Volatile private var driverImportInFlight = false',
-    'withContext(Dispatchers.IO) { probeMutex.withLock { installDriverBundleIo(uri) } }',
+    'probeMutex.withLock { installDriverBundleIo',
     'if (driverImportInFlight) return@withLock unavailableProbe',
     'markAdvancedIncomplete("vkGetPhysicalDeviceToolProperties count query returned VK_INCOMPLETE',
     'markAdvancedIncomplete("vkGetPhysicalDeviceToolProperties data query returned VK_INCOMPLETE',
@@ -1742,9 +1825,9 @@ for needle in [
     'if (++visitedEntries > maxEntries) return null',
     'canonicalEntry.path != entry.absoluteFile.path',
     'entry.isDirectory -> directories.add(canonicalEntry)',
-    'turnip_import_${java.util.UUID.randomUUID()}',
-    'turnip_backup_${java.util.UUID.randomUUID()}',
-    'if (!tempDir.mkdir()) throw IllegalStateException'
+    '.import_${java.util.UUID.randomUUID()}',
+    'if (!tempSlotRoot.renameTo(finalSlotRoot))',
+    'if (!tempSlotRoot.mkdir() || !tempBundleRoot.mkdir()) throw IllegalStateException'
 ]:
     if needle not in kt:
         errors.append(f'missing 0.41.29 streaming/unique Turnip transaction gate: {needle}')
@@ -2094,6 +2177,251 @@ for verifier_path, label in [(final_0808_verifier_path, 'final-release'), (final
             command += ['--root', str(root)]
         result = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         if result.returncode != 0: errors.append(f'0.80.8 {label} verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
+
+if '## Release 1.0.2 Material 3 Expressive filters, connectivity state, Turnip metadata and accessibility requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 1.0.2 expressive/connectivity/Turnip/accessibility contract')
+if audit_1002_path.is_file():
+    audit_1002 = audit_1002_path.read_text(encoding='utf-8')
+    for token in ['81486c4ca5c5f52b3c317a448143f67297e240d39ad715d80fa13f5d541ede51', 'Material 3 Expressive', 'NET_CAPABILITY_VALIDATED', 'Turnip', 'TalkBack', 'Android TV', 'NOT EXECUTED']:
+        if token.lower() not in audit_1002.lower(): errors.append(f'1.0.2 audit evidence missing: {token}')
+for verifier_path, label in [(expressive_1002_verifier_path, 'expressive-connectivity-turnip'), (expressive_1002_state_machine_path, 'expressive-connectivity-turnip-state-machine'), (expressive_1002_negative_path, 'expressive-connectivity-turnip-negative-mutations')]:
+    if verifier_path.is_file() and not args.skip_nested_verifiers:
+        command = [sys.executable, str(verifier_path)]
+        result = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if result.returncode != 0: errors.append(f'1.0.2 {label} verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
+
+if '## Release 1.0.3 Kotlin regular-expression compile-regression requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 1.0.3 Kotlin regex compile-regression contract')
+if audit_1003_path.is_file():
+    audit_1003 = audit_1003_path.read_text(encoding='utf-8')
+    for token in ['986ff50b41e6a13ecc08778ef55205dcb66d9c428f552415e3933ba0010c1e48', 'unsupported escape', 'AdvancedAnalysis.kt', 'MainActivity.kt', 'NOT EXECUTED']:
+        if token.lower() not in audit_1003.lower(): errors.append(f'1.0.3 audit evidence missing: {token}')
+for verifier_path, label in [(regex_1003_verifier_path, 'kotlin-regex-compile'), (regex_1003_negative_path, 'kotlin-regex-compile-negative-mutations')]:
+    if verifier_path.is_file() and not args.skip_nested_verifiers:
+        result = subprocess.run([sys.executable, str(verifier_path)], cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if result.returncode != 0: errors.append(f'1.0.3 {label} verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
+
+if '## Release 1.0.4 offline availability, Turnip driver manager and filter-edge continuity requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 1.0.4 offline/Turnip-manager/filter-edge contract')
+if audit_1004_path.is_file():
+    audit_1004 = audit_1004_path.read_text(encoding='utf-8')
+    for token in ['b5ed5bdfd833a9b64760af2b4dbb7d9a74440ca4e7d5e584323f2f6ad0678167', 'NET_CAPABILITY_VALIDATED', '10', 'source.json', 'OpenDocument', 'app-specific', 'NOT EXECUTED']:
+        if token.lower() not in audit_1004.lower(): errors.append(f'1.0.4 audit evidence missing: {token}')
+for verifier_path, label in [(offline_1004_state_machine_path, 'offline-turnip-manager-state-machine')]:
+    if verifier_path.is_file() and not args.skip_nested_verifiers:
+        command=[sys.executable,str(verifier_path)]
+        if verifier_path == offline_1004_verifier_path: command += ['--root', str(root)]
+        result=subprocess.run(command,cwd=root,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+        if result.returncode != 0: errors.append(f'1.0.4 {label} verifier failed: ' + result.stdout.strip().replace('\n',' | '))
+
+if '## Release 1.0.5 Kotlin default-parameter call-site compile-regression requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 1.0.5 Kotlin default-parameter compile-regression contract')
+if audit_1005_path.is_file():
+    audit_1005 = audit_1005_path.read_text(encoding='utf-8')
+    for token in ['e12a7ffd3fcf40a8c6423cae19beb07a4f349abb1bed0d6cc45abbd25d9b5589', 'Boolean', 'onClick', 'MainActivity.kt', 'NOT EXECUTED']:
+        if token.lower() not in audit_1005.lower(): errors.append(f'1.0.5 audit evidence missing: {token}')
+for verifier_path, label in [(defaultparam_1005_verifier_path, 'kotlin-default-parameter-compile'), (defaultparam_1005_negative_path, 'kotlin-default-parameter-compile-negative-mutations')]:
+    if verifier_path.is_file() and not args.skip_nested_verifiers:
+        command = [sys.executable, str(verifier_path)]
+        if verifier_path == defaultparam_1005_verifier_path: command += ['--root', str(root)]
+        result = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if result.returncode != 0: errors.append(f'1.0.5 {label} verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
+
+if '## Release 1.0.6 driver confirmation, network transition and UI-coherence requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 1.0.6 driver/network/UI contract')
+if audit_1006_path.is_file():
+    audit_1006 = audit_1006_path.read_text(encoding='utf-8')
+    for token in ['c9176c1b120074ad76cc55ecd319f9344c070e792916ff2b82f2e45de968e624', 'NetworkCallback', 'Turnip', 'confirmation', 'MainActivity.kt']:
+        if token.lower() not in audit_1006.lower(): errors.append(f'1.0.6 audit evidence missing: {token}')
+for verifier_path, label in [(driverui_1006_state_machine_path, 'driver-network-ui-state-machine')]:
+    if verifier_path.is_file() and not args.skip_nested_verifiers:
+        command = [sys.executable, str(verifier_path)]
+        if verifier_path == driverui_1006_verifier_path: command += ['--root', str(root)]
+        result = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if result.returncode != 0: errors.append(f'1.0.6 {label} verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
+
+if '## Release 1.0.7 Turnip manager, combined connectivity and continuation UI requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 1.0.7 Turnip/connectivity/filter/dialog contract')
+if audit_1007_path.is_file():
+    audit_1007 = audit_1007_path.read_text(encoding='utf-8')
+    for token in ['1ecc8ff6f371104783f4294e3d7624b9029f34079c5da502336952c0d806449f', 'Turnip', 'connectivity', 'filter', 'dialog', 'NOT EXECUTED']:
+        if token.lower() not in audit_1007.lower(): errors.append(f'1.0.7 audit evidence missing: {token}')
+if turnipui_1007_state_machine_path.is_file() and not args.skip_nested_verifiers:
+    result = subprocess.run([sys.executable, str(turnipui_1007_state_machine_path)], cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if result.returncode != 0: errors.append('1.0.7 retained state-machine verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
+
+if '## Release 1.0.8 driver-manager, confirmation-action, external-link and no-SAF exchange requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 1.0.8 driver-manager/dialog/storage contract')
+if audit_1008_path.is_file():
+    audit_1008 = audit_1008_path.read_text(encoding='utf-8')
+    for token in ['9509effe7630d679167ae9544fe62d843954e22b3223c421c1fc649c3c2d0a3b', 'Driver manager', 'question', 'external', 'SAF', 'NOT EXECUTED']:
+        if token.lower() not in audit_1008.lower(): errors.append(f'1.0.8 audit evidence missing: {token}')
+for verifier_path, label in [(driverui_1008_verifier_path, 'driver-manager-dialog-storage'), (driverui_1008_state_machine_path, 'driver-manager-dialog-storage-state-machine'), (driverui_1008_negative_path, 'driver-manager-dialog-storage-negative-mutations')]:
+    if verifier_path.is_file() and not args.skip_nested_verifiers:
+        command = [sys.executable, str(verifier_path)]
+        if verifier_path == driverui_1008_verifier_path: command += ['--root', str(root), '--skip-version']
+        result = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if result.returncode != 0: errors.append(f'1.0.8 {label} verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
+
+if '## Release 1.0.9 detail-dialog, action-target, driver-evidence and fallback-guidance requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 1.0.9 detail/action/System-evidence/fallback contract')
+if audit_1009_path.is_file():
+    audit_1009 = audit_1009_path.read_text(encoding='utf-8')
+    for token in ['330aa2f9aec82ed0bd8495f95739d6b31bd1c568d757aee6b73f01ffcd4343d3', 'Close', 'System', 'Database', 'SAF', 'NOT EXECUTED']:
+        if token.lower() not in audit_1009.lower(): errors.append(f'1.0.9 audit evidence missing: {token}')
+for verifier_path, label in [(detailui_1009_verifier_path, 'detail-action-driver-fallback'), (detailui_1009_state_machine_path, 'detail-action-driver-fallback-state-machine'), (detailui_1009_negative_path, 'detail-action-driver-fallback-negative-mutations')]:
+    if verifier_path.is_file() and not args.skip_nested_verifiers:
+        command = [sys.executable, str(verifier_path)]
+        if verifier_path == detailui_1009_verifier_path: command += ['--root', str(root)]
+        result = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if result.returncode != 0: errors.append(f'1.0.9 {label} verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
+
+
+if '## Release 1.0.10 PaddingValues import compile-regression requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 1.0.10 PaddingValues import compile-regression contract')
+if audit_1010_path.is_file():
+    audit_1010 = audit_1010_path.read_text(encoding='utf-8')
+    for token in ['5b3166c06138bb175a3c7368bd043c0e97ffa875780c8a179a6534b26a662a5b', 'PaddingValues', 'MainActivity.kt:10199:26', 'FAIL', 'NOT EXECUTED']:
+        if token.lower() not in audit_1010.lower(): errors.append(f'1.0.10 audit evidence missing: {token}')
+for verifier_path, label in [(paddingimport_1010_verifier_path, 'paddingvalues-import-compile'), (paddingimport_1010_negative_path, 'paddingvalues-import-compile-negative-mutations')]:
+    if verifier_path.is_file() and not args.skip_nested_verifiers:
+        command = [sys.executable, str(verifier_path)]
+        if verifier_path == paddingimport_1010_verifier_path: command += ['--root', str(root)]
+        result = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if result.returncode != 0: errors.append(f'1.0.10 {label} verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
+
+if '## Release 1.0.11 active-driver exclusivity and semantic-icon UI requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 1.0.11 active-driver/icon UI contract')
+if audit_1011_path.is_file():
+    audit_1011 = audit_1011_path.read_text(encoding='utf-8')
+    for token in ['a2bf1330385aed17e77e4fef1ef688ac13316286ffbe9ffdc6aa50099804b41a', 'active', 'Turnip', 'Encyclopedia', 'Android', 'NOT EXECUTED']:
+        if token.lower() not in audit_1011.lower(): errors.append(f'1.0.11 audit evidence missing: {token}')
+for verifier_path, label in [(iconui_1011_verifier_path, 'active-driver-semantic-icon'), (iconui_1011_state_machine_path, 'active-driver-semantic-icon-state-machine'), (iconui_1011_negative_path, 'active-driver-semantic-icon-negative-mutations')]:
+    if verifier_path.is_file() and not args.skip_nested_verifiers:
+        command = [sys.executable, str(verifier_path)]
+        if verifier_path == iconui_1011_verifier_path: command += ['--root', str(root)]
+        result = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if result.returncode != 0: errors.append(f'1.0.11 {label} verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
+
+if '## Release 1.0.12 SAF fallback detection, fallback-dialog and supplied-icon requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 1.0.12 SAF fallback/supplied-icon contract')
+if audit_1012_path.is_file():
+    audit_1012 = audit_1012_path.read_text(encoding='utf-8')
+    for token in ['a7767a1ac2d9356968c126460b6fd7c4d8482345c27c63f0cfc2f73559a2e7d1', 'MATCH_DEFAULT_ONLY', 'turnip_01.zip', 'VulkanScope-*-analysis.json', '#34A853', 'NOT EXECUTED']:
+        if token.lower() not in audit_1012.lower(): errors.append(f'1.0.12 audit evidence missing: {token}')
+for verifier_path, label in [(safui_1012_verifier_path, 'saf-fallback-android-icon'), (safui_1012_state_machine_path, 'saf-fallback-state-machine'), (safui_1012_negative_path, 'saf-fallback-negative-mutations')]:
+    if verifier_path.is_file() and not args.skip_nested_verifiers:
+        command = [sys.executable, str(verifier_path)]
+        if verifier_path == safui_1012_verifier_path: command += ['--root', str(root)]
+        result = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if result.returncode != 0: errors.append(f'1.0.12 {label} verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
+
+if '## Release 1.0.13 update-action and semantic-icon refinement requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 1.0.13 update/semantic-icon contract')
+if audit_1013_path.is_file():
+    audit_1013 = audit_1013_path.read_text(encoding='utf-8')
+    for token in ['2d0da0fdb5a913f655e4eaab09587c65243dd97128edb387590cf744c29f83dd', '#E2676A', 'Review', 'Download update', 'Database fetch', 'NOT EXECUTED']:
+        if token.lower() not in audit_1013.lower(): errors.append(f'1.0.13 audit evidence missing: {token}')
+for verifier_path, label in [(updateui_1013_verifier_path, 'update-semantic-icon'), (updateui_1013_state_machine_path, 'update-semantic-state-machine'), (updateui_1013_negative_path, 'update-semantic-negative-mutations')]:
+    if verifier_path.is_file() and not args.skip_nested_verifiers:
+        command = [sys.executable, str(verifier_path)]
+        if verifier_path == updateui_1013_verifier_path: command += ['--root', str(root)]
+        result = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if result.returncode != 0: errors.append(f'1.0.13 {label} verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
+
+if '## Release 1.0.14 fallback-import compile and first-install update-intro requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 1.0.14 fallback-import compile/update-intro contract')
+if audit_1014_path.is_file():
+    audit_1014 = audit_1014_path.read_text(encoding='utf-8')
+    for token in ['025450cbd0e3a0a643d8d053a86a3938578b78aac7fb9428fa2a159de3a444db', '8688:99', 'FallbackAnalysisCandidate', 'GitHub', 'Obtainium']:
+        if token.lower() not in audit_1014.lower(): errors.append(f'1.0.14 audit evidence missing: {token}')
+for verifier_path, label in [(compileintro_1014_verifier_path, 'fallback-import-compile-intro'), (compileintro_1014_state_machine_path, 'fallback-import-compile-state-machine'), (compileintro_1014_negative_path, 'fallback-import-compile-negative-mutations')]:
+    if verifier_path.is_file() and not args.skip_nested_verifiers:
+        command = [sys.executable, str(verifier_path)]
+        if verifier_path == compileintro_1014_verifier_path: command += ['--root', str(root)]
+        result = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if result.returncode != 0: errors.append(f'1.0.14 {label} verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
+
+
+if '## Release 1.0.15 system-document-picker launch-first and full-audit requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 1.0.15 launch-first/full-audit contract')
+for required_path in [audit_1015_path, saf_1015_verifier_path, saf_1015_state_machine_path, saf_1015_negative_path, ui_1015_verifier_path, ui_1015_state_machine_path, ui_1015_negative_path]:
+    if not required_path.is_file(): errors.append(f'1.0.15 release artifact missing: {required_path.relative_to(root)}')
+if audit_1015_path.is_file():
+    audit_1015 = audit_1015_path.read_text(encoding='utf-8')
+    for token in ['SAF launch-first', 'ActivityNotFoundException', 'Share link', 'QR', 'HDR', 'MODE', 'navigation', 'NOT EXECUTED']:
+        if token.lower() not in audit_1015.lower(): errors.append(f'1.0.15 audit evidence missing: {token}')
+for verifier_path, label in [(saf_1015_verifier_path, 'saf-launch-first'), (saf_1015_state_machine_path, 'saf-launch-state-machine'), (saf_1015_negative_path, 'saf-launch-negative-mutations'), (ui_1015_verifier_path, 'share-display-navigation-ui'), (ui_1015_state_machine_path, 'share-display-navigation-state-machine'), (ui_1015_negative_path, 'share-display-navigation-negative-mutations')]:
+    if verifier_path.is_file() and not args.skip_nested_verifiers:
+        command = [sys.executable, str(verifier_path)]
+        if verifier_path in [saf_1015_verifier_path, ui_1015_verifier_path]: command += ['--root', str(root)]
+        result = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if result.returncode != 0: errors.append(f'1.0.15 {label} verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
+
+if '## Release 1.0.16 Info, Memory and Database compatibility requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 1.0.16 Info/Memory/Database contract')
+for required_path in [audit_1016_path, info_1016_verifier_path, info_1016_state_machine_path, info_1016_negative_path]:
+    if not required_path.is_file(): errors.append(f'1.0.16 release artifact missing: {required_path.relative_to(root)}')
+if audit_1016_path.is_file():
+    audit_1016 = audit_1016_path.read_text(encoding='utf-8')
+    for token in ['1.0.16', '1016', 'Database 1.0.8', 'SCOPE', 'Memory heaps', 'Memory types', 'Run Vulkan self-tests', 'NOT EXECUTED']:
+        if token.lower() not in audit_1016.lower(): errors.append(f'1.0.16 audit evidence missing: {token}')
+if version and version.group(1) == '1.0.16':
+    for verifier_path, label in [(info_1016_verifier_path, 'info-memory-database-ui'), (info_1016_state_machine_path, 'info-memory-database-state-machine'), (info_1016_negative_path, 'info-memory-database-negative-mutations')]:
+        if verifier_path.is_file() and not args.skip_nested_verifiers:
+            command = [sys.executable, str(verifier_path)]
+            if verifier_path == info_1016_verifier_path: command += ['--root', str(root)]
+            result = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            if result.returncode != 0: errors.append(f'1.0.16 {label} verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
+
+if '## Release 1.0.17 semantic icon correction and Database 1.0.8 compatibility requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 1.0.17 semantic-icon/Database contract')
+for required_path in [audit_1017_path, info_1017_verifier_path, info_1017_state_machine_path, info_1017_negative_path]:
+    if not required_path.is_file(): errors.append(f'1.0.17 release artifact missing: {required_path.relative_to(root)}')
+if audit_1017_path.is_file():
+    audit_1017 = audit_1017_path.read_text(encoding='utf-8')
+    for token in ['1.0.17', '1017', 'Database 1.0.8', 'Semih Boran', 'ZIP-folder', 'JSON', 'technicalReport', 'NOT EXECUTED']:
+        if token.lower() not in audit_1017.lower(): errors.append(f'1.0.17 audit evidence missing: {token}')
+if version and version.group(1) == '1.0.17':
+    for verifier_path, label in [(info_1017_verifier_path, 'semantic-icon-corrections'), (info_1017_state_machine_path, 'semantic-icon-state-machine'), (info_1017_negative_path, 'semantic-icon-negative-mutations')]:
+        if verifier_path.is_file() and not args.skip_nested_verifiers:
+            command = [sys.executable, str(verifier_path)]
+            if verifier_path == info_1017_verifier_path: command += ['--root', str(root)]
+            result = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            if result.returncode != 0: errors.append(f'1.0.17 {label} verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
+
+if '## Release 1.0.18 compile-regression and full retained-audit requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 1.0.18 compile/full-audit contract')
+for required_path in [audit_1018_path, compile_1018_verifier_path, compile_1018_state_machine_path, compile_1018_negative_path]:
+    if not required_path.is_file(): errors.append(f'1.0.18 release artifact missing: {required_path.relative_to(root)}')
+if audit_1018_path.is_file():
+    audit_1018 = audit_1018_path.read_text(encoding='utf-8')
+    for token in ['1.0.18', '1018', 'Database 1.0.8', 'Vulkan 1.4.362', 'PhysicalDeviceSelector', 'onSelected = onSelected', 'SECURITY', 'MEMORY', 'NOT EXECUTED']:
+        if token.lower() not in audit_1018.lower(): errors.append(f'1.0.18 audit evidence missing: {token}')
+if version and version.group(1) == '1.0.18':
+    for verifier_path, label in [(compile_1018_verifier_path, 'compile-full-audit'), (compile_1018_state_machine_path, 'compile-state-machine'), (compile_1018_negative_path, 'compile-negative-mutations')]:
+        if verifier_path.is_file() and not args.skip_nested_verifiers:
+            command = [sys.executable, str(verifier_path)]
+            if verifier_path == compile_1018_verifier_path: command += ['--root', str(root)]
+            result = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            if result.returncode != 0: errors.append(f'1.0.18 {label} verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
+
+
+if '## Release 1.0.19 semantic UI refinement requirements' not in rules_text:
+    errors.append('PROJECT_RULES is missing 1.0.19 semantic UI refinement contract')
+for required_path in [audit_1019_path, ui_1019_verifier_path, ui_1019_state_machine_path, ui_1019_negative_path]:
+    if not required_path.is_file(): errors.append(f'1.0.19 release artifact missing: {required_path.relative_to(root)}')
+if audit_1019_path.is_file():
+    audit_1019 = audit_1019_path.read_text(encoding='utf-8')
+    for token in ['1.0.19', '1019', 'Database 1.0.8', 'Vulkan 1.4.362', 'Queue query safety', 'Export TXT', 'Explore', 'SECURITY', 'MEMORY', 'NOT EXECUTED']:
+        if token.lower() not in audit_1019.lower(): errors.append(f'1.0.19 audit evidence missing: {token}')
+if version and version.group(1) == '1.0.19':
+    for verifier_path, label in [(ui_1019_verifier_path, 'semantic-ui-refinement'), (ui_1019_state_machine_path, 'semantic-ui-state-machine'), (ui_1019_negative_path, 'semantic-ui-negative-mutations')]:
+        if verifier_path.is_file() and not args.skip_nested_verifiers:
+            command = [sys.executable, str(verifier_path)]
+            if verifier_path == ui_1019_verifier_path: command += ['--root', str(root)]
+            result = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            if result.returncode != 0: errors.append(f'1.0.19 {label} verifier failed: ' + result.stdout.strip().replace('\n', ' | '))
 
 if not args.skip_regression_contracts and not args.skip_nested_verifiers and regression_verifier_path.is_file():
     result = subprocess.run([sys.executable, str(regression_verifier_path)], cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)

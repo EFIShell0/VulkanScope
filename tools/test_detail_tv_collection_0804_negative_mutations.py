@@ -42,12 +42,12 @@ mutate(
 )
 mutate(
     'modal vertical scrolling removal',
-    'Modifier.fillMaxWidth().verticalScroll(scrollState).focusGroup().padding(end = 38.dp)',
-    'Modifier.fillMaxWidth().focusGroup().padding(end = 38.dp)',
+    'Modifier.fillMaxWidth().verticalScroll(scrollState).focusGroup()',
+    'Modifier.fillMaxWidth().focusGroup()',
 )
 mutate(
     'modal boundary indicators removal',
-    'ScrollBoundaryIndicators(scrollState, Modifier.align(Alignment.CenterEnd).padding(end = 2.dp))',
+    'ExpressiveScrollHints(scrollState, Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 6.dp))',
     'Spacer(Modifier.size(1.dp))',
 )
 mutate(

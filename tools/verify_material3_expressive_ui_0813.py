@@ -15,7 +15,7 @@ rules_path = root / 'rules/PROJECT_RULES.md'
 main = main_path.read_text(encoding='utf-8')
 gradle = gradle_path.read_text(encoding='utf-8')
 rules = rules_path.read_text(encoding='utf-8')
-superseded_by_0815 = 'versionName = "0.80.15"' in gradle
+superseded_by_0815 = 'versionName = "0.80.15"' in gradle or 'versionName = "1.0.0"' in gradle or 'versionName = "1.0.1"' in gradle or 'versionName = "1.0.2"' in gradle or 'versionName = "1.0.3"' in gradle or 'versionName = "1.0.4"' in gradle or 'versionName = "1.0.5"' in gradle or 'versionName = "1.0.6"' in gradle or 'versionName = "1.0.7"' in gradle or 'versionName = "1.0.8"' in gradle or 'versionName = "1.0.9"' in gradle or 'versionName = "1.0.10"' in gradle or 'versionName = "1.0.11"' in gradle or 'versionName = "1.0.12"' in gradle or 'versionName = "1.0.13"' in gradle or 'versionName = "1.0.14"' in gradle or 'versionName = "1.0.15"' in gradle or 'versionName = "1.0.16"' in gradle or 'versionName = "1.0.17"' in gradle or 'versionName = "1.0.18"' in gradle
 
 def require(condition, message):
     if not condition:
@@ -42,7 +42,7 @@ for token in ['largeIncreased = RoundedCornerShape(32.dp)', 'extraLargeIncreased
 
 page = block('private fun VulkanLazyPage(', '@Composable\nprivate fun ScrollBoundaryIndicators')
 if superseded_by_0815:
-    require('end = 18.dp' in page and 'ScrollBoundaryIndicators(listState, Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp))' in page, '0.80.15 superseding overlay indicator layout is missing')
+    require('end = 18.dp' in page and 'ExpressiveScrollHints(listState, Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp))' in page, '0.80.15 superseding overlay indicator layout is missing')
 else:
     require('end = 46.dp' in page, 'top-level lazy pages do not reserve an indicator lane')
     require('ScrollBoundaryIndicators(listState, Modifier.align(Alignment.CenterEnd).padding(end = 8.dp))' in page, 'top-level scroll indicator placement is stale')
@@ -56,7 +56,7 @@ else:
     require('shape = RoundedCornerShape(999.dp)' in indicator and 'Modifier.padding(horizontal = 4.dp, vertical = 5.dp)' in indicator, 'scroll indicators are not presented as a compact shared rail')
     require('modifier = Modifier.padding(4.dp).size(16.dp)' in indicator, 'scroll indicator geometry is not compact')
 
-kv = block('private fun CapabilityKeyValue(key: String, value: String)', '@Composable\nprivate fun CapabilityStatusBadge')
+kv = block('private fun ExpressiveEvidenceRow(key: String, value: String)', '@Composable\nprivate fun CapabilityKeyValue')
 require('BoxWithConstraints(Modifier.fillMaxWidth())' in kv, 'key/value layout is not width-aware')
 require('value.length > 34' in kv and 'key.length > 26' in kv, 'key/value stacking threshold does not prevent narrow wrapped value columns')
 require('LocalDetailKeyValuePresentation.current' in kv, 'detail-dialog key/value presentation is not context-aware')
@@ -71,25 +71,33 @@ update_kv = block('private fun UpdateDialogKeyValue(key: String, value: String)'
 require('BoxWithConstraints(Modifier.fillMaxWidth())' in update_kv, 'update metadata is not width-aware')
 require('value.length > 32' in update_kv and 'TextAlign.End' not in update_kv, 'update metadata retains the cramped right-aligned layout')
 
-detail = block('private fun ScrollableDetailDialog(', '@Composable\nprivate fun FormatsPage')
+detail = block('private fun ExpressiveDetailDialog(', 'private val FORMAT_USAGE_FILTERS')
 require('Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false))' in detail, 'complex detail content still uses the fixed AlertDialog slot layout')
 if superseded_by_0815:
     require('shape = MaterialTheme.shapes.extraLarge' in detail and 'widthIn(max = 560.dp)' in detail, '0.80.15 responsive grouped dialog geometry is missing')
-    require('bodyMaxHeight = minOf(540.dp, maxOf(140.dp, (configuration.screenHeightDp - 200).dp))' in detail, '0.80.15 dialog body height adaptation is missing')
-    require('padding(end = 38.dp)' not in detail and 'ScrollBoundaryIndicators(scrollState' in detail, '0.80.15 overlay detail indicator behavior is missing')
+    require('bodyMaxHeight = minOf(540.dp, maxOf(140.dp, (configuration.screenHeightDp - 200).dp))' in detail or ('val dialogMaxHeight =' in detail and 'bodyMaxHeight = minOf(540.dp, maxOf(96.dp, dialogMaxHeight - 170.dp))' in detail and '.weight(1f, fill = false)' in detail), '0.80.15+ dialog body height adaptation is missing')
+    require('padding(end = 38.dp)' not in detail and 'ExpressiveScrollHints(scrollState' in detail, '0.80.15 overlay detail indicator behavior is missing')
 else:
     require('shape = MaterialTheme.shapes.extraExtraLarge' in detail, 'detail dialog does not use the alpha27 expressive large shape')
     require('widthIn(max = 640.dp)' in detail, 'detail dialog does not have a responsive width cap')
     require('bodyMaxHeight = minOf(560.dp, maxOf(220.dp, (configuration.screenHeightDp - 240).dp))' in detail, 'detail dialog body does not adapt to display height')
-    require('padding(end = 38.dp)' in detail and 'ScrollBoundaryIndicators(scrollState' in detail, 'detail body does not reserve space for its boundary indicators')
+    require('padding(end = 38.dp)' in detail and 'ExpressiveScrollHints(scrollState' in detail, 'detail body does not reserve space for its boundary indicators')
 require('CompositionLocalProvider(LocalDetailKeyValuePresentation provides true)' in detail, 'detail dialog does not activate the flat evidence-row presentation')
 
 button = block('private fun DetailAffordance(', '@Composable\nprivate fun ScrollableDetailDialog')
-require('TextButton(' in button and 'ButtonDefaults.shapes(' in button and 'pressedShape = RoundedCornerShape(24.dp)' in button, 'Details action does not use expressive button morphing')
-require('role = Role.Button' in button, 'Details action lost explicit Button semantics')
+if any(v in gradle for v in ['versionName = "1.0.13"', 'versionName = "1.0.14"', 'versionName = "1.0.15"', 'versionName = "1.0.16"', 'versionName = "1.0.17"', 'versionName = "1.0.18"']):
+    button_contract = block('private fun ChevronAffordance(', '@Composable\nprivate fun DetailAffordance')
+    require('ChevronAffordance("Details", "Open details", onClick)' in button and 'Surface(' in button_contract and 'IconButton(onClick = onClick' in button_contract, 'Details action does not retain the active expressive affordance contract')
+    require('role = Role.Button' in button_contract, 'Details action lost explicit Button semantics')
+else:
+    require(((any(v in gradle for v in ['versionName = "1.0.9"', 'versionName = "1.0.10"', 'versionName = "1.0.11"', 'versionName = "1.0.12"'])) and 'Surface(' in button and 'IconButton(onClick = onClick' in button) or ((not any(v in gradle for v in ['versionName = "1.0.9"', 'versionName = "1.0.10"', 'versionName = "1.0.11"', 'versionName = "1.0.12"'])) and 'TextButton(' in button and 'ButtonDefaults.shapes(' in button and 'pressedShape = RoundedCornerShape(24.dp)' in button), 'Details action does not retain the active expressive affordance contract')
+    require('role = Role.Button' in button, 'Details action lost explicit Button semantics')
 
-analysis = block('private fun LazyListScope.analysisWorkspaceItems(', '\n\n}\n\n\n@OptIn')
-require('ExpressiveSwitch(checked = state.includeUnchanged, onCheckedChange = null)' in analysis, 'Analysis still bypasses the shared expressive switch wrapper')
+analysis = block('private fun AnalysisPage(', '@Composable\nprivate fun AnalysisWorkspaceHeader')
+if any(v in gradle for v in ['versionName = "1.0.8"', 'versionName = "1.0.9"', 'versionName = "1.0.10"', 'versionName = "1.0.11"', 'versionName = "1.0.12"', 'versionName = "1.0.13"', 'versionName = "1.0.14"', 'versionName = "1.0.15"', 'versionName = "1.0.16"', 'versionName = "1.0.17"', 'versionName = "1.0.18"']):
+    require('ExpressiveToggleRow("Show unchanged"' in main and 'ExpressiveSwitch(checked = checked, onCheckedChange = onCheckedChange)' in main, 'Analysis does not use the shared switch-only interactive wrapper')
+else:
+    require('ExpressiveToggleRow("Show unchanged"' in main and 'ExpressiveSwitch(checked = checked, onCheckedChange = null)' in main, 'Analysis still bypasses the shared expressive switch wrapper')
 require(re.search(r'(?<!Expressive)Switch\s*\(', main) is not None, 'shared Switch wrapper is unexpectedly missing')
 raw_switches = list(re.finditer(r'(?<!Expressive)Switch\s*\(', main))
 require(len(raw_switches) == 1, 'a direct Material Switch exists outside the shared expressive wrapper')
@@ -107,8 +115,12 @@ extensions = block('private fun ExtensionsPage(', 'private fun imageFormatQueryG
 require('CapabilityItemCard(containerColor = VulkanSurfaceRaised)' in formats, 'Format rows bypass the shared capability-card hierarchy')
 require('CapabilityItemCard(containerColor = VulkanSurfaceRaised)' in extensions and 'CapabilityItemCard(containerColor = ComposeColor(0xFF211B12))' in extensions, 'Extension rows bypass the shared capability-card hierarchy')
 
-for token in ['maxLines = 2, overflow = TextOverflow.Ellipsis', 'maxLines = 3, overflow = TextOverflow.Ellipsis']:
-    require(token in block('private fun ExpressiveActionButton(', '@Composable\nprivate fun ExpressiveIdentityBlock'), f'action-card text wrapping token missing: {token}')
+action_block = block('private fun ExpressiveActionButton(', '@Composable\nprivate fun ExpressiveIdentityBlock')
+require('maxLines = 2, overflow = TextOverflow.Ellipsis' in action_block, 'action title wrapping token missing')
+if any(v in gradle for v in ['versionName = "1.0.9"', 'versionName = "1.0.10"', 'versionName = "1.0.11"', 'versionName = "1.0.12"', 'versionName = "1.0.13"', 'versionName = "1.0.14"', 'versionName = "1.0.15"', 'versionName = "1.0.16"', 'versionName = "1.0.17"', 'versionName = "1.0.18"']):
+    require('Text(subtitle, color = detailColor, style = MaterialTheme.typography.labelSmall)' in action_block, '1.0.9 action subtitle no longer exposes full fallback guidance')
+else:
+    require('maxLines = 3, overflow = TextOverflow.Ellipsis' in action_block, 'action-card subtitle wrapping token missing')
 
 require('## Release 0.80.13 Material 3 Expressive full-UI coherence requirements' in rules, 'PROJECT_RULES 0.80.13 UI contract is missing')
 require((root / 'rules/0.80.13_MATERIAL3_EXPRESSIVE_FULL_UI_AUDIT.md').is_file(), '0.80.13 UI audit document is missing')
