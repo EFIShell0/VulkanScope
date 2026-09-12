@@ -66,8 +66,17 @@ for style in ['displayLarge','displayMedium','displaySmall','headlineLarge','hea
     needle = f'{style} = VulkanBaseTypography.{style}.copy(textDirection = TextDirection.ContentOrLtr)'
     need(needle in kt, f'{style} does not use content-aware LTR fallback')
 need('TextAlign.Left' not in kt and 'TextAlign.Right' not in kt, 'absolute left/right text alignment remains in Compose UI')
-need('fontFamily = FontFamily.' not in kt, 'Compose UI hardcodes a non-system font family')
-need('androidx.compose.ui.text.font.FontFamily' not in kt, 'Compose UI imports an explicit font family override')
+if version_tuple >= (1, 2, 3):
+    need('import androidx.compose.ui.text.font.FontFamily' in kt, '1.2.3 code-style diagnostic font import missing')
+    explicit_families = re.findall(r'fontFamily\s*=\s*FontFamily\.([A-Za-z0-9_]+)', kt)
+    need(explicit_families == ['Monospace', 'Monospace'], 'explicit font families are not limited to the two 1.2.3 code-style fields')
+    success_block = kt[kt.find('submissionSuccessId?.let { reportId ->'):kt.find('submissionSuccessId?.let { reportId ->') + 900]
+    failure_block = body('DatabaseSubmissionFailureDialog')
+    need('fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace' in success_block, 'report ID lost its bounded code-style monospace presentation')
+    need('fontFamily = FontFamily.Monospace' in failure_block, 'Database failure log lost its code-style monospace presentation')
+else:
+    need('fontFamily = FontFamily.' not in kt, 'Compose UI hardcodes a non-system font family')
+    need('androidx.compose.ui.text.font.FontFamily' not in kt, 'Compose UI imports an explicit font family override')
 for path in styles:
     text = path.read_text(encoding='utf-8')
     need('<item name="android:fontFamily">sans</item>' in text, f'{path.name} no longer uses generic system sans')

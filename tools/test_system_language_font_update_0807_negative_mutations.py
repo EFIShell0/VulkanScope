@@ -31,7 +31,7 @@ def mutate_file(name, rel, old, new, expect_pass=False):
 
 mutate_file('RTL support removal', manifest_rel, 'android:supportsRtl="true"', 'android:supportsRtl="false"')
 mutate_file('content-aware direction removal', main_rel, 'bodyMedium = VulkanBaseTypography.bodyMedium.copy(textDirection = TextDirection.ContentOrLtr)', 'bodyMedium = VulkanBaseTypography.bodyMedium.copy(textDirection = TextDirection.Rtl)')
-mutate_file('hard-coded font family regression', main_rel, 'import androidx.compose.ui.text.font.FontWeight', 'import androidx.compose.ui.text.font.FontFamily\nimport androidx.compose.ui.text.font.FontWeight')
+mutate_file('hard-coded font family regression', main_rel, 'fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace', 'fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif')
 mutate_file('semantic update icon removal', main_rel, 'is UpdateStatus.Available -> { UpdateAvailableIcon();', 'is UpdateStatus.Available -> {')
 mutate_file('update icon color regression', main_rel, 'tint = VulkanAccentSoft,\n                modifier = Modifier.size(20.dp)', 'tint = ComposeColor(0xFF5CA9FF),\n                modifier = Modifier.size(20.dp)')
 mutate_file('generic Info icon restoration', main_rel, 'painter = painterResource(R.drawable.ic_update_available),', 'painter = painterResource(R.drawable.ic_info),')

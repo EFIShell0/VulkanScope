@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import re
 import shutil
 import subprocess
 import sys
@@ -8,6 +9,9 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 verifier = root / 'tools/verify_accessibility_large_text_0806.py'
 main_rel = Path('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt')
+gradle = (root / 'app/build.gradle.kts').read_text(encoding='utf-8')
+version_match = re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"', gradle)
+current_version = tuple(map(int, version_match.groups())) if version_match else (0, 0, 0)
 
 
 def verify(tree):
@@ -31,14 +35,17 @@ def mutate(name, old, new, expect_pass=False):
             raise SystemExit(f'{name}: verifier returned {got}; expected {wanted}')
 
 
-mutate('scroll arrow TalkBack noise', 'contentDescription = null,\n            tint = VulkanAccentSoft,\n            modifier = Modifier.padding(8.dp).size(24.dp)', 'contentDescription = "More content above",\n            tint = VulkanAccentSoft,\n            modifier = Modifier.padding(8.dp).size(24.dp)')
+mutate('scroll arrow TalkBack noise', 'contentDescription = null,\n            tint = VulkanTextPrimary,\n            modifier = Modifier.padding(8.dp).size(24.dp)', 'contentDescription = "More content above",\n            tint = VulkanTextPrimary,\n            modifier = Modifier.padding(8.dp).size(24.dp)')
 mutate('large-font threshold removal', 'return configuration.fontScale >= 1.3f || configuration.screenWidthDp < 360', 'return configuration.screenWidthDp < 360')
 mutate('Quick Access fixed height regression', 'modifier = modifier.heightIn(min = 72.dp)', 'modifier = modifier.height(72.dp)')
 mutate('Quick Access large-text adaptation regression', 'expandedTextLayout || maxWidth < 300.dp -> 1', 'maxWidth < 300.dp -> 1')
 mutate('collection live-region removal', 'val failed = status == CollectionStatus.FAILED\n        Surface(\n            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },', 'val failed = status == CollectionStatus.FAILED\n        Surface(\n            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).semantics(mergeDescendants = true) { },')
 mutate('key-value TalkBack merge removal', 'modifier = Modifier.fillMaxWidth().then(tvBrowseModifier(shape)).semantics(mergeDescendants = true) { }', 'modifier = Modifier.fillMaxWidth().then(tvBrowseModifier(shape))')
 mutate('section heading removal', '.weight(1f).semantics { heading() }', '.weight(1f)')
-mutate('switch duplicate action restoration', 'ExpressiveSwitch(checked = directUpdatesEnabled, onCheckedChange = null)', 'ExpressiveSwitch(checked = directUpdatesEnabled, onCheckedChange = onDirectUpdatesChanged)')
+if current_version >= (1, 2, 2):
+    mutate('switch direct action removal', 'ExpressiveSwitch(checked = directUpdatesEnabled, onCheckedChange = onDirectUpdatesChanged)', 'ExpressiveSwitch(checked = directUpdatesEnabled, onCheckedChange = null)')
+else:
+    mutate('switch duplicate action restoration', 'ExpressiveSwitch(checked = directUpdatesEnabled, onCheckedChange = null)', 'ExpressiveSwitch(checked = directUpdatesEnabled, onCheckedChange = onDirectUpdatesChanged)')
 mutate('driver radio duplicate action restoration', 'ExpressiveRadioButton(selected = selected, enabled = enabled, onClick = null)', 'ExpressiveRadioButton(selected = selected, enabled = enabled, onClick = onClick)')
 mutate('Info export large-text stacking removal', 'if (expandedTextLayout) {\n                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {', 'if (false) {\n                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {')
 mutate('update-dialog adaptive viewport removal', 'val releaseNotesMaxHeight = if (expandedTextLayout) 220.dp else 360.dp', 'val releaseNotesMaxHeight = 360.dp')

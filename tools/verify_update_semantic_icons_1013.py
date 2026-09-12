@@ -25,8 +25,9 @@ if errors:
 
 main = main_path.read_text(encoding='utf-8')
 gradle = gradle_path.read_text(encoding='utf-8')
-version_match = re.search(r'versionName\s*=\s*"1\.0\.(\d+)"', gradle)
-release_minor = int(version_match.group(1)) if version_match else 0
+version_match = re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"', gradle)
+current_version = tuple(map(int, version_match.groups())) if version_match else (0, 0, 0)
+release_minor = current_version[2] if current_version[:2] == (1, 0) else (99 if current_version >= (1, 1, 0) else 0)
 
 def need(condition, message):
     if not condition: errors.append(message)
@@ -38,7 +39,9 @@ def block(start, end):
     return main[a:b] if a >= 0 and b > a else ''
 
 if not args.skip_version:
-    need(any(f'versionCode = {code}' in gradle and f'versionName = "{name}"' in gradle for name, code in [('1.0.13', 1013), ('1.0.14', 1014), ('1.0.15', 1015), ('1.0.16', 1016), ('1.0.17', 1017), ('1.0.18', 1018)]), 'release identity is not a retained 1.0.13+ identity')
+    code_match = re.search(r'versionCode\s*=\s*(\d+)', gradle)
+    expected = current_version[0] * 1000 + current_version[1] * 100 + current_version[2]
+    need(version_match is not None and code_match is not None and current_version >= (1, 0, 13) and int(code_match.group(1)) == expected, 'release identity is not a retained 1.0.13+ semantic identity')
 need('kBaseline = "Vulkan 1.4.362"' in (root / 'app/src/main/cpp/registry_query_catalog.h').read_text(encoding='utf-8'), 'Vulkan baseline drifted')
 
 android_path = root / 'app/src/main/res/drawable/ic_android.xml'
@@ -52,7 +55,7 @@ if android_path.is_file():
     need('android:fillColor="#E2676A"' in android_xml and 'android:fillColor="#351719"' in android_xml, 'Android artwork does not use VulkanScope two-tone palette')
     need('#34A853' not in android_xml and '#202124' not in android_xml, '1.0.12 Android colors were not superseded')
 
-for name in ['ic_update_available.xml', 'ic_database_fetch.xml', 'ic_database_submit.xml', 'ic_database_browse.xml']:
+for name in (['ic_update_available.xml', 'ic_database_fetch.xml', 'ic_database_submit.xml', 'ic_database_browse.xml', 'ic_upload.xml'] if current_version >= (1, 2, 0) else ['ic_update_available.xml', 'ic_database_fetch.xml', 'ic_database_submit.xml', 'ic_database_browse.xml']):
     path = root / 'app/src/main/res/drawable' / name
     need(path.is_file(), f'missing semantic drawable: {name}')
     if path.is_file():
@@ -85,13 +88,16 @@ for token in [
     'if (!networkAvailable) Text("Download is disabled until Android reports a validated internet connection."'
 ]: need(token in update_dialog, f'update confirmation requirement missing: {token}')
 
-cancel = block('private fun ExpressiveCancelButton(', '@OptIn(ExperimentalMaterial3ExpressiveApi::class)\n@Composable\nprivate fun ExpressivePrimaryButton')
+cancel = block('private fun ExpressiveCancelButton(', '@Composable\nprivate fun ExpressiveCloseButton')
 need('R.drawable.ic_close' in cancel and 'Text("Cancel", fontWeight = FontWeight.Normal' in cancel, 'Cancel must remain uncontained normal-weight X action')
 primary_icon = block('private fun ExpressivePrimaryIconTextButton(', '@OptIn(ExperimentalMaterial3ExpressiveApi::class)\n@Composable\nprivate fun ExpressiveTextButton')
 need('Button(' in primary_icon and 'Icon(painterResource(icon)' in primary_icon and 'Text(label' in primary_icon, 'positive update action is not a contained icon/text button')
 
 need('R.drawable.ic_database_fetch' in next((line for line in main.splitlines() if 'ExpressiveActionButton("Fetch public report"' in line), ''), 'Database fetch lacks dedicated fetch glyph')
-need('ExpressiveActionButton(if (submissionInFlight) "Submitting…" else "Submit complete report"' in main and '}, R.drawable.ic_database_submit, enabled = !submissionInFlight && completeReportReady && networkAvailable)' in main, 'Database submit lacks dedicated submit glyph')
+if current_version >= (1, 2, 0):
+    need('TransientActionButton(if (submissionInFlight) "Submitting…" else "Submit complete report"' in main and '}, R.drawable.ic_database_submit, enabled = !submissionInFlight && completeReportReady && networkAvailable, idleTrailingIcon = R.drawable.ic_upload)' in main, 'Database submit lacks dedicated submit/upload glyph contract')
+else:
+    need('ExpressiveActionButton(if (submissionInFlight) "Submitting…" else "Submit complete report"' in main and '}, R.drawable.ic_database_submit, enabled = !submissionInFlight && completeReportReady && networkAvailable)' in main, 'Database submit lacks dedicated submit glyph')
 need('R.drawable.ic_database_browse' in next((line for line in main.splitlines() if 'ExpressiveExternalLinkRow("Open VulkanScope Database"' in line), ''), 'Database browse lacks dedicated browse glyph')
 section_icons = block('private fun capabilitySectionIcon(title: String): Int = when {', '@Composable\nprivate fun preferExpandedTextLayout')
 if release_minor >= 17:

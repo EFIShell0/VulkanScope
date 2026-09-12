@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import re
 import shutil
 import subprocess
 import sys
@@ -7,6 +8,12 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
 main_rel = Path('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt')
+gradle = (root / 'app/build.gradle.kts').read_text(encoding='utf-8')
+version_match = re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"', gradle)
+current_version = tuple(map(int, version_match.groups())) if version_match else (0, 0, 0)
+share_trailing = 'ic_open_external' if current_version >= (1, 2, 4) else 'ic_link'
+share_anchor = f'R.drawable.ic_share, trailingIcon = R.drawable.{share_trailing}) {{ model.shareLink() }}' if current_version >= (1, 2, 2) else 'R.drawable.ic_share) { model.shareLink() }'
+share_mutation = f'R.drawable.ic_link, trailingIcon = R.drawable.{share_trailing}) {{ model.shareLink() }}' if current_version >= (1, 2, 2) else 'R.drawable.ic_link) { model.shareLink() }'
 
 def replace_once(path, old, new):
     text = path.read_text(encoding='utf-8')
@@ -24,7 +31,7 @@ def run_case(name, mutate, fail=True):
             raise AssertionError(f'{name}: expected fail={fail}, got {r.returncode != 0}')
 
 muts = [
-    ('Share link reuses chain icon', lambda d: replace_once(d/main_rel, 'R.drawable.ic_share) { model.shareLink() }', 'R.drawable.ic_link) { model.shareLink() }')),
+    ('Share link loses semantic share leading icon', lambda d: replace_once(d/main_rel, share_anchor, share_mutation)),
     ('Database QR reuses link icon', lambda d: replace_once(d/main_rel, 'title.equals("Database permalink & QR", true) -> R.drawable.ic_qr', 'title.equals("Database permalink & QR", true) -> R.drawable.ic_link')),
     ('HDR badge removed', lambda d: replace_once(d/main_rel, 'title.equals("HDR capabilities", true) || title.equals("HDR / wide-color surface detection", true) -> {\n            DisplaySectionBadgeIcon("HDR")', 'title.equals("HDR capabilities", true) || title.equals("HDR / wide-color surface detection", true) -> {\n            DisplaySectionBadgeIcon("MODE")')),
     ('MODE badge removed', lambda d: replace_once(d/main_rel, 'title.equals("Supported display modes", true) -> {\n            DisplaySectionBadgeIcon("MODE")', 'title.equals("Supported display modes", true) -> {\n            DisplaySectionBadgeIcon("HDR")')),
@@ -35,7 +42,7 @@ muts = [
     ('Display motion removed', lambda d: replace_once(d/main_rel, 'scaleY = 1f - 0.10f * wave', 'scaleY = 1f')),
     ('unbounded animation introduced', lambda d: replace_once(d/main_rel, 'val motion = remember(page) { androidx.compose.animation.core.Animatable(0f) }', 'val motion = remember(page) { androidx.compose.animation.core.Animatable(0f) }\n    val loop = rememberInfiniteTransition()')),
     ('QR finder pattern removed', lambda d: replace_once(d/'app/src/main/res/drawable/ic_qr.xml', 'M14,4H20V10H14Z', 'M14,4H14V4H14Z')),
-    ('stale version', lambda d: replace_once(d/'app/build.gradle.kts', 'versionCode = 1018', 'versionCode = 1014')),
+    ('stale version', lambda d: replace_once(d/'app/build.gradle.kts', re.search(r'versionCode\s*=\s*\d+', (d/'app/build.gradle.kts').read_text(encoding='utf-8')).group(0), 'versionCode = 1014')),
 ]
 for name, mutation in muts:
     run_case(name, mutation, True)

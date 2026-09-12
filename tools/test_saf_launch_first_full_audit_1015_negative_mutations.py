@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import re
 import shutil, subprocess, sys, tempfile
 from pathlib import Path
 root = Path(__file__).resolve().parents[1]
@@ -29,7 +30,7 @@ muts=[
 ('remove exact fallback toast', lambda d: replace_once(d/main_rel, 'Document picker fallback · technicalReport JSON saved to ${it.absolutePath}', 'technicalReport saved')),
 ('omit retained 1.0.14 quality gate', lambda d: replace_once(d/'tools/quality_gate.py', "run([sys.executable, 'tools/verify_fallback_import_compile_intro_1014.py'])", "print('skip 1014')")),
 ('omit 1.0.15 quality gate', lambda d: replace_once(d/'tools/quality_gate.py', "run([sys.executable, 'tools/verify_saf_launch_first_full_audit_1015.py'])", "print('skip 1015')")),
-('stale version', lambda d: replace_once(d/'app/build.gradle.kts','versionCode = 1018','versionCode = 1014')),
+('stale version', lambda d: replace_once(d/'app/build.gradle.kts', re.search(r'versionCode\s*=\s*\d+', (d/'app/build.gradle.kts').read_text(encoding='utf-8')).group(0), 'versionCode = 1014')),
 ]
 for n,m in muts: run_case(n,m,True)
 run_case('unrelated changelog wording', lambda d: (d/'changelog.md').write_text((d/'changelog.md').read_text(encoding='utf-8')+'\nUnrelated wording.\n',encoding='utf-8'), False)

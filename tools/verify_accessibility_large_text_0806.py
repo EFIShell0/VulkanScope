@@ -77,7 +77,12 @@ hero = body('VendorLogo')
 need('contentDescription = null' in hero, 'decorative vendor logo still duplicates adjacent vendor text')
 
 overview_destination = body('OverviewDestinationCard')
-need('contentDescription = null' in overview_destination, 'overview chevron still adds redundant TalkBack announcement')
+if release_version >= (1, 2, 2):
+    shared_destination = body('ExpressiveDestinationCard')
+    need('contentDescription = null' in shared_destination, 'shared destination leading artwork duplicates visible text for TalkBack')
+    need('contentDescription = "Open $title"' in shared_destination, 'shared destination action is not explicitly labeled for TalkBack')
+else:
+    need('contentDescription = null' in overview_destination, 'overview chevron still adds redundant TalkBack announcement')
 
 rail = body('CompactNavigationRail')
 need('if (expandedTextLayout) 104.dp else 80.dp' in rail, 'navigation rail does not widen for large text')
@@ -123,8 +128,14 @@ update = body('UpdateStatusBanner')
 need('liveRegion = LiveRegionMode.Polite' in update, 'update state changes are not exposed as an accessibility live region')
 
 settings = body('SettingsPage')
-need('.toggleable(' in settings and 'role = Role.Switch' in settings, 'Direct GitHub updates row is not a single TalkBack Switch target')
-need('ExpressiveSwitch(checked = directUpdatesEnabled, onCheckedChange = null)' in settings, 'nested update Switch remains a duplicate TalkBack action')
+if release_version >= (1, 2, 5):
+    settings += body('DriverUpdatePreferencesPage')
+if release_version >= (1, 2, 2):
+    need('.toggleable(' not in settings, 'Direct GitHub updates row adds a second toggle target beside the Switch')
+    need('ExpressiveSwitch(checked = directUpdatesEnabled, onCheckedChange = onDirectUpdatesChanged)' in settings, 'Direct GitHub updates Switch does not own its action directly')
+else:
+    need('.toggleable(' in settings and 'role = Role.Switch' in settings, 'Direct GitHub updates row is not a single TalkBack Switch target')
+    need('ExpressiveSwitch(checked = directUpdatesEnabled, onCheckedChange = null)' in settings, 'nested update Switch remains a duplicate TalkBack action')
 
 driver = body('DriverOption')
 need('.selectable(' in driver and 'role = Role.RadioButton' in driver, 'driver option is not a single semantic RadioButton target')

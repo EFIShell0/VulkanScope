@@ -15,7 +15,9 @@ rules_path = root / 'rules/PROJECT_RULES.md'
 main = main_path.read_text(encoding='utf-8')
 gradle = gradle_path.read_text(encoding='utf-8')
 rules = rules_path.read_text(encoding='utf-8')
-superseded_by_0815 = 'versionName = "0.80.15"' in gradle or 'versionName = "1.0.0"' in gradle or 'versionName = "1.0.1"' in gradle or 'versionName = "1.0.2"' in gradle or 'versionName = "1.0.3"' in gradle or 'versionName = "1.0.4"' in gradle or 'versionName = "1.0.5"' in gradle or 'versionName = "1.0.6"' in gradle or 'versionName = "1.0.7"' in gradle or 'versionName = "1.0.8"' in gradle or 'versionName = "1.0.9"' in gradle or 'versionName = "1.0.10"' in gradle or 'versionName = "1.0.11"' in gradle or 'versionName = "1.0.12"' in gradle or 'versionName = "1.0.13"' in gradle or 'versionName = "1.0.14"' in gradle or 'versionName = "1.0.15"' in gradle or 'versionName = "1.0.16"' in gradle or 'versionName = "1.0.17"' in gradle or 'versionName = "1.0.18"' in gradle
+version_match = re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"', gradle)
+current_version = tuple(map(int, version_match.groups())) if version_match else (0, 0, 0)
+superseded_by_0815 = current_version >= (0, 80, 15)
 
 def require(condition, message):
     if not condition:
@@ -85,16 +87,16 @@ else:
 require('CompositionLocalProvider(LocalDetailKeyValuePresentation provides true)' in detail, 'detail dialog does not activate the flat evidence-row presentation')
 
 button = block('private fun DetailAffordance(', '@Composable\nprivate fun ScrollableDetailDialog')
-if any(v in gradle for v in ['versionName = "1.0.13"', 'versionName = "1.0.14"', 'versionName = "1.0.15"', 'versionName = "1.0.16"', 'versionName = "1.0.17"', 'versionName = "1.0.18"']):
+if current_version >= (1, 0, 13):
     button_contract = block('private fun ChevronAffordance(', '@Composable\nprivate fun DetailAffordance')
     require('ChevronAffordance("Details", "Open details", onClick)' in button and 'Surface(' in button_contract and 'IconButton(onClick = onClick' in button_contract, 'Details action does not retain the active expressive affordance contract')
     require('role = Role.Button' in button_contract, 'Details action lost explicit Button semantics')
 else:
-    require(((any(v in gradle for v in ['versionName = "1.0.9"', 'versionName = "1.0.10"', 'versionName = "1.0.11"', 'versionName = "1.0.12"'])) and 'Surface(' in button and 'IconButton(onClick = onClick' in button) or ((not any(v in gradle for v in ['versionName = "1.0.9"', 'versionName = "1.0.10"', 'versionName = "1.0.11"', 'versionName = "1.0.12"'])) and 'TextButton(' in button and 'ButtonDefaults.shapes(' in button and 'pressedShape = RoundedCornerShape(24.dp)' in button), 'Details action does not retain the active expressive affordance contract')
+    require(((current_version >= (1, 0, 9)) and 'Surface(' in button and 'IconButton(onClick = onClick' in button) or ((current_version < (1, 0, 9)) and 'TextButton(' in button and 'ButtonDefaults.shapes(' in button and 'pressedShape = RoundedCornerShape(24.dp)' in button), 'Details action does not retain the active expressive affordance contract')
     require('role = Role.Button' in button, 'Details action lost explicit Button semantics')
 
 analysis = block('private fun AnalysisPage(', '@Composable\nprivate fun AnalysisWorkspaceHeader')
-if any(v in gradle for v in ['versionName = "1.0.8"', 'versionName = "1.0.9"', 'versionName = "1.0.10"', 'versionName = "1.0.11"', 'versionName = "1.0.12"', 'versionName = "1.0.13"', 'versionName = "1.0.14"', 'versionName = "1.0.15"', 'versionName = "1.0.16"', 'versionName = "1.0.17"', 'versionName = "1.0.18"']):
+if current_version >= (1, 0, 8):
     require('ExpressiveToggleRow("Show unchanged"' in main and 'ExpressiveSwitch(checked = checked, onCheckedChange = onCheckedChange)' in main, 'Analysis does not use the shared switch-only interactive wrapper')
 else:
     require('ExpressiveToggleRow("Show unchanged"' in main and 'ExpressiveSwitch(checked = checked, onCheckedChange = null)' in main, 'Analysis still bypasses the shared expressive switch wrapper')
@@ -117,7 +119,7 @@ require('CapabilityItemCard(containerColor = VulkanSurfaceRaised)' in extensions
 
 action_block = block('private fun ExpressiveActionButton(', '@Composable\nprivate fun ExpressiveIdentityBlock')
 require('maxLines = 2, overflow = TextOverflow.Ellipsis' in action_block, 'action title wrapping token missing')
-if any(v in gradle for v in ['versionName = "1.0.9"', 'versionName = "1.0.10"', 'versionName = "1.0.11"', 'versionName = "1.0.12"', 'versionName = "1.0.13"', 'versionName = "1.0.14"', 'versionName = "1.0.15"', 'versionName = "1.0.16"', 'versionName = "1.0.17"', 'versionName = "1.0.18"']):
+if current_version >= (1, 0, 9):
     require('Text(subtitle, color = detailColor, style = MaterialTheme.typography.labelSmall)' in action_block, '1.0.9 action subtitle no longer exposes full fallback guidance')
 else:
     require('maxLines = 3, overflow = TextOverflow.Ellipsis' in action_block, 'action-card subtitle wrapping token missing')

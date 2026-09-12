@@ -28,11 +28,15 @@ def require(condition, message):
     if not condition:
         errors.append(message)
 
+vm = re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"', gradle)
+cv = tuple(map(int, vm.groups())) if vm else (0, 0, 0)
 if not args.skip_version:
-    require(any(f'versionCode = {code}' in gradle and f'versionName = "{name}"' in gradle for name, code in [('1.0.5',1005),('1.0.6',1006),('1.0.7',1007),('1.0.8',1008),('1.0.9',1009),('1.0.10',1010),('1.0.11',1011),('1.0.12',1012),('1.0.13',1013),('1.0.14',1014),('1.0.15',1015),('1.0.16',1016),('1.0.17',1017),('1.0.18',1018)]), 'release identity is not a retained 1.0.5+ identity')
+    cm = re.search(r'versionCode\s*=\s*(\d+)', gradle)
+    expected = cv[0] * 1000 + cv[1] * 100 + cv[2]
+    require(vm is not None and cm is not None and cv >= (1, 0, 5) and int(cm.group(1)) == expected, 'release identity is not a retained 1.0.5+ semantic identity')
 signature = re.search(r'private fun ExpressiveTextButton\(label: String, enabled: Boolean = true, onClick: \(\) -> Unit\)', main)
 require(signature is not None, 'ExpressiveTextButton default-parameter signature drifted')
-if any(f'versionName = "{name}"' in gradle for name in ['1.0.8', '1.0.9', '1.0.10', '1.0.11', '1.0.12', '1.0.13', '1.0.14', '1.0.15', '1.0.16', '1.0.17', '1.0.18']):
+if cv >= (1, 0, 8):
     require(re.search(r'private fun ExpressiveCancelButton\(enabled: Boolean = true, onClick: \(\) -> Unit\)', main) is not None, 'ExpressiveCancelButton default-parameter signature drifted')
     good = 'ExpressiveCancelButton(onClick = onDismiss)'
     bad = 'ExpressiveCancelButton(onDismiss)'

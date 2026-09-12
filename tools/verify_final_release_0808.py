@@ -9,7 +9,18 @@ rg=(root/'build.gradle.kts').read_text(encoding='utf-8')
 ag=(root/'app/build.gradle.kts').read_text(encoding='utf-8')
 wrap=(root/'gradle/wrapper/gradle-wrapper.properties').read_text(encoding='utf-8')
 if not a.skip_version:
-    if not any(f'versionName = "{v}"' in ag and f'versionCode = {c}' in ag for v,c in [('0.80.8',808),('0.80.9',809),('0.80.10',810),('0.80.12',812),('0.80.13',813),('0.80.14',814),('0.80.15',815),('1.0.0',1000),('1.0.1',1001),('1.0.2',1002),('1.0.3',1003),('1.0.4',1004),('1.0.5',1005),('1.0.6',1006),('1.0.7',1007),('1.0.8',1008),('1.0.9',1009),('1.0.10',1010),('1.0.11',1011),('1.0.12',1012),('1.0.13',1013),('1.0.14',1014),('1.0.15',1015),('1.0.16',1016),('1.0.17',1017),('1.0.18',1018)]): errors.append('version identity must preserve the 0.80.8+ contract')
+    vm=re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"',ag)
+    vc=re.search(r'versionCode\s*=\s*(\d+)',ag)
+    valid=False
+    if vm and vc:
+        major,minor,patch=map(int,vm.groups())
+        code=int(vc.group(1))
+        if (major,minor,patch)>=(0,80,8):
+            if major==0 and minor==80:
+                valid=code==800+patch
+            elif major>=1:
+                valid=code==major*1000+minor*100+patch
+    if not valid: errors.append('version identity must preserve the 0.80.8+ contract')
 if 'id("com.android.application") version "9.4.0" apply false' not in rg: errors.append('AGP 9.4.0 exact pin missing')
 if 'gradle-9.7.1-bin.zip' not in wrap: errors.append('Gradle 9.7.1 must be retained')
 if 'CapabilityKeyValue("Android Gradle Plugin", "9.4.0")' not in main: errors.append('Info build-tool AGP identity stale')

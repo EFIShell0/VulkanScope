@@ -29,11 +29,18 @@ quality = quality_path.read_text(encoding='utf-8')
 def need(cond, msg):
     if not cond: errors.append(msg)
 
-version_match = re.search(r'versionName\s*=\s*"1\.0\.(\d+)"', gradle)
+version_match = re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"', gradle)
 code_match = re.search(r'versionCode\s*=\s*(\d+)', gradle)
+current_version = tuple(map(int, version_match.groups())) if version_match else (0, 0, 0)
 if not args.skip_version:
-    need(version_match is not None and code_match is not None and int(version_match.group(1)) >= 15 and int(code_match.group(1)) >= 1015, 'retained 1.0.15+ release identity missing')
-need('ExpressiveActionButton("Share link", "Android Sharesheet · no background upload", R.drawable.ic_share)' in main, 'Share link does not use the share glyph')
+    expected = current_version[0] * 1000 + current_version[1] * 100 + current_version[2]
+    need(version_match is not None and code_match is not None and current_version >= (1, 0, 15) and int(code_match.group(1)) == expected, 'retained 1.0.15+ semantic release identity missing')
+if current_version >= (1, 2, 4):
+    need('ExpressiveActionButton("Share link", "Android Sharesheet · no background upload", R.drawable.ic_share, trailingIcon = R.drawable.ic_open_external)' in main, 'Share link must retain the semantic share glyph and use the shared external-open trailing artwork')
+elif current_version >= (1, 2, 2):
+    need('ExpressiveActionButton("Share link", "Android Sharesheet · no background upload", R.drawable.ic_share, trailingIcon = R.drawable.ic_link)' in main, 'Share link must retain the semantic share glyph and use the historical link trailing artwork')
+else:
+    need('ExpressiveActionButton("Share link", "Android Sharesheet · no background upload", R.drawable.ic_share)' in main, 'Share link does not use the share glyph')
 need('title.equals("Database permalink & QR", true) -> R.drawable.ic_qr' in main, 'Database permalink & QR does not use the QR glyph')
 try:
     ET.parse(qr_path)

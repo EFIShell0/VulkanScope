@@ -10,8 +10,9 @@ root = Path(__file__).resolve().parents[1]
 main_rel = Path('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt')
 verifier = Path('tools/verify_update_semantic_icons_1013.py')
 gradle = (root / 'app/build.gradle.kts').read_text(encoding='utf-8')
-version_match = re.search(r'versionName\s*=\s*"1\.0\.(\d+)"', gradle)
-release_minor = int(version_match.group(1)) if version_match else 0
+version_match = re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"', gradle)
+current_version = tuple(map(int, version_match.groups())) if version_match else (0, 0, 0)
+release_minor = current_version[2] if current_version[:2] == (1, 0) else (99 if current_version >= (1, 1, 0) else 0)
 compare_anchor = 'title.equals("Compare with VulkanScope Database", true) -> R.drawable.ic_action_database' if release_minor >= 17 else 'title.equals("Compare with VulkanScope Database", true) || title.equals("Database comparison summary", true) -> R.drawable.ic_compare'
 compare_mutation = 'title.equals("Compare with VulkanScope Database", true) -> R.drawable.ic_compare' if release_minor >= 17 else 'title.equals("Compare with VulkanScope Database", true) || title.equals("Database comparison summary", true) -> R.drawable.ic_action_database'
 
@@ -42,11 +43,11 @@ mutations = [
     ('remove update network gate', lambda d: replace_once(d / main_rel, 'R.drawable.ic_download_update, enabled = networkAvailable, onClick = onConfirm', 'R.drawable.ic_download_update, enabled = true, onClick = onConfirm')),
     ('remove Cancel X', lambda d: replace_once(d / main_rel, 'Icon(painterResource(R.drawable.ic_close), contentDescription = null, modifier = Modifier.size(17.dp))', 'Icon(painterResource(R.drawable.ic_info), contentDescription = null, modifier = Modifier.size(17.dp))')),
     ('conflate Database fetch icon', lambda d: replace_once(d / main_rel, 'R.drawable.ic_database_fetch', 'R.drawable.ic_action_database')),
-    ('conflate Database submit icon', lambda d: replace_once(d / main_rel, 'R.drawable.ic_database_submit', 'R.drawable.ic_action_database')),
+    ('conflate Database submit icon', lambda d: replace_once(d / main_rel, '}, R.drawable.ic_database_submit, enabled = !submissionInFlight && completeReportReady && networkAvailable, idleTrailingIcon = R.drawable.ic_upload)' if current_version >= (1, 2, 0) else 'R.drawable.ic_database_submit', '}, R.drawable.ic_action_database, enabled = !submissionInFlight && completeReportReady && networkAvailable, idleTrailingIcon = R.drawable.ic_upload)' if current_version >= (1, 2, 0) else 'R.drawable.ic_action_database')),
     ('conflate Database browse icon', lambda d: replace_once(d / main_rel, 'R.drawable.ic_database_browse', 'R.drawable.ic_action_database')),
     ('conflate Database compare section', lambda d: replace_once(d / main_rel, compare_anchor, compare_mutation)),
     ('conflate Database permalink section', lambda d: replace_once(d / main_rel, 'title.equals("Database permalink & QR", true) -> R.drawable.ic_qr', 'title.equals("Database permalink & QR", true) -> R.drawable.ic_action_database')),
-    ('stale release identity', lambda d: replace_once(d / 'app/build.gradle.kts', 'versionCode = 1018' if 'versionCode = 1018' in (d / 'app/build.gradle.kts').read_text(encoding='utf-8') else ('versionCode = 1016' if 'versionCode = 1016' in (d / 'app/build.gradle.kts').read_text(encoding='utf-8') else ('versionCode = 1014' if 'versionCode = 1014' in (d / 'app/build.gradle.kts').read_text(encoding='utf-8') else 'versionCode = 1013')), 'versionCode = 1012')),
+    ('stale release identity', lambda d: replace_once(d / 'app/build.gradle.kts', re.search(r'versionCode\s*=\s*\d+', (d / 'app/build.gradle.kts').read_text(encoding='utf-8')).group(0), 'versionCode = 1012')),
 ]
 for name, mutate in mutations: run_case(name, mutate, True)
 run_case('unrelated changelog wording', lambda d: (d / 'changelog.md').write_text((d / 'changelog.md').read_text(encoding='utf-8') + '\nUnrelated wording control.\n', encoding='utf-8'), False)

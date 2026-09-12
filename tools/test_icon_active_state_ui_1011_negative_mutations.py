@@ -10,11 +10,12 @@ root = Path(__file__).resolve().parents[1]
 verifier = root / 'tools/verify_icon_active_state_ui_1011.py'
 main_rel = Path('app/src/main/java/com/efishell/vulkanscope/MainActivity.kt')
 gradle = (root / 'app/build.gradle.kts').read_text(encoding='utf-8')
-version_match = re.search(r'versionName\s*=\s*"1\.0\.(\d+)"', gradle)
-release_minor = int(version_match.group(1)) if version_match else 0
-updates_icon = 'R.drawable.ic_zip_download' if release_minor >= 17 else 'R.drawable.ic_download_update'
+version_match = re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"', gradle)
+current_version = tuple(map(int, version_match.groups())) if version_match else (0, 0, 0)
+release_minor = current_version[2] if current_version[:2] == (1, 0) else (99 if current_version >= (1, 1, 0) else 0)
+updates_mapping = 'title.equals("Updates", true) || title.equals("Update preferences", true) -> R.drawable.ic_download' if current_version >= (1, 2, 0) else f'title.equals("Updates", true) -> {"R.drawable.ic_zip_download" if release_minor >= 17 else "R.drawable.ic_download_update"}'
 developer_icon = 'R.drawable.ic_person' if release_minor >= 17 else ('R.drawable.ic_code' if release_minor >= 16 else 'R.drawable.ic_person')
-check_updates_icon = 'R.drawable.ic_zip_download' if release_minor >= 17 else ('R.drawable.ic_check_updates' if release_minor >= 16 else 'R.drawable.ic_download_update')
+check_updates_anchor = ('R.drawable.ic_download, enabled = directUpdatesEnabled && networkAvailable && !updateCheckInFlight, trailingIcon = R.drawable.ic_receive, onClick = onCheckForUpdates' if current_version >= (1, 2, 2) else 'R.drawable.ic_receive, enabled = directUpdatesEnabled && networkAvailable && !updateCheckInFlight, trailingIcon = R.drawable.ic_receive, onClick = onCheckForUpdates') if current_version >= (1, 2, 0) else f'{"R.drawable.ic_zip_download" if release_minor >= 17 else ("R.drawable.ic_check_updates" if release_minor >= 16 else "R.drawable.ic_download_update")}, enabled = directUpdatesEnabled && networkAvailable, onClick = onCheckForUpdates'
 
 def replace_once(path, old, new):
     text = path.read_text(encoding='utf-8')
@@ -42,9 +43,9 @@ mutations = [
     ('Overview arrow returns muted', lambda d: replace_once(d / main_rel, 'contentDescription = "Open $title", tint = VulkanAccentSoft, modifier = Modifier.size(20.dp)', 'contentDescription = "Open $title", tint = VulkanTextMuted, modifier = Modifier.size(20.dp)')),
     ('Encyclopedia page icon returns generic info', lambda d: replace_once(d / main_rel, 'Page.Encyclopedia -> R.drawable.ic_book', 'Page.Encyclopedia -> R.drawable.ic_info')),
     ('Android section icon returns generic properties', lambda d: replace_once(d / main_rel, 'title.equals("Android", true) || title.equals("Android runtime", true) || title.equals("Operating system", true) -> R.drawable.ic_android', 'title.equals("Android", true) || title.equals("Android runtime", true) || title.equals("Operating system", true) -> R.drawable.ic_properties')),
-    ('Updates section loses update glyph', lambda d: replace_once(d / main_rel, f'title.equals("Updates", true) -> {updates_icon}', 'title.equals("Updates", true) -> R.drawable.ic_info')),
+    ('Updates section loses update glyph', lambda d: replace_once(d / main_rel, updates_mapping, 'title.equals("Updates", true) || title.equals("Update preferences", true) -> R.drawable.ic_info' if current_version >= (1, 2, 0) else 'title.equals("Updates", true) -> R.drawable.ic_info')),
     ('developer identity returns info glyph', lambda d: replace_once(d / main_rel, f'ExpressiveIdentityBlock("Semih Boran", "EFI Shell · VulkanScope developer", {developer_icon})', 'ExpressiveIdentityBlock("Semih Boran", "EFI Shell · VulkanScope developer", R.drawable.ic_info)')),
-    ('Check for updates returns refresh glyph', lambda d: replace_once(d / main_rel, f'{check_updates_icon}, enabled = directUpdatesEnabled && networkAvailable, onClick = onCheckForUpdates', 'R.drawable.ic_action_update, enabled = directUpdatesEnabled && networkAvailable, onClick = onCheckForUpdates')),
+    ('Check for updates returns refresh glyph', lambda d: replace_once(d / main_rel, check_updates_anchor, ('R.drawable.ic_action_update, enabled = directUpdatesEnabled && networkAvailable && !updateCheckInFlight, trailingIcon = R.drawable.ic_action_update, onClick = onCheckForUpdates' if current_version >= (1, 2, 0) else 'R.drawable.ic_action_update, enabled = directUpdatesEnabled && networkAvailable, onClick = onCheckForUpdates'))),
     ('Encyclopedia action uses database glyph', lambda d: replace_once(d / main_rel, 'ExpressiveActionButton("Open in Encyclopedia", "Open the closest Vulkan symbol/reference token", R.drawable.ic_book', 'ExpressiveActionButton("Open in Encyclopedia", "Open the closest Vulkan symbol/reference token", R.drawable.ic_action_database')),
     ('remove Android semantic drawable', lambda d: (d / 'app/src/main/res/drawable/ic_android.xml').unlink()),
     ('stale version code', lambda d: replace_once(d / 'app/build.gradle.kts', re.search(r'versionCode\s*=\s*(\d+)', (d / 'app/build.gradle.kts').read_text(encoding='utf-8')).group(0), 'versionCode = 1010')),

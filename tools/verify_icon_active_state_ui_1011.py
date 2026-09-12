@@ -39,11 +39,13 @@ def block(start, end):
     need(a >= 0 and b > a, f'block missing: {start}')
     return main[a:b] if a >= 0 and b > a else ''
 
-version_match = re.search(r'versionName\s*=\s*"1\.0\.(\d+)"', gradle)
-release_minor = int(version_match.group(1)) if version_match is not None else 0
+version_match = re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"', gradle)
+current_version = tuple(map(int, version_match.groups())) if version_match else (0, 0, 0)
+release_minor = current_version[2] if current_version[:2] == (1, 0) else (99 if current_version >= (1, 1, 0) else 0)
 if not args.skip_version:
     code_match = re.search(r'versionCode\s*=\s*(\d+)', gradle)
-    need(version_match is not None and code_match is not None and release_minor >= 11 and int(code_match.group(1)) >= 1011, 'retained 1.0.11+ release identity missing')
+    expected = current_version[0] * 1000 + current_version[1] * 100 + current_version[2]
+    need(version_match is not None and code_match is not None and current_version >= (1, 0, 11) and int(code_match.group(1)) == expected, 'retained 1.0.11+ semantic release identity missing')
 need('kBaseline = "Vulkan 1.4.362"' in (root / 'app/src/main/cpp/registry_query_catalog.h').read_text(encoding='utf-8'), 'Vulkan baseline drifted')
 need('android.permission.MANAGE_EXTERNAL_STORAGE' not in manifest, 'all-files storage permission is forbidden')
 
@@ -79,9 +81,16 @@ for token in [
     need(token in page_icons, f'page-specific icon mapping missing: {token}')
 
 overview = block('private fun OverviewDestinationCard(', '@Composable\nprivate fun QuickAccessCard')
-need('containerColor = ComposeColor(0xFF291719), contentColor = VulkanAccentSoft' in overview, 'Overview destination chevron container does not match shared red action affordance')
-need('Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = "Open $title", tint = VulkanAccentSoft, modifier = Modifier.size(20.dp))' in overview, 'Overview destination chevron is not Vulkan accent red')
-need('onClick = { navigate(destination) }' in overview, 'Overview destination chevron action drifted')
+if current_version >= (1, 2, 2):
+    overview_ui = block('private fun ExpressiveDestinationCard(', '@Composable\nprivate fun OverviewDestinationCard')
+    need('ExpressiveDestinationCard(title, subtitle, pageIcon(destination)) { navigate(destination) }' in overview, 'Overview destination shared-card delegation drifted')
+    need('containerColor = ComposeColor(0xFF291719), contentColor = VulkanAccentSoft' in overview_ui, 'Overview destination chevron container does not match shared red action affordance')
+    need('Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = "Open $title", tint = VulkanAccentSoft, modifier = Modifier.size(20.dp))' in overview_ui, 'Overview destination chevron is not Vulkan accent red')
+    need('onClick = onClick' in overview_ui, 'Overview destination chevron action drifted')
+else:
+    need('containerColor = ComposeColor(0xFF291719), contentColor = VulkanAccentSoft' in overview, 'Overview destination chevron container does not match shared red action affordance')
+    need('Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = "Open $title", tint = VulkanAccentSoft, modifier = Modifier.size(20.dp))' in overview, 'Overview destination chevron is not Vulkan accent red')
+    need('onClick = { navigate(destination) }' in overview, 'Overview destination chevron action drifted')
 
 section_icons = block('private fun capabilitySectionIcon(title: String): Int = when {', '@Composable\nprivate fun preferExpandedTextLayout')
 section_expectations = [
@@ -91,7 +100,7 @@ section_expectations = [
     'title.equals("Build toolchain", true) -> R.drawable.ic_build',
     'title.equals("Device ABI", true) -> R.drawable.ic_cpu',
     'title.equals("Android", true) || title.equals("Android runtime", true) || title.equals("Operating system", true) -> R.drawable.ic_android',
-    ('title.equals("Updates", true) -> R.drawable.ic_zip_download' if release_minor >= 17 else 'title.equals("Updates", true) -> R.drawable.ic_download_update'),
+    ('title.equals("Updates", true) || title.equals("Update preferences", true) -> R.drawable.ic_download' if current_version >= (1, 2, 0) else ('title.equals("Updates", true) -> R.drawable.ic_zip_download' if release_minor >= 17 else 'title.equals("Updates", true) -> R.drawable.ic_download_update')) ,
     'title.equals("Encyclopedia", true) -> R.drawable.ic_book',
     'title.equals("Analysis workspace", true) -> R.drawable.ic_analysis',
     'title.equals("Local session history", true) -> R.drawable.ic_history',
@@ -105,8 +114,13 @@ for token in section_expectations:
 info = block('private fun InfoPage(', '@Composable\nprivate fun SettingsPage')
 developer_identity_icon = 'R.drawable.ic_person' if release_minor >= 17 else ('R.drawable.ic_code' if release_minor >= 16 else 'R.drawable.ic_person')
 need(f'ExpressiveIdentityBlock("Semih Boran", "EFI Shell · VulkanScope developer", {developer_identity_icon})' in info, 'developer identity does not use the release semantic glyph')
-check_updates_icon = 'R.drawable.ic_zip_download' if release_minor >= 17 else ('R.drawable.ic_check_updates' if release_minor >= 16 else 'R.drawable.ic_download_update')
-need(f'{check_updates_icon}, enabled = directUpdatesEnabled && networkAvailable, onClick = onCheckForUpdates' in info, 'Check for updates does not use the release update glyph')
+if current_version >= (1, 2, 2):
+    need('R.drawable.ic_download, enabled = directUpdatesEnabled && networkAvailable && !updateCheckInFlight, trailingIcon = R.drawable.ic_receive, onClick = onCheckForUpdates' in info, 'Check for updates does not use the current download/receive in-flight contract')
+elif current_version >= (1, 2, 0):
+    need('R.drawable.ic_receive, enabled = directUpdatesEnabled && networkAvailable && !updateCheckInFlight, trailingIcon = R.drawable.ic_receive, onClick = onCheckForUpdates' in info, 'Check for updates does not use the current receive glyph/in-flight gate')
+else:
+    check_updates_icon = 'R.drawable.ic_zip_download' if release_minor >= 17 else ('R.drawable.ic_check_updates' if release_minor >= 16 else 'R.drawable.ic_download_update')
+    need(f'{check_updates_icon}, enabled = directUpdatesEnabled && networkAvailable, onClick = onCheckForUpdates' in info, 'Check for updates does not use the release update glyph')
 
 version_block = block('private fun ExpressiveVersionBlock(', '@Composable\nprivate fun ExpressiveInfoPill')
 need(('painter = painterResource(R.drawable.vulkanscope_logo_foreground)' if release_minor >= 16 else 'painter = painterResource(R.drawable.ic_app)') in version_block, 'application identity block lost its release identity artwork')
@@ -117,9 +131,9 @@ action_expectations = [
     ('ExpressiveActionButton("Save local profile"', 'R.drawable.ic_save'),
     ('ExpressiveActionButton("Share link"', 'R.drawable.ic_share' if release_minor >= 15 else 'R.drawable.ic_link'),
     ('ExpressiveActionButton("Run Vulkan self-tests"', 'R.drawable.ic_self_test' if release_minor >= 16 else 'R.drawable.ic_test'),
-    ('ExpressiveActionButton("Copy name + value"', 'R.drawable.ic_copy'),
+    (('TransientActionButton("Copy name + value"' if current_version >= (1, 2, 0) else 'ExpressiveActionButton("Copy name + value"'), 'R.drawable.ic_copy'),
     ('ExpressiveActionButton("Share evidence"', 'R.drawable.ic_share'),
-    ('ExpressiveActionButton("Add to watched evidence"', 'R.drawable.ic_watch_add'),
+    (('TransientActionButton("Add to watched evidence"' if current_version >= (1, 2, 0) else 'ExpressiveActionButton("Add to watched evidence"'), 'R.drawable.ic_watch_add'),
     ('ExpressiveActionButton("Open in Encyclopedia"', 'R.drawable.ic_book')
 ]
 for prefix, icon in action_expectations:
@@ -134,8 +148,10 @@ required_drawables = [
 ]
 if release_minor >= 16:
     required_drawables += ['ic_code.xml', 'ic_memory_heap.xml', 'ic_memory_type.xml', 'ic_self_test.xml', 'ic_check_updates.xml']
-if release_minor >= 17:
+if release_minor >= 17 and current_version < (1, 2, 0):
     required_drawables += ['ic_zip_download.xml']
+if current_version >= (1, 2, 0):
+    required_drawables += ['ic_receive.xml', 'ic_download.xml']
 for name in required_drawables:
     path = root / 'app/src/main/res/drawable' / name
     need(path.is_file(), f'required semantic icon missing: {name}')

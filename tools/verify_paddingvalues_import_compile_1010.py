@@ -29,9 +29,11 @@ def require(condition, message):
         errors.append(message)
 
 if not args.skip_version:
-    version_match = re.search(r'versionName\s*=\s*"1\.0\.(\d+)"', gradle)
+    version_match = re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"', gradle)
     code_match = re.search(r'versionCode\s*=\s*(\d+)', gradle)
-    require(version_match is not None and code_match is not None and int(version_match.group(1)) >= 10 and int(code_match.group(1)) >= 1010, 'retained 1.0.10+ release identity missing')
+    cv = tuple(map(int, version_match.groups())) if version_match else (0, 0, 0)
+    expected = cv[0] * 1000 + cv[1] * 100 + cv[2]
+    require(version_match is not None and code_match is not None and cv >= (1, 0, 10) and int(code_match.group(1)) == expected, 'retained 1.0.10+ semantic release identity missing')
 required_import = 'import androidx.compose.foundation.layout.PaddingValues'
 require(main.count(required_import) == 1, 'androidx.compose.foundation.layout.PaddingValues import must exist exactly once')
 require('contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)' in main, 'contained icon/text button contentPadding expression drifted')

@@ -27,8 +27,12 @@ def block(start, end):
     return main[a:b] if a >= 0 and b > a else ''
 
 
+vm = re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"', gradle)
+cv = tuple(map(int, vm.groups())) if vm else (0, 0, 0)
 if not args.skip_version:
-    need(any(f'versionCode = {code}' in gradle and f'versionName = "{name}"' in gradle for name, code in [('1.0.9', 1009), ('1.0.10', 1010), ('1.0.11', 1011), ('1.0.12', 1012), ('1.0.13', 1013), ('1.0.14', 1014), ('1.0.15', 1015), ('1.0.16', 1016), ('1.0.17', 1017), ('1.0.18', 1018)]), 'release identity is not a retained 1.0.9+ identity')
+    cm = re.search(r'versionCode\s*=\s*(\d+)', gradle)
+    expected = cv[0] * 1000 + cv[1] * 100 + cv[2]
+    need(vm is not None and cm is not None and cv >= (1, 0, 9) and int(cm.group(1)) == expected, 'release identity is not a retained 1.0.9+ semantic identity')
 need('kBaseline = "Vulkan 1.4.362"' in (root / 'app/src/main/cpp/registry_query_catalog.h').read_text(encoding='utf-8'), 'Vulkan baseline drifted')
 need('android.permission.MANAGE_EXTERNAL_STORAGE' not in manifest, 'all-files storage permission is forbidden')
 
@@ -44,12 +48,18 @@ need('Box(Modifier.size(20.dp)' not in contained_icon, 'legacy nested icon box r
 action = block('private fun ExpressiveActionButton(', '@Composable\nprivate fun ExpressiveExternalLinkRow')
 need('Surface(' in action and 'Card(' not in action, 'chevron action surface remains whole-card clickable')
 need('IconButton(' in action and 'onClick = onClick' in action, 'chevron action lacks trailing icon-only activation')
-need(action.count('R.drawable.ic_chevron_right') >= 2, 'responsive chevron action variants missing')
+need(('trailingIcon: Int = R.drawable.ic_chevron_right' in action and action.count('AnimatedContent(targetState = trailingIcon') >= 2) if cv >= (1, 2, 0) else action.count('R.drawable.ic_chevron_right') >= 2, 'responsive chevron action variants missing')
 overview_destination = block('private fun OverviewDestinationCard(', '@Composable\nprivate fun QuickAccessCard')
-need('Surface(' in overview_destination and '\n    Card(' not in overview_destination, 'Overview destination remains whole-card clickable')
-need('IconButton(' in overview_destination and 'onClick = { navigate(destination) }' in overview_destination, 'Overview destination trailing chevron is not the only activation target')
+if cv >= (1, 2, 2):
+    shared_destination = block('private fun ExpressiveDestinationCard(', '@Composable\nprivate fun OverviewDestinationCard')
+    need('ExpressiveDestinationCard(title, subtitle, pageIcon(destination)) { navigate(destination) }' in overview_destination, 'Overview destination does not delegate to the shared non-card action surface')
+    need('Surface(' in shared_destination and '\n    Card(' not in shared_destination, 'shared destination remains whole-card clickable')
+    need('IconButton(' in shared_destination and 'onClick = onClick' in shared_destination, 'shared destination trailing chevron is not the only activation target')
+else:
+    need('Surface(' in overview_destination and '\n    Card(' not in overview_destination, 'Overview destination remains whole-card clickable')
+    need('IconButton(' in overview_destination and 'onClick = { navigate(destination) }' in overview_destination, 'Overview destination trailing chevron is not the only activation target')
 detail_affordance = block('private fun DetailAffordance(', '@Composable\nprivate fun ScrollableDetailDialog')
-if any(v in gradle for v in ['versionName = "1.0.13"', 'versionName = "1.0.14"', 'versionName = "1.0.15"', 'versionName = "1.0.16"', 'versionName = "1.0.17"', 'versionName = "1.0.18"']):
+if cv >= (1, 0, 13):
     chevron_affordance = block('private fun ChevronAffordance(', '@Composable\nprivate fun DetailAffordance')
     need('ChevronAffordance("Details", "Open details", onClick)' in detail_affordance, 'Details affordance does not delegate to the shared trailing-chevron target')
     need('Surface(' in chevron_affordance and 'IconButton(onClick = onClick' in chevron_affordance and 'R.drawable.ic_chevron_right' in chevron_affordance, 'shared chevron affordance is not trailing-icon targeted')
@@ -75,9 +85,9 @@ need('Turnip' not in system_dialog, 'System detail dialog misattributes Turnip e
 
 analysis = block('private fun LazyListScope.analysisWorkspaceItems(', '@OptIn(ExperimentalMaterial3ExpressiveApi::class)\n@Composable\nprivate fun DetailAffordance')
 need('ExpressiveContainedIconTextButton("Evidence provenance", R.drawable.ic_evidence)' in analysis, 'Evidence provenance is not a contained icon action')
-need('ExpressiveContainedIconTextButton("Add to watch list", R.drawable.ic_watch_add)' in analysis, 'Add to watch list is not a contained icon action')
-need('ExpressiveContainedIconTextButton("Copy link", R.drawable.ic_link)' in analysis, 'Copy link is not a contained chain-link action')
-for drawable in ['ic_link.xml', 'ic_watch_add.xml']:
+need('ExpressiveContainedIconTextButton("Add to watch list", R.drawable.ic_watch_add' in analysis, 'Add to watch list is not a contained icon action')
+need(('TransientActionButton("Copy link", "Copy permalink to clipboard", R.drawable.ic_copy)' in analysis) if cv >= (1, 2, 0) else ('ExpressiveContainedIconTextButton("Copy link", R.drawable.ic_link)' in analysis), 'Copy link action does not match the retained/current semantic icon contract')
+for drawable in (['ic_copy.xml', 'ic_watch_add.xml'] if cv >= (1, 2, 0) else ['ic_link.xml', 'ic_watch_add.xml']):
     need((root / 'app/src/main/res/drawable' / drawable).is_file(), f'required action drawable missing: {drawable}')
 
 key_value = block('private fun CapabilityKeyValue(', 'private fun evidenceStateAccent')

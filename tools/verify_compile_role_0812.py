@@ -26,7 +26,12 @@ if not args.skip_version:
 require(main.count('import androidx.compose.ui.semantics.Role\n') == 1, 'Compose Role import is missing or duplicated')
 require(main.count('import androidx.compose.ui.semantics.role\n') == 1, 'SemanticsPropertyReceiver.role extension import is missing or duplicated')
 require('Modifier.semantics { role = Role.Button }' in main, 'explicit Details/button semantics role assignment is missing')
-require('role = Role.Switch' in main, 'Switch role semantics regressed')
+
+if args.skip_version:
+    require('private fun ExpressiveSwitch' in main and 'Switch(' in main, 'Material Switch control semantics regressed')
+    require('role = Role.Switch' not in main, 'successor restored a second row-level Switch semantic target')
+else:
+    require('role = Role.Switch' in main, 'Switch role semantics regressed')
 require('role = Role.RadioButton' in main, 'RadioButton role semantics regressed')
 require('implementation("androidx.compose.ui:ui:1.12.0")' in gradle, 'validated Compose UI 1.12.0 pin drifted')
 require('id("org.jetbrains.kotlin.android")' not in text('build.gradle.kts'), 'deprecated Kotlin Android plugin unexpectedly restored')

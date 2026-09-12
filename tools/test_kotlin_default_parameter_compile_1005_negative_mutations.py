@@ -18,7 +18,11 @@ def mutate_occurrence(index, label):
         shutil.copytree(root, dst)
         path = dst / main_rel
         text = path.read_text(encoding='utf-8')
-        good = 'ExpressiveCancelButton(onClick = onDismiss)' if any(f'versionName = "{name}"' in (dst / 'app/build.gradle.kts').read_text(encoding='utf-8') for name in ['1.0.8', '1.0.9', '1.0.10', '1.0.11', '1.0.12', '1.0.13', '1.0.14', '1.0.15', '1.0.16', '1.0.17', '1.0.18']) else 'ExpressiveTextButton("Cancel", onClick = onDismiss)'
+        gradle = (dst / 'app/build.gradle.kts').read_text(encoding='utf-8')
+        import re
+        vm = re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"', gradle)
+        current_version = tuple(map(int, vm.groups())) if vm else (0, 0, 0)
+        good = 'ExpressiveCancelButton(onClick = onDismiss)' if current_version >= (1, 0, 8) else 'ExpressiveTextButton("Cancel", onClick = onDismiss)'
         positions = [i for i in range(len(text)) if text.startswith(good, i)]
         if len(positions) != 2:
             raise SystemExit('fixture does not contain exactly two compile-safe Cancel calls')

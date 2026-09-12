@@ -19,12 +19,15 @@ wrapper_properties = (root / 'gradle/wrapper/gradle-wrapper.properties').read_te
 if 'gradle-9.7.1-bin.zip' not in wrapper_properties: errors.append('Gradle wrapper 9.7.1 pin mismatch')
 version = re.search(r'versionName\s*=\s*"([^"]+)"', gradle)
 code = re.search(r'versionCode\s*=\s*(\d+)', gradle)
-if not version or version.group(1) != '1.0.19': errors.append('versionName mismatch')
-if not code or code.group(1) != '1019': errors.append('versionCode mismatch')
+if not version or version.group(1) != '1.2.5': errors.append('versionName mismatch')
+if not code or code.group(1) != '1205': errors.append('versionCode mismatch')
 abi_line = re.search(r'abiFilters \+= listOf\(([^\n]+)\)', gradle)
 if not abi_line or any(x not in abi_line.group(1) for x in ['arm64-v8a', 'armeabi-v7a', 'x86_64']): errors.append('required ABI set is incomplete')
 if '"x86"' in gradle: errors.append('x86 ABI must remain excluded')
 manifest = (root / 'app/src/main/AndroidManifest.xml').read_text(encoding='utf-8')
+min_sdk = re.search(r'minSdk\s*=\s*(\d+)', gradle)
+if not min_sdk or min_sdk.group(1) != '31': errors.append('minSdk must be Android 12 API 31')
+if 'android.permission.WRITE_EXTERNAL_STORAGE' in manifest: errors.append('legacy storage permission must not remain in an Android 12+ package')
 if manifest.count('android.permission.INTERNET') != 1: errors.append('exactly one INTERNET permission is required for approved HTTPS runtime paths')
 catalog = (root / 'app/src/main/cpp/registry_query_catalog.h').read_text(encoding='utf-8')
 for needle in ['kCatalogSchemaVersion = 6', 'kBaseline = "Vulkan 1.4.362"', 'findQueryDescriptor']:
@@ -271,12 +274,12 @@ for source_path in list((root / 'app/src/main/java').rglob('*.kt')) + list((root
         if re.search(r'^\s*//|^\s*/\*', source_text, re.MULTILINE): errors.append(f'source-code comment remains: {source_path.relative_to(root)}')
 if 'android:usesCleartextTraffic="false"' not in manifest: errors.append('cleartext traffic must be disabled')
 database_setup = (root / 'DATABASE_SETUP.md').read_text(encoding='utf-8')
-if 'VulkanScope 1.0.19 uses the fixed official VulkanScope Database Worker root:' not in database_setup: errors.append('DATABASE_SETUP current application version mismatch')
-if 'VulkanScope Database 1.0.8 is the companion Database for VulkanScope 1.0.19' not in database_setup: errors.append('DATABASE_SETUP current companion mismatch')
+if 'VulkanScope 1.2.5 uses the fixed official VulkanScope Database Worker root:' not in database_setup: errors.append('DATABASE_SETUP current application version mismatch')
+if 'This package does not claim an unverified fixed companion Database application version.' not in database_setup: errors.append('DATABASE_SETUP companion-version evidence boundary missing')
 for needle in ['packageSigningCertificatesMatch', 'archiveVersionCode <= installedVersionCode', 'toHttpUrlOrNull', 'baseUrl.username.isNotEmpty()', 'target.parentFile?.canonicalFile']:
     if needle not in kt: errors.append(f'missing update/network hardening: {needle}')
-if 'private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverMode, collectionStatus: CollectionStatus, onCheckForUpdates: () -> Unit, directUpdatesEnabled: Boolean)' not in kt or 'Page.Info -> InfoPage(report, display, driverMode, collectionStatus, onCheckForUpdates, directUpdatesEnabled)' not in kt:
-    errors.append('manual update callback is not exposed from the Info destination')
+if 'SettingsSection.INFO -> InfoPage(' not in kt or 'onCheckForUpdates,' not in kt:
+    errors.append('manual update callback is not exposed from the animated nested Info destination')
 if 'OFFICIAL_DATABASE_API_ENDPOINT = "https://vulkanscope-database-api.vulkanscope.workers.dev"' not in kt:
     errors.append('official VulkanScope Database endpoint is missing')
 if 'baseUrl.encodedPath != "/"' not in kt:
@@ -816,12 +819,12 @@ for needle in [
     'private fun isCompleteReportReady(report: VulkanReport, collectionStatus: CollectionStatus): Boolean =',
     'report.devices.isNotEmpty() && report.error == null && collectionStatus != CollectionStatus.COLLECTING',
     'val completeReportReady = isCompleteReportReady(report, collectionStatus)',
-    'if (report.devices.isEmpty()) return@withContext "Submission blocked: the complete report contains no Vulkan physical device."',
-    'if (report.error != null) return@withContext "Submission blocked: the Vulkan collection is incomplete. Re-run collection before submitting."',
-    'val payload = runCatching { databaseSubmissionJson(context, report, display, mode).toByteArray(Charsets.UTF_8) }',
+    'if (report.devices.isEmpty()) return@withContext databaseSubmissionFailure("Submission blocked: the complete report contains no Vulkan physical device."',
+    'if (report.error != null) return@withContext databaseSubmissionFailure("Submission blocked: the Vulkan collection is incomplete. Re-run collection before submitting."',
+    'val payload = try {\n        databaseSubmissionJson(context, report, display, mode).toByteArray(Charsets.UTF_8)',
     'Submission failed: the complete report could not be serialized locally.',
     'Submission failed (HTTP ${response.code}): $message',
-    'finally {\n                                submissionInFlight = false'
+    'finally {\n                            submissionInFlight = false'
 ]:
     if needle not in kt:
         errors.append(f'missing 0.41.12 Database submission reliability invariant: {needle}')
@@ -898,7 +901,7 @@ for needle in [
     if needle not in probe_service:
         errors.append(f'missing 0.41.2 probe publication/lifecycle hardening: {needle}')
 if 'java.nio.file' in probe_service or 'Files.move' in probe_service or 'StandardCopyOption' in probe_service:
-    errors.append('minSdk 24 probe service must not use API-26-only java.nio.file publication APIs')
+    errors.append('probe service publication path unexpectedly changed to java.nio.file')
 for needle in [
     'androidx.core:core-ktx:1.19.0',
     'androidx.lifecycle:lifecycle-runtime-compose:2.11.0',

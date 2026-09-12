@@ -75,7 +75,7 @@ setup=text('DATABASE_SETUP.md')
 if not args.skip_version:
     need('0.39.24' in setup,'Database companion is not 0.39.24')
 else:
-    need('Database 1.0.8' in setup,'current Database companion is not 1.0.8')
+    need('schema 2 / technicalReport 3' in setup and 'vulkanscope-database-api.vulkanscope.workers.dev' in setup,'current Database schema/origin contract drifted')
 if errors:
     print('FAIL VulkanScope 0.80.10 / Vulkan 1.4.362 contract')
     for e in errors: print('-',e)

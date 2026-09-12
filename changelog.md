@@ -1,3 +1,40 @@
+## 1.2.5
+
+- Fixes abrupt Settings destination entry: choosing Info, Reports & Database, or Driver & Update Preferences now transitions the chooser into the selected destination with bounded horizontal slide + fade motion instead of replacing the content immediately.
+- Adds the matching bounded reverse transition when Back returns from a Settings destination to the three-card chooser.
+- Keeps the existing staggered chooser-card entrance, shared ExpressiveDestinationCard component, switch/search/watch/history/share behavior, Android 12 minimum, Vulkan 1.4.362/header 362, report schemas, fixed HTTPS origins and native collection unchanged.
+
+## 1.2.4
+
+- Adds a History `Clear all` action matching the watched-evidence destructive flow: it is disabled when empty, asks for confirmation, uses the contained clear-all action plus Close-X hierarchy, and deletes retained local history through the existing bounded record-deletion path before reloading storage.
+- Gives the three Settings destinations a finite Material 3 Expressive entrance transition: 260 ms fade plus short horizontal slide, staggered by 45 ms in Info → Reports & Database → Driver & Update Preferences order, while continuing to use the exact shared destination-card component.
+- Changes only the trailing action artwork of Share link and Share evidence from the chain-link glyph to the same diagonal external-open glyph used by Open VulkanScope Database; the Share leading icon and Android Sharesheet behavior are unchanged.
+- Retains Android 12 / API 31 minimum, Vulkan 1.4.362/header 362, schema 2/technicalReport 3, fixed HTTPS Database/update origins, native collection, three release ABIs and existing resource/privacy/security ceilings.
+
+## 1.2.3
+
+- Fixes the 1.2.2 Kotlin compile failure in watched-evidence input resolution by iterating the typed `Map.entries` collection instead of calling `firstOrNull` on `Map` itself.
+- Makes Database submission results typed: a successful submission shows the complete lowercase 64-character report ID in bold primary text, while every failed submission result opens a bounded monospace diagnostic dialog with Database+X artwork, contained Copy all and contained Close actions.
+- Treats a successful HTTP response without a valid 64-hex report ID as a failed response-validation result instead of reporting success without a usable report identity.
+- Raises the APK minimum platform to Android 12 / API 31 and removes the now-unnecessary legacy external-storage permission and pre-Android-10 report-export permission path. Android 11 and earlier cannot install the APK.
+- Preserves Vulkan 1.4.362/header 362, schema 2/technicalReport 3, fixed HTTPS Database/update origins, report privacy rules, native Vulkan collection, three release ABIs and existing resource ceilings.
+
+## 1.2.2
+
+- Removes the separate header Info action and makes Settings open a three-destination chooser containing Info, Reports & Database, and Driver & Update Preferences. The destination cards share the exact Overview Encyclopedia/Analysis card component and Back returns to the chooser before leaving Settings.
+- Restricts all Switch interaction to the Switch control itself. The shared All filter keeps specific filters locked while enabled without making the surrounding explanation row toggleable.
+- Adds animated trailing X clearing to every shared search field and validates watched-evidence input before enabling Add to watch list. Single-item removal and Clear all now require explicit question dialogs; Clear all is disabled for an empty list.
+- Keeps three-second success/failure result states for copy/watch/link/database actions without advertising the timer in their text, changes Share trailing actions to the link glyph, and restores the 1.0.19 Check for updates leading download glyph while preserving the receive trailing glyph and 1.2.1 in-flight lock.
+- Adds requested semantic artwork: Registry+REG, SCOPE+Info, Android+RUN, search badges for Extension/Format explorers, distinct Instance/Device layer composites, tablet Display artwork, contained prohibition+filter Clear usage filters, and HDR capability carousel arrows.
+- Gives the System↔Turnip A/B actions chip/Android/user-supplied Mesa primary artwork with the existing compare glyph lower-right, using only local packaged assets and the VulkanScope action palette.
+- Retains Vulkan 1.4.362/header 362, schema 2/technicalReport 3, fixed HTTPS origins, native Vulkan collection, driver/update confirmation, report semantics, resource ceilings and privacy/security behavior unchanged.
+
+## 1.2.1
+- Reorganizes Settings into three nested destinations ordered Info, Reports & Database, and Driver & Update Preferences; the third destination owns Vulkan driver management, direct GitHub update preference and Obtainium guidance.
+- Disables Check for updates only while the update request is awaiting a result, then re-enables it immediately on success, failure or cancellation.
+- Separates result-banner expiry from request lifetime so an older timeout cannot hide a newer update result.
+- Retains Vulkan 1.4.362/header 362, native collection, report/Database schema, Turnip package handling and update-download security unchanged.
+
 ## 1.0.19
 - Replaced the Direct GitHub Updates / Check for updates artwork with a simple downward-arrow download glyph while keeping Turnip ZIP import on the ZIP-folder/download glyph.
 - Changed only horizontal filter-carousel arrow colors to VulkanScope red containers with white chevrons; vertical scroll arrows, geometry and motion are unchanged.

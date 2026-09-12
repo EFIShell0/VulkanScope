@@ -9,10 +9,10 @@ android {
 
     defaultConfig {
         applicationId = "com.efishell.vulkanscope"
-        minSdk = 24
+        minSdk = 31
         targetSdk = 37
-        versionCode = 1019
-        versionName = "1.0.19"
+        versionCode = 1205
+        versionName = "1.2.5"
         
         
         ndkVersion = "29.0.14206865"

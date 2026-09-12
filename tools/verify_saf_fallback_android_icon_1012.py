@@ -12,8 +12,10 @@ def need(c,m):
     if not c: errors.append(m)
 def block(a,b):
     x=main.find(a); y=main.find(b,x+len(a)) if x>=0 else -1; need(x>=0 and y>x,f'block missing: {a}'); return main[x:y] if x>=0 and y>x else ''
-vm=re.search(r'versionName\s*=\s*"1\.0\.(\d+)"',gradle); cm=re.search(r'versionCode\s*=\s*(\d+)',gradle); minor=int(vm.group(1)) if vm else -1
-if not args.skip_version: need(vm is not None and cm is not None and minor>=12 and int(cm.group(1))>=1012,'retained 1.0.12+ release identity missing')
+vm=re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"',gradle); cm=re.search(r'versionCode\s*=\s*(\d+)',gradle); cv=tuple(map(int,vm.groups())) if vm else (0,0,0); minor=cv[2] if cv[:2]==(1,0) else (99 if cv>=(1,1,0) else -1)
+if not args.skip_version:
+    expected=cv[0]*1000+cv[1]*100+cv[2]
+    need(vm is not None and cm is not None and cv>=(1,0,12) and int(cm.group(1))==expected,'retained 1.0.12+ semantic release identity missing')
 need('kBaseline = "Vulkan 1.4.362"' in (root/'app/src/main/cpp/registry_query_catalog.h').read_text(encoding='utf-8'),'Vulkan baseline drifted')
 need('android.permission.MANAGE_EXTERNAL_STORAGE' not in manifest and 'android.permission.MANAGE_EXTERNAL_STORAGE' not in main,'all-files access is forbidden')
 if minor>=15:

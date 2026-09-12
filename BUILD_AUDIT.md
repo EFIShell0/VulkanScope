@@ -1,72 +1,67 @@
-# VulkanScope 1.0.19 build / regression audit
+# VulkanScope 1.2.5 build / regression audit
 
 ## Release identity
-- Version: 1.0.19.
-- versionCode: 1019.
-- Immutable predecessor: VulkanScope 1.0.18.
-- Predecessor ZIP SHA-256: `3c79a6ed0041b3ec966dab4431acacc5ed7a4f9220ee9bd3c5706deeb5f4e065`.
-- Predecessor package census: 475 files.
-- Vulkan baseline: 1.4.362 / header 362.
-- Companion Database: VulkanScope Database 1.0.8.
-- Submission schema / technicalReport schema / Database normalizer: 2 / 3 / 16.
+- Version: 1.2.5.
+- versionCode: 1205.
+- Immutable predecessor: VulkanScope 1.2.4.
+- Predecessor ZIP SHA-256: `6f4b69b8af3843781cf3334382de716df3798b12b257ecfaa0d82046e7401d92`.
+- Predecessor package census: 514 files.
+- Minimum Android platform: Android 12 / API 31.
+- targetSdk: 37.
+- Vulkan registry/query baseline: Vulkan 1.4.362 / header 362.
+- Submission schema / technicalReport schema: 2 / 3.
 
-## Requested UI refinement
-- `Check for updates`, the Direct GitHub Updates section artwork and direct-update source/status artwork now use one local simple download glyph: downward arrow plus horizontal baseline. Turnip `Import driver ZIP` deliberately retains the existing ZIP-folder/download glyph.
-- The shared horizontal filter carousel keeps its existing geometry, state, animation, scrolling and RTL behavior; only its left/right round button colors change to VulkanScope red containers with white chevrons. Vertical up/down scroll-boundary indicators are unchanged.
-- `Queue query safety` keeps the queue/list glyph and adds a lower-right shield badge.
-- `Export complete report` uses the existing Surface glyph with the existing export-arrow artwork at lower-right.
-- `Export TXT` and `Export HTML` retain their existing primary glyphs and add compact lower-right `TXT` / `HTML` badges.
-- `Explore` now uses a local compass glyph; Quick access retains its existing home glyph.
-- No runtime image generation or network-loaded artwork is introduced.
+## Demonstrated 1.2.4 UI regression
+The 1.2.4 Settings root animates only the three destination cards when the chooser itself appears. Pressing the destination action updates `selectedSection`, after which `SettingsPage` directly returns Info, Reports & Database, or Driver & Update Preferences. Because the destination state itself is not animated, the chooser is replaced abruptly. This matches the reported real-device behavior.
 
-## Immutable predecessor / production scope
-- `tests/golden/1.0.18_regression_contract.json`: PASS.
-- `tools/verify_regression_contracts.py`: PASS; baseline=1.0.18, successor=1.0.19, runtimeFiles=129, queryGroups=104, extensions=304, structs=110.
-- Runtime production changes are restricted to `app/src/main/java/com/efishell/vulkanscope/MainActivity.kt` plus new local vectors `ic_download.xml`, `ic_compass.xml` and `ic_shield.xml`; `app/build.gradle.kts` changes release identity only.
-- Native/JNI Vulkan collection, Android manifest, generated registry/query data, existing packaged resources, report serialization and fixed endpoint constants remain predecessor bytes.
+## 1.2.5 correction
+- `SettingsPage` now owns one bounded `AnimatedContent` state keyed by nullable `selectedSection`.
+- The `AnimatedContent` lambda renders from its `targetSection` argument, keeping transition identity correct while both initial and target content may coexist during animation.
+- Chooser -> destination uses a finite 280 ms short horizontal entrance plus 220 ms fade, paired with a 180 ms chooser exit slide and 150 ms fade.
+- Destination -> chooser uses a finite reverse slide/fade.
+- Peer destination replacement, if reached, uses bounded fade only.
+- The existing 260 ms / 45 ms-staggered entrance of the three `ExpressiveDestinationCard` chooser cards remains unchanged.
+- Driver & Update Preferences was extracted into `DriverUpdatePreferencesPage` so all three destination bodies participate in the same transition without changing driver, update-preference, storage or collection behavior.
 
-## Specification, correctness, security and resource evidence
-- The checked-in canonical baseline remains Vulkan 1.4.362 / header 362. Current Khronos registry evidence was rechecked on 2026-09-09 and remains 1.4.362 published 2026-09-04.
-- Unknown/unavailable/unsupported/not-applicable evidence semantics, report completeness and physical-device/runtime-query behavior are unchanged.
-- Cleartext traffic and application backup remain disabled; the Vulkan probe service and FileProvider remain non-exported.
-- Database and update origins remain fixed HTTPS roots; no user-editable endpoint, broad storage permission, WebView bridge, background Database upload or automatic APK install path is introduced.
-- The UI-only patch adds local vector resources and short-lived Compose presentation nodes; it introduces no native handle owner, repeated Vulkan collection during recomposition, new worker/thread, persistent cache, or unbounded allocation.
-- `tools/verify_compile_regressions.py`: PASS.
-- `tools/verify_spec_regressions.py`: PASS.
+## Immutable predecessor and release-specific evidence
+- `tools/verify_release_1205.py --root <immutable 1.2.4> --skip-version`: expected FAIL and observed FAIL for missing Settings destination-state animation.
+- `tools/verify_release_1205.py`: PASS.
+- `tools/test_release_1205_state_machine.py`: PASS for all three forward destinations, reverse navigation and bounded peer fallback.
+- `tools/test_release_1205_negative_mutations.py`: PASS, including target-state ownership, finite slide/fade timing, all three destination branches, stale identity and unrelated false-positive control.
+- `tools/verify_regression_contracts.py`: PASS; baseline=1.2.4, successor=1.2.5, runtimeFiles=141, queryGroups=104, extensions=304, structs=110.
+- Production runtime change from 1.2.4 is restricted by the golden contract to `MainActivity.kt`; `app/build.gradle.kts` changes release identity only.
+
+## Retained-verifier maintenance
+The requested transition refactor moved Driver & Update Preferences out of the body of `SettingsPage` without changing its semantics. Retained source verifiers were updated only where their old textual location assumptions became stale:
+- The retained 1.2.2 Settings verifier accepts the 1.2.5 `AnimatedContent` destination structure while preserving the exact three-destination hierarchy, shared card requirement, switch-only hit targets, search/watch behavior, semantic artwork and update busy-state invariants.
+- The retained 1.2.4 verifier is successor-aware while retaining History clear-all, chooser-card entrance motion and Share external-open artwork requirements.
+- The retained 0.80.6 accessibility verifier inspects `DriverUpdatePreferencesPage` for the Direct GitHub Updates switch on 1.2.5+, preserving the requirement that only the Switch itself owns the toggle action.
+- Corresponding retained negative-mutation suites remain active and pass.
+
+## Current upstream and retained quality evidence
+- The official Khronos Registry was rechecked on 2026-09-12 and remains Vulkan Registry 1.4.362 published 2026-09-04. The checked-in Vulkan 1.4.362/header 362 baseline remains pinned.
+- Android Developers documents `AnimatedContent` as the state-driven composable for animating replacement content and requires the target-state lambda value to identify rendered content; the 1.2.5 implementation follows that model.
+- Every applicable constituent command listed by `tools/quality_gate.py` was executed in bounded groups and passed. The monolithic command was also attempted but exceeded the execution window before completion; it is not labeled as one-command PASS.
+- Retained coverage includes Vulkan specification/registry gates, compile-source guards, Material 3 Expressive, responsive/accessibility/TV/system-language, update/Turnip/driver/SAF/share suites, probe lifecycle/publication/timeout/cancellation, report/Surface/HTML, profile/Video, resource ceilings and release semantics.
+- `tools/verify_registry_snapshot.py`: PASS; header 362, 476 registered extensions, 304 Android-queryable providers, 299 stable + 5 provisional.
 - `tools/verify_concurrency_resource_contracts.py`: PASS; registryExtensions=476/4096, probeLimit=67108864, databaseLimit=2097152, analysisLimit=8388608.
+- `tools/verify_release.py --skip-regression-contracts --skip-nested-verifiers`: PASS for 1.2.5 / 1205.
+- Locked registry regeneration from the bundled 1.4.362 `vk.xml`: PASS and byte-identical to the checked-in generated manifest.
+- Python verifier syntax and generated/regression JSON parsing: PASS.
 
-## Current-release quality evidence
-Executed on the final source tree:
-- `tools/verify_semantic_ui_refinement_1019.py`: PASS.
-- `tools/test_semantic_ui_refinement_1019_state_machine.py`: PASS.
-- `tools/test_semantic_ui_refinement_1019_negative_mutations.py`: PASS; 12 targeted defects rejected plus unrelated false-positive control accepted.
-- `tools/verify_regression_contracts.py`: PASS.
-- `tools/verify_compile_regressions.py`: PASS.
-- `tools/verify_spec_regressions.py`: PASS.
-- `tools/verify_concurrency_resource_contracts.py`: PASS.
-- `tools/verify_release.py --skip-nested-verifiers`: PASS; version=1.0.19, code=1019, Vulkan 1.4.362 and locked Vulkan-Headers commit retained.
-- `tools/verify_package_reproducibility.py`: PASS on source manifest/hygiene.
+## Security, correctness, memory and performance audit
+- No permission, endpoint, network route, background upload, report field, native/JNI query, capability inference, storage root or dependency changes are introduced.
+- Animation is finite and composition-local; no persistent worker, infinite transition, bitmap owner or unbounded collection is added.
+- Settings back ownership is unchanged: Back returns from a nested Settings destination to the three-card chooser before leaving Settings.
+- Existing Android 12 minimum, fixed HTTPS origins, complete-report gating, three release ABIs and privacy/resource ceilings remain unchanged.
 
-The aggregate historical `tools/quality_gate.py` is not labeled PASS in this container. Its complete historical mutation chain exceeds the available execution window and includes presentation-era gates that are superseded by the current 1.0.19 semantic contract. Current-release and retained shared release/specification/resource gates listed above were executed separately.
+## Android build and runtime evidence boundary
+A successor compile attempt was made with `bash gradlew :app:compileReleaseKotlin --offline --no-daemon --stacktrace`. Gradle 9.7.1 is not cached in this environment; the wrapper attempted to resolve `services.gradle.org` and failed with `UnknownHostException` before Gradle/Android/Kotlin tasks could execute. Android compile/assemble/lint/unit are therefore NOT EXECUTED here and are not represented as PASS.
 
-## Database 1.0.8 compatibility
-VulkanScope 1.0.19 keeps the fixed Worker origin, explicit schema-2 POST, schema-3 `technicalReport`, compact bounded GET lookup, normalizer-16 consumer contract and 2 MiB fail-closed no-truncation ceiling. Generic 1.0.x producer identity remains versionCode `1000 + patch`, so 1.0.19 / 1019 is the valid pair. No Database migration or stored-report rewrite is required.
+Real-device visual frame pacing, TalkBack/TV focus behavior, live Database/update flow, System/Turnip switching and sanitizer/profiler execution are also NOT EXECUTED here.
 
-Live production submission/lookup from a physical Android device is NOT EXECUTED in this environment.
-
-## Android build evidence
-A post-change `:app:compileDebugKotlin` attempt was made through the checked-in Gradle wrapper. The wrapper could not obtain Gradle 9.7.1 because this container cannot resolve `services.gradle.org` and terminated with `java.net.UnknownHostException` before the Android task started. Therefore Android compile/assemble/lint/unit tasks are NOT EXECUTED and are not labeled PASS.
-
-Real-device rendering across DPI, font scale, RTL/TV focus, long-duration heap profiling and device-matrix Vulkan probing are also NOT EXECUTED here.
-
-## Package evidence
-- Final source/package census: 483 files.
-- Source package manifest/hygiene: PASS.
-- Deterministic ZIP packaging uses exact sorted `files.txt`, fixed 1980 ZIP timestamps, fixed regular-file attributes and deflate compression.
-- Two independent deterministic archive builds from the final source tree are byte-identical: PASS.
-- Clean extract path census and source/package byte equality: 483/483 PASS.
-- Clean-extract 1.0.19 semantic verifier/state-machine/negative-mutation suite: PASS; 12 targeted defects rejected plus false-positive control accepted.
-- Clean-extract immutable 1.0.18 -> 1.0.19 regression contract: PASS.
-- Clean-extract compile/specification/concurrency-resource retained gates: PASS.
-- Clean-extract release verification: PASS; version 1.0.19 / versionCode 1019 / Vulkan 1.4.362 / locked Vulkan-Headers commit.
-- The external `.sha256` record is generated from the final deterministic archive and is not embedded into the archive itself.
+## Package gate
+- `files.txt` is the exact sorted release census and strict hygiene list.
+- `README.md`, `release.md`, fastlane paths, Python caches and `.pyc` files are forbidden from the package.
+- Deterministic archives use the exact `files.txt` set, fixed 1980 ZIP timestamps, fixed regular-file attributes and deterministic deflate compression.
+- Final release requires two independently generated byte-identical ZIPs, clean extraction, source/package path and byte equality, clean-extract current-release verification and an external SHA-256 record.

@@ -18,7 +18,11 @@ def need(value,message):
     if not value: errors.append(message)
 
 if not args.skip_version:
-    need(any(f'versionCode = {code}' in gradle and f'versionName = "{name}"' in gradle for name, code in [(f'1.0.{minor}', 1000 + minor) for minor in range(2, 19)]),'release identity is not a retained 1.0.2+ identity')
+    vm = re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"', gradle)
+    cm = re.search(r'versionCode\s*=\s*(\d+)', gradle)
+    cv = tuple(map(int, vm.groups())) if vm else (0, 0, 0)
+    expected = cv[0] * 1000 + cv[1] * 100 + cv[2]
+    need(vm is not None and cm is not None and cv >= (1, 0, 2) and int(cm.group(1)) == expected,'release identity is not a retained 1.0.2+ semantic identity')
 need('kBaseline = "Vulkan 1.4.362"' in (root/'app/src/main/cpp/registry_query_catalog.h').read_text(encoding='utf-8'),'Vulkan baseline drifted from 1.4.362')
 need('implementation("androidx.compose.foundation:foundation:1.12.0")' in gradle,'Compose Foundation baseline drifted')
 need('implementation("androidx.compose.material3:material3:1.5.0-alpha27")' in gradle,'Material 3 Expressive baseline drifted')

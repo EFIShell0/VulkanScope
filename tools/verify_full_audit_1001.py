@@ -18,10 +18,12 @@ rules=(root/'rules/PROJECT_RULES.md').read_text(encoding='utf-8')
 def need(value,message):
     if not value: errors.append(message)
 
+version_match = re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"', gradle)
+current_version = tuple(map(int, version_match.groups())) if version_match else (0, 0, 0)
 if not args.skip_version:
-    version_match = re.search(r'versionName\s*=\s*"1\.0\.(\d+)"', gradle)
     code_match = re.search(r'versionCode\s*=\s*(\d+)', gradle)
-    need(version_match is not None and code_match is not None and int(version_match.group(1)) >= 1 and int(code_match.group(1)) == 1000 + int(version_match.group(1)), 'release identity is not a retained 1.0.1+ identity')
+    expected_code = None if version_match is None else current_version[0] * 1000 + current_version[1] * 100 + current_version[2]
+    need(version_match is not None and code_match is not None and current_version >= (1, 0, 1) and int(code_match.group(1)) == expected_code, 'release identity is not a retained 1.0.1+ semantic identity')
 need('kBaseline = "Vulkan 1.4.362"' in (root/'app/src/main/cpp/registry_query_catalog.h').read_text(encoding='utf-8'),'Vulkan registry/query baseline is not 1.4.362')
 need('id("com.android.application") version "9.4.0" apply false' in root_gradle,'AGP stable baseline is not 9.4.0')
 need('implementation("androidx.compose.foundation:foundation:1.12.0")' in gradle,'Compose Foundation is not 1.12.0')
@@ -47,7 +49,7 @@ need('onWatch(referenceToken); environment?.addWatch?.invoke(referenceToken)' no
 filter_start=main.find('private fun ExpressiveFilterBar')
 filter_end=main.find('\n@Composable\nprivate fun ExpressiveToggleRow',filter_start)
 filter_block=main[filter_start:filter_end]
-is_1002_or_newer = (re.search(r'versionName\s*=\s*"1\.0\.(\d+)"', gradle) is not None and int(re.search(r'versionName\s*=\s*"1\.0\.(\d+)"', gradle).group(1)) >= 2)
+is_1002_or_newer = current_version >= (1, 0, 2)
 if is_1002_or_newer:
     need('ExpressiveFilterCarousel(' in filter_block,'shared filter bar does not route through the 1.0.2 expressive carousel')
     carousel_start=main.find('private fun ExpressiveFilterCarousel')

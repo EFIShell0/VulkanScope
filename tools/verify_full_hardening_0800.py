@@ -101,9 +101,9 @@ for needle in [
 ]:
     if needle not in build:
         errors.append(f'validated Android/runtime pin drift: {needle}')
-version_match = re.search(r'versionName\s*=\s*"([^"]+)"', build)
-current_version = version_match.group(1) if version_match else ''
-agp_pin = '9.4.0' if current_version in {'0.80.8', '0.80.9', '0.80.10', '0.80.12', '0.80.13', '0.80.14', '0.80.15', '1.0.0', '1.0.1', '1.0.2', '1.0.3', '1.0.4', '1.0.5', '1.0.6', '1.0.7', '1.0.8', '1.0.9', '1.0.10', '1.0.11', '1.0.12', '1.0.13', '1.0.14', '1.0.15', '1.0.16', '1.0.17', '1.0.18'} else '9.3.2'
+version_match = re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"', build)
+current_version = tuple(map(int, version_match.groups())) if version_match else (0, 0, 0)
+agp_pin = '9.4.0' if current_version >= (0, 80, 8) else '9.3.2'
 for needle in [
     f'id("com.android.application") version "{agp_pin}" apply false',
     'id("org.jetbrains.kotlin.plugin.compose") version "2.4.10" apply false'

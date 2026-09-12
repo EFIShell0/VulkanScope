@@ -96,10 +96,21 @@ question = block('private fun QuestionDialogTitle(', '@Composable\nprivate fun E
 need('R.drawable.ic_question' in question and 'color = VulkanAccentContainer' in question, 'shared question-title icon treatment missing')
 cancel = block('private fun ExpressiveCancelButton(', '@OptIn(ExperimentalMaterial3ExpressiveApi::class)\n@Composable\nprivate fun ExpressivePrimaryButton')
 need('R.drawable.ic_close' in cancel and 'Text("Cancel", fontWeight = FontWeight.Normal' in cancel, 'shared Cancel X/normal-weight treatment missing')
-need(main.count('AlertDialog(') == 6, 'unexpected AlertDialog census; audit all questions before release')
-need(main.count('dismissButton = { ExpressiveCancelButton') == 6, 'not every AlertDialog uses the shared X Cancel action')
-semantic_update_dialog = any(v in gradle for v in ['versionName = "1.0.13"', 'versionName = "1.0.14"', 'versionName = "1.0.15"', 'versionName = "1.0.16"', 'versionName = "1.0.17"', 'versionName = "1.0.18"'])
-expected_question_titles = 5 if semantic_update_dialog else 6
+version_match = re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"', gradle)
+current_version = tuple(map(int, version_match.groups())) if version_match else (0, 0, 0)
+semantic_update_dialog = current_version >= (1, 0, 13)
+watch_confirmation_dialogs = current_version >= (1, 2, 2)
+database_failure_dialog = current_version >= (1, 2, 3)
+history_clear_all_dialog = current_version >= (1, 2, 4)
+expected_alerts = 10 if history_clear_all_dialog else (9 if database_failure_dialog else (8 if watch_confirmation_dialogs else 6))
+expected_cancel = 6
+expected_close = 3 if history_clear_all_dialog else (2 if watch_confirmation_dialogs else 0)
+expected_question_titles = 8 if history_clear_all_dialog else (7 if watch_confirmation_dialogs else (5 if semantic_update_dialog else 6))
+need(main.count('AlertDialog(') == expected_alerts, 'unexpected AlertDialog census; audit all questions before release')
+need(main.count('dismissButton = { ExpressiveCancelButton') == expected_cancel, 'shared Cancel X dialog census drifted')
+need(main.count('dismissButton = { ExpressiveCloseButton') == expected_close, 'shared Close X dialog census drifted')
+if database_failure_dialog:
+    need(main.count('dismissButton = { ExpressiveContainedIconTextButton("Close", R.drawable.ic_close') == 1, '1.2.3 Database failure dialog contained Close/X action census drifted')
 need(len(re.findall(r'title\s*=\s*\{.{0,220}?QuestionDialogTitle\(', main, re.S)) == expected_question_titles, 'question-dialog title icon census drifted')
 if semantic_update_dialog:
     need('SemanticDialogTitle("Download VulkanScope ${update.version}?", R.drawable.ic_update_available)' in main, '1.0.13 update dialog does not retain its superseding semantic update icon')
