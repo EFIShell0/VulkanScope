@@ -27,6 +27,10 @@ def block(start, end):
     return main[a:b] if a >= 0 and b > a else ''
 
 
+def display_mark(text):
+    return re.sub(r'\bVulkan(?!Scope|®)', 'Vulkan®', text)
+
+
 if not args.skip_version:
     need('versionCode = 1008' in gradle and 'versionName = "1.0.8"' in gradle, '1.0.8 release identity missing')
 need('kBaseline = "Vulkan 1.4.362"' in (root / 'app/src/main/cpp/registry_query_catalog.h').read_text(encoding='utf-8'), 'Vulkan baseline drifted')
@@ -44,14 +48,14 @@ need('if (collectionStatus == CollectionStatus.COLLECTING) return' not in host, 
 need('OfflineFeatureAvailabilityBanner(collectionStatus == CollectionStatus.COLLECTING)' in host, 'offline banner does not model collection overlap')
 offline = block('private fun OfflineFeatureAvailabilityBanner(', '@Composable\nprivate fun NetworkStatusBanner')
 need('collectionInProgress: Boolean' in offline, 'offline banner lacks collection-aware text state')
-need('Vulkan collection continues offline.' in offline, 'offline+collecting explanation missing')
+need('Vulkan collection continues offline.' in offline or 'Vulkan® collection continues offline.' in offline, 'offline+collecting explanation missing')
 network_state = block('    private fun applyValidatedNetworkState(validated: Boolean) {', '    override fun onResume()')
 need('if (collectionStatus == CollectionStatus.COLLECTING)' not in network_state, 'network transition timer still pauses during collection')
 need('remainingVisibleMillis = 4_500L' in network_state, 'network transition duration drifted')
 
 database = block('CapabilitySectionCard("VulkanScope Database")', '            }\n        }\n    }\n}')
 for token in ['!completeReportReady && !networkAvailable -> "Waiting for complete Vulkan collection · internet unavailable"', 'Database submission is locked for two independent reasons: Vulkan collection is incomplete and Android does not report a validated internet connection.', 'When internet returns during collection, the network lock clears immediately; submission still waits for complete report evidence.']:
-    need(token in database, f'combined Database collection/network state missing: {token}')
+    need(token in database or display_mark(token) in database, f'combined Database collection/network state missing: {token}')
 
 carousel = block('private fun ExpressiveFilterCarousel(', '@Composable\nprivate fun ExpressiveFilterBar')
 for token in ['contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 60.dp)', 'width(82.dp)', 'val leftVisualAlpha by animateFloatAsState(if (canMoveLeft) 1f else 0.42f, tween(220), label = "filterLeftAlpha")', 'val rightVisualAlpha by animateFloatAsState(if (canMoveRight) 1f else 0.42f, tween(220), label = "filterRightAlpha")', 'val leftContinuationAlpha by animateFloatAsState(if (canMoveLeft) 1f else 0f, tween(220), label = "filterLeftContinuation")', 'val rightContinuationAlpha by animateFloatAsState(if (canMoveRight) 1f else 0f, tween(220), label = "filterRightContinuation")', 'graphicsLayer(scaleX = leftScale, scaleY = leftScale)', 'graphicsLayer(scaleX = rightScale, scaleY = rightScale)']:
@@ -74,7 +78,8 @@ need('Driver changes are temporarily locked while VulkanScope is collecting a re
 
 system_row = block('private fun SystemDriverManagerRow(', '@Composable\nprivate fun UnavailableTurnipKeyValue')
 for token in ['Text("System Vulkan driver", color = VulkanTextPrimary, fontWeight = FontWeight.Bold', 'if (active) TurnipStatePill("ACTIVE", true, true)', 'ExpressiveContainedTextButton("Activate", enabled = enabled']:
-    need(token in system_row, f'System driver manager state contract missing: {token}')
+    marked_token = token.replace('System Vulkan driver', 'System Vulkan® driver')
+    need(token in system_row or marked_token in system_row, f'System driver manager state contract missing: {token}')
 
 unavailable_row = block('private fun UnavailableTurnipKeyValue(', '@Composable\nprivate fun TurnipDriverManagerTable')
 need('alpha(0.48f)' in unavailable_row and unavailable_row.count('TextDecoration.LineThrough') >= 2, 'unavailable Turnip metadata is not subdued and struck through')

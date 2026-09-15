@@ -85,11 +85,11 @@ if current_version >= (1, 2, 2):
     overview_ui = block('private fun ExpressiveDestinationCard(', '@Composable\nprivate fun OverviewDestinationCard')
     need('ExpressiveDestinationCard(title, subtitle, pageIcon(destination)) { navigate(destination) }' in overview, 'Overview destination shared-card delegation drifted')
     need('containerColor = ComposeColor(0xFF291719), contentColor = VulkanAccentSoft' in overview_ui, 'Overview destination chevron container does not match shared red action affordance')
-    need('Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = "Open $title", tint = VulkanAccentSoft, modifier = Modifier.size(20.dp))' in overview_ui, 'Overview destination chevron is not Vulkan accent red')
+    need('Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = "Open $title", tint = VulkanAccentSoft, modifier = Modifier.size(20.dp))' in overview_ui or 'Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = "Open ${trademarkVulkanDisplayText(title)}", tint = VulkanAccentSoft, modifier = Modifier.size(20.dp))' in overview_ui, 'Overview destination chevron is not Vulkan accent red')
     need('onClick = onClick' in overview_ui, 'Overview destination chevron action drifted')
 else:
     need('containerColor = ComposeColor(0xFF291719), contentColor = VulkanAccentSoft' in overview, 'Overview destination chevron container does not match shared red action affordance')
-    need('Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = "Open $title", tint = VulkanAccentSoft, modifier = Modifier.size(20.dp))' in overview, 'Overview destination chevron is not Vulkan accent red')
+    need('Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = "Open $title", tint = VulkanAccentSoft, modifier = Modifier.size(20.dp))' in overview or 'Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = "Open ${trademarkVulkanDisplayText(title)}", tint = VulkanAccentSoft, modifier = Modifier.size(20.dp))' in overview, 'Overview destination chevron is not Vulkan accent red')
     need('onClick = { navigate(destination) }' in overview, 'Overview destination chevron action drifted')
 
 section_icons = block('private fun capabilitySectionIcon(title: String): Int = when {', '@Composable\nprivate fun preferExpandedTextLayout')

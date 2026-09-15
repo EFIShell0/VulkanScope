@@ -1,3 +1,71 @@
+## 1.3.9
+
+- Keeps the shared single-filter popup open while live Vulkan collection expands its label set, anchors the popup to the selector, and makes Back dismiss the search keyboard/focus before the popup itself.
+- Keeps strict filter search/pagination behavior while clipping selected/pressed visuals to the actual clickable rounded rows.
+- Restores complete-report export presentation so TXT and HTML are always separate full-width Material 3 Expressive actions instead of a fragile weighted side-by-side layout.
+- Refines the in-app import/export browser with explicit VulkanScope dark content colors, clipped Material interactions, Expressive search/scroll hints and a fixed export-type suffix: only the base file name is editable.
+- Replaces Turnip List/Compact text selectors with four semantic icon modes: List, Compact, Grid and Details; Grid uses a bounded adaptive lazy grid and Details expands package/folder metadata.
+- Makes Turnip package cards selectable across their clipped card geometry so selection state and actionable geometry match, while keeping the independent Info action and all existing archive/slot validation.
+- Removes legacy storage-architecture wording from runtime UI copy without changing permission, confinement, atomic-write, report-schema, Vulkan/native/JNI, Database, updater or Turnip-validation behavior.
+
+## 1.3.7
+
+- Fixes the release Kotlin compile failure at the four Material3 Expressive `LoadingIndicator` call sites by adding narrow function-scope `ExperimentalMaterial3ExpressiveApi` opt-ins to the Turnip file-manager and shared-storage browser dialogs.
+- Keeps the existing loading UI and all 1.3.6 storage/import/export behavior unchanged; no file-wide opt-in, dependency upgrade, native-code change or third-party repin is introduced.
+- Treats the libadrenotools C/C++ messages from the supplied build as non-fatal warnings and leaves that pinned third-party source unchanged.
+
+## 1.3.6
+
+- Completes the SAF-free non-Turnip storage exchange: Analysis snapshots, minimum profiles, raw `technicalReport` JSON, TXT and HTML now use the in-app shared-storage browser instead of remaining unavailable.
+- Requests the existing Android all-files special access only after explicit import/export actions and retains the three-second animated X / Permission denied feedback when access is refused.
+- Confines browsing and destinations to canonical primary shared storage, rejects symlink/path escapes and unsafe names, bounds directory enumeration, filters import extensions and performs filesystem work off the Compose/UI thread.
+- Adds explicit overwrite confirmation plus same-directory temporary writes with flush/fsync and atomic replace where supported, cleaning failed temporary output.
+- Retains Analysis snapshot schema/8 MiB validation, minimum-profile schema/256 KiB and rule bounds, exact schema-v3 `technicalReport` serialization, and complete-report readiness for TXT/HTML.
+- Makes TXT/HTML export use a bounded private cache snapshot at export initiation with saveable pending metadata and cleanup after cancel/success/stale recovery.
+- Keeps Turnip import/file-manager behavior, updater/Database security, Vulkan/native/JNI collection, registry/generated data, report schemas, API/ABI/dependency pins and manifest permission set unchanged from 1.3.5.
+
+## 1.3.5
+
+- Fixes a Kotlin compile blocker caused by a duplicate `registryCoverage` declaration in Info.
+- Hardens the Turnip file manager against stale concurrent scans with owned job/generation state, cooperative cancellation, loading navigation guards and cleared rows while a new directory is loading.
+- Restores standard Material press/ripple and accessibility click semantics to Turnip folder rows and the shared single-select filter control.
+- Makes the file-manager selected/remaining and List/Compact header responsive at large font scales and narrow widths.
+- Moves ZXing QR generation off the Compose/UI thread and rethrows Turnip-import coroutine cancellation instead of publishing stale failure UI after lifecycle teardown.
+- Rebuilds the current 1.3.5 quality-gate route so superseded SAF/exact-string historical gates remain documentary while current Vulkan/spec, compile-static, lifecycle, report/profile/video, security and release contracts execute.
+- Regenerates the strict release file census and retains Vulkan 1.4.362/header 362, API 37, report schemas, native/JNI collection, ABIs, dependency pins and fixed network-security boundaries unchanged.
+
+## 1.3.4
+
+- Adds the SAF-free in-app Turnip ZIP file manager using Android all-files special access only when the explicit Import driver ZIP action requires it.
+- Shows folders plus prevalidated Turnip ZIPs only, with bounded scanning, search, List/Compact modes, package Info, Mesa artwork, modified date/size and remaining-slot-limited multi-selection.
+- Revalidates selected archives before private-slot installation and retains the existing 10-slot Turnip validation/security transaction.
+
+## 1.3.3
+
+- Removes VulkanScope-owned SAF OpenDocument/CreateDocument routes and their SAF-specific storage fallback paths without introducing a replacement storage frontend in that release.
+- Keeps already-installed Turnip slots and private bundle validation/activation/removal intact while Analysis/TXT/HTML/JSON storage exchange remains explicitly unavailable.
+
+## 1.3.2
+
+- Reworks the built-in GitHub APK download into a persistent in-place update transfer dialog after the existing explicit Download update confirmation. The dialog shows connection state, live transfer speed, byte/progress information and a bounded auto-scrolling monospace live log.
+- Adds explicit Pause / Resume and Cancel controls. Cancel first pauses the transfer and opens a question dialog; Resume is an uncontained text action while Cancel download is a contained X action. Confirmed cancellation stops the active HTTP call, removes the partial APK, records cancellation in the live log and leaves a terminal Update canceled card with Close-X.
+- Stops auto-opening Android's package installer when verification completes. A verified download remains visible as Update downloaded with a check icon until the user explicitly chooses the contained Install action or closes the terminal card.
+- Preserves the official GitHub release URL restriction, 256 MiB download ceiling, private-cache confinement, package/signature/version validation, validated-network gating and explicit Android installer handoff. No new endpoint, permission, background download or silent-install path is added.
+
+## 1.3.1
+
+- Replaces shared single-select horizontal filter carousels with a bounded dropdown selector that provides case-insensitive search, up to 50 choices per page, previous/next paging and direct numeric page entry while preserving the standalone All switch and existing filter semantics.
+- Keeps multi-select usage filters unchanged and leaves filtering as a presentation-only operation over already collected evidence.
+- Adds an HDR-capability disclosure above detected-type artwork explaining that displayed official logo artwork corresponds to HDR types reported by Android on the current device, while HLG and HLG+ remain text-rendered because no authoritative official-logo asset is used for those formats.
+- Retains Android HDR type mapping including API-37 HLG+ value 6, Vulkan 1.4.362/header 362, native collection, report schemas, storage/update behavior, fixed HTTPS origins, ABI policy and dependency pins unchanged.
+
+## 1.3.0
+
+- Presents the Vulkan API name as `Vulkan®` throughout VulkanScope UI text while preserving the `VulkanScope` product name and leaving canonical runtime evidence, Vulkan registry tokens, report keys and internal query identifiers unchanged.
+- Adds a contained right-chevron `License` action under every direct application/native library in Info. License documents open in a bounded, scrollable markdown-style dialog with text artwork and a contained Close-X action.
+- Packages the applicable Apache-2.0, BSD-2-Clause and Vulkan-Headers Apache-2.0 OR MIT license texts locally so license disclosure needs no network access.
+- Retains Android 12 / API 31 minimum, Vulkan Registry/header 1.4.362, native collection, report schemas, fixed HTTPS origins, storage/update behavior, ABI policy and dependency pins unchanged.
+
 ## 1.2.5
 
 - Fixes abrupt Settings destination entry: choosing Info, Reports & Database, or Driver & Update Preferences now transitions the chooser into the selected destination with bounded horizontal slide + fade motion instead of replacing the content immediately.
@@ -604,3 +672,49 @@
 - Corrected failed physical-device and uncertain extension-enumeration paths so they do not become false Not applicable results.
 - Distinguished Android HDR capability-object absence from a genuine empty supported-HDR-type list.
 - Propagated the refined enumeration/HDR provenance through UI, Analysis, TXT, HTML and structured reports.
+
+
+## 1.3.8
+- Refined the shared single-filter selector with Material 3 Expressive popup motion, animated chevron/enabled state, shared search UI, wrapped labels and vertical scroll hints.
+- Hardened filter pagination input so only existing numeric pages are accepted; one-page controls remain visible but disabled.
+- Reworked Turnip file-manager colors to explicit VulkanScope dark content colors, fixing dark-on-dark text from real-device screenshots.
+- Replaced List/Compact text buttons with an expressive segmented control and aligned search/footer/details presentation with the VulkanScope Material 3 Expressive language.
+- No Vulkan/native/report/Database/updater/storage-security behavior change.
+
+## 1.3.10
+- Restricted the shared single-filter selector opener to the contained VulkanScope-red chevron action; the informational selector body no longer reacts to taps or draws press feedback.
+- Smoothed filter popup entry/exit and page/search result transitions, and kept page controls in a fixed footer region that remains visible while the result list flexes around IME/search changes.
+- Restricted Turnip folder navigation to contained red right-arrow actions in list/compact/details and grid presentations.
+- Presented the existing official packaged Mesa logo through one consistent tonal/outlined badge in Turnip ZIP cards and package information without modifying the logo asset.
+- Kept already imported Turnip ZIP sources visible when the exact stored source location and filename match, but render them muted and block selection, info actions and re-import.
+- Added a yellow About disclosure stating that VulkanScope is not an official Khronos Group project, separated from the existing description by visual spacing.
+- No Vulkan/native/report/Database/updater/storage-security or dependency change.
+
+## 1.3.11
+- Fixed the real release Kotlin compile blocker by importing the Compose `fillMaxHeight` layout extension used by the filter popup.
+- Hardened update-status, update-preference and updater-dialog colors to the explicit VulkanScope dark Material 3 Expressive palette, including dialog title/text content colors and nested updater surfaces.
+- Kept updater Pause/Resume/Cancel/Install state behavior, APK provenance/signature/version validation and partial-download cleanup unchanged.
+- Left pinned libadrenotools warning-only diagnostics unchanged because they are not the cause of the Kotlin build failure.
+
+
+## 1.3.12
+- Made compact single-filter popups omit search when fewer than five filter choices exist and omit all pagination controls when the filtered result fits on one page.
+- Added staged popup mount/reveal motion and a contained red close action beside the search field; re-opening a filter now starts on the currently selected filter instead of the beginning of the catalogue.
+- Fixed direct page-number editing so the current value can be deleted and replaced from the numeric keyboard while valid pages remain strictly bounded to the current page count.
+- Applied the Turnip-style contained red right-arrow interaction to the shared in-app storage browser used by JSON/TXT/HTML/profile/report import/export flows; folder/file card bodies are informational only.
+- Refined System Vulkan driver and managed Turnip slot presentation with Material 3 Expressive badges, state treatment, tonal evidence pills and clearer active/inactive card hierarchy without changing activation/removal semantics.
+- Retained the 1.3.11 compile fix, updater state/security rules, storage confinement/type locking, Vulkan collection and report/database behavior.
+
+## 1.3.13
+- Restyled every Mesa/Turnip logo presentation with VulkanScope accent-red tint/container treatment while preserving the packaged Mesa logo bytes.
+- Replaced the System-driver Android badge with the same packaged GPU-vendor logo family used by Overview, sized inside the existing red driver badge.
+- Corrected Turnip metadata labels so driver identity is shown as Driver name and package `driverVersion` metadata is identified as Vulkan version; the existing slot/state Vulkan-version line remains unchanged.
+- Reworked the single-filter menu as a normal expanding section directly beneath its selector so it cannot flip above or overlap the selector, and the owning page remains scrollable while the menu is open.
+- Made the contained red X the only enabled-menu close action; outside/page taps and filter-result selection no longer dismiss the menu, and Back only clears an active IME while the menu is open.
+
+## 1.4.0
+- Unified the remaining legacy Format explorer multi-filter carousel with the same in-layout Material 3 Expressive selector language used by VulkanScope's other filters; active production filter UI no longer uses the old horizontal FilterChip carousel.
+- Removed the dedicated filter X action. The contained chevron now toggles both opening and closing while keeping result selection and ordinary page interaction non-dismissing.
+- Restored the filter search control to full menu width after removing the X, while retaining selected-row restoration, bounded pagination and smooth in-layout motion.
+- Replaced the Overview Quick access section's home glyph with a dedicated VulkanScope-accented 3x3 nine-dot grid icon matching the supplied visual reference.
+- Kept Vulkan collection, reports, Database, updater, storage security, Turnip handling and driver behavior unchanged.

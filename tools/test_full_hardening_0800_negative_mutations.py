@@ -33,5 +33,5 @@ mutate('unbounded-archive', lambda s: s.replace('ZipInputStream(BoundedDriverArc
 mutate('archive-limit-drift', lambda s: s.replace('private const val TURNIP_ARCHIVE_INPUT_MAX_BYTES = 96L * 1024L * 1024L', 'private const val TURNIP_ARCHIVE_INPUT_MAX_BYTES = Long.MAX_VALUE', 1))
 mutate('terminal-validation-bypass', lambda s: s.replace('return strictProbeTerminalCandidate(candidate, group == "base")', 'return true', 1))
 mutate('checkpoint-full-read', lambda s: s.replace('if (crashDetected()) continue', 'readFileTextLimited(resultFile, maxProbeResultBytes.toInt())\n                                if (crashDetected()) continue', 1))
-mutate('unrelated-text', lambda s: s.replace('Detailed Vulkan inspection areas', 'Detailed Vulkan inspection areas and evidence', 1), should_fail=False)
+mutate('unrelated-text', lambda s: s.replace('Driver manager is busy.', 'Driver manager is currently busy.', 1), should_fail=False)
 print('PASS 0.80.0 full hardening negative mutations')

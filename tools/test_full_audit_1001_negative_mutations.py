@@ -28,7 +28,8 @@ if 'private fun ExpressiveFilterCarousel' in current_main:
     mutate(main,'LazyRow(','Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {','restore unmanaged horizontally hidden filters')
 else:
     mutate(main,'FlowRow(Modifier.fillMaxWidth()','Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())','restore horizontally hidden filters')
-mutate(main,'The base collector does not publish elapsed time for every Vulkan query','The current collector does not publish per-query durations','restore inaccurate timing text')
+timing_source = 'The base collector does not publish elapsed time for every Vulkan® query' if 'The base collector does not publish elapsed time for every Vulkan® query' in current_main else 'The base collector does not publish elapsed time for every Vulkan query'
+mutate(main,timing_source,'The current collector does not publish per-query durations','restore inaccurate timing text')
 current_gradle=(root/'app/build.gradle.kts').read_text(encoding='utf-8')
 import re
 match=re.search(r'versionCode\s*=\s*(\d+)',current_gradle)

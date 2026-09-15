@@ -41,8 +41,9 @@ for token in ['val dialogMaxHeight =', '.weight(1f, fill = false)', 'ExpressiveC
     need(token in close_dialog, f'detail-dialog clipping repair missing: {token}')
 need(close_dialog.count('.heightIn(max = dialogMaxHeight)') >= 2, 'detail-dialog outer/content max-height constraints missing')
 contained_icon = block('private fun ExpressiveContainedIconTextButton(', '@Composable\nprivate fun ExpressiveLinearProgressIndicator')
-for token in ['modifier = modifier.heightIn(min = 48.dp)', 'verticalAlignment = Alignment.CenterVertically', 'Icon(painterResource(icon)', 'Text(label, fontWeight = fontWeight']:
+for token in ['modifier = modifier.heightIn(min = 48.dp)', 'verticalAlignment = Alignment.CenterVertically', 'Icon(painterResource(icon)']:
     need(token in contained_icon, f'contained icon/text alignment contract missing: {token}')
+need('Text(label, fontWeight = fontWeight' in contained_icon or 'Text(trademarkVulkanDisplayText(label), fontWeight = fontWeight' in contained_icon, 'contained icon/text alignment contract missing: label rendering')
 need('Box(Modifier.size(20.dp)' not in contained_icon, 'legacy nested icon box remains in contained icon/text action')
 
 action = block('private fun ExpressiveActionButton(', '@Composable\nprivate fun ExpressiveExternalLinkRow')
@@ -80,7 +81,8 @@ for token in ['summary: SystemDriverSummary?', 'CapabilityKeyValue("GPU"', 'Capa
     need(token in system_row, f'System driver row parity missing: {token}')
 system_dialog = block('private fun SystemDriverDetailsDialog(', '@Composable\nprivate fun UnavailableTurnipKeyValue')
 for token in ['ScrollableDetailDialog(title = "System Vulkan driver"', 'CapabilityKeyValue("Evidence source"', 'CapabilityKeyValue("Driver version"', 'CapabilityKeyValue("Driver name"', 'CapabilityKeyValue("Vulkan API"', 'CapabilityKeyValue("Loader version"']:
-    need(token in system_dialog, f'System driver detail field missing: {token}')
+    marked_token = token.replace('CapabilityKeyValue("Vulkan API"', 'CapabilityKeyValue("Vulkan® API"')
+    need(token in system_dialog or marked_token in system_dialog, f'System driver detail field missing: {token}')
 need('Turnip' not in system_dialog, 'System detail dialog misattributes Turnip evidence')
 
 analysis = block('private fun LazyListScope.analysisWorkspaceItems(', '@OptIn(ExperimentalMaterial3ExpressiveApi::class)\n@Composable\nprivate fun DetailAffordance')

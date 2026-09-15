@@ -1,10 +1,10 @@
 # VulkanScope Database endpoint
 
-VulkanScope 1.2.5 uses the fixed official VulkanScope Database Worker root:
+VulkanScope 1.3.5 uses the fixed official VulkanScope Database Worker root:
 
 `https://vulkanscope-database-api.vulkanscope.workers.dev`
 
-The endpoint is not user-editable. Complete-report submission remains explicit and user initiated; no automatic or background report upload is performed. Submission remains schema 2 / technicalReport 3. VulkanScope 1.2.5 retains the typed submission-result handling, bounded failure diagnostics and exact successful report-ID presentation introduced in 1.2.3; this release does not change the submitted schema.
+The endpoint is not user-editable. Complete-report submission remains explicit and user initiated; no automatic or background report upload is performed. Submission remains schema 2 / technicalReport 3. VulkanScope 1.3.5 retains the typed submission-result handling, bounded failure diagnostics and exact successful report-ID presentation introduced in 1.2.3; this release does not change the submitted schema.
 
 VulkanScope 1.2.5 preserves the Vulkan 1.4.362 producer/query and canonical report behavior of 1.2.4. Native Vulkan collection, report serialization, endpoint confinement, privacy exclusions, report identity and capability semantics remain unchanged. Successful submission requires a valid lowercase 64-hex report ID; failed local validation, serialization, HTTP, response-validation and network-request outcomes expose a bounded copyable diagnostic log.
 

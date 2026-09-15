@@ -61,7 +61,7 @@ if is_1002_or_newer:
 else:
     need('FlowRow(' in filter_block,'shared filter bar is not responsive FlowRow')
     need('horizontalScroll' not in filter_block,'shared filter bar still hides destinations in horizontal scrolling')
-need('The base collector does not publish elapsed time for every Vulkan query' in main and 'dedicated or on-demand probes display measured app-side elapsed time' in main,'diagnostics timing explanation is inaccurate')
+need(('The base collector does not publish elapsed time for every Vulkan query' in main or 'The base collector does not publish elapsed time for every Vulkan® query' in main) and 'dedicated or on-demand probes display measured app-side elapsed time' in main,'diagnostics timing explanation is inaccurate')
 need('Current session could not be persisted because local storage was unavailable or the bounded history size was exceeded' in main,'history failure UI still claims only a size-limit cause')
 need('## Release 1.0.1 full security, specification, correctness and usability audit requirements' in rules,'PROJECT_RULES 1.0.1 contract missing')
 need((root/'rules/1.0.1_FULL_SECURITY_SPEC_CORRECTNESS_USABILITY_AUDIT.md').is_file(),'1.0.1 audit file missing')
