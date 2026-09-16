@@ -718,3 +718,9 @@
 - Restored the filter search control to full menu width after removing the X, while retaining selected-row restoration, bounded pagination and smooth in-layout motion.
 - Replaced the Overview Quick access section's home glyph with a dedicated VulkanScope-accented 3x3 nine-dot grid icon matching the supplied visual reference.
 - Kept Vulkan collection, reports, Database, updater, storage security, Turnip handling and driver behavior unchanged.
+
+## 1.4.1
+- Contained filter-result scrolling so reaching the first or last filter option no longer transfers residual scroll/fling movement to the parent page.
+- Applied the same boundary containment to both shared single-selection filters and the Format explorer multi-selection filter without changing normal filter-list or page scrolling.
+- Added each managed Turnip slot's validated Vulkan library filename and package description directly to wide and compact slot cards using existing metadata and responsive evidence pills.
+- Kept Turnip ZIP validation/import/activation, Vulkan collection, reports, Database, updater and storage-security behavior unchanged.

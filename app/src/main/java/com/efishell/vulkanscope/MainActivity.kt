@@ -74,6 +74,11 @@ import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -10283,7 +10288,8 @@ private fun TurnipDriverManagerTable(
                     tonalElevation = if (driver.selected) 2.dp else 1.dp
                 ) {
                     if (wide) {
-                        Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             MesaOfficialLogoBadge(size = 30.dp, muted = unavailable)
                             Surface(shape = RoundedCornerShape(14.dp), color = if (driver.selected) VulkanAccentContainer else VulkanSurfaceLow, contentColor = if (driver.selected) VulkanAccentSoft else VulkanTextSecondary) {
                                 Text("%02d".format(java.util.Locale.ROOT, driver.slot), modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
@@ -10303,6 +10309,12 @@ private fun TurnipDriverManagerTable(
                                     if (!unavailable && !driver.selected) ExpressiveContainedTextButton("Activate", enabled = enabled && info.installed) { onActivate(driver.slot) }
                                     ExpressiveContainedIconTextButton("Remove", R.drawable.ic_delete, enabled = enabled) { onRemove(driver) }
                                 }
+                            }
+                            }
+                            HorizontalDivider(color = VulkanOutlineVariant)
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                ExpressiveInfoPill("Vulkan® library", info.libraryName ?: "Not available", Modifier.weight(1f))
+                                ExpressiveInfoPill("Description", info.description?.takeIf { it.isNotBlank() } ?: "Not provided", Modifier.weight(1f))
                             }
                         }
                     } else {
@@ -10330,6 +10342,8 @@ private fun TurnipDriverManagerTable(
                                 TurnipStatePill(turnipDriverStateLabel(driver), driver.selected, driver.sourceAvailable && info.installed)
                             }
                             ExpressiveInfoPill("Source ZIP", info.zipName ?: "Source name unavailable", Modifier.fillMaxWidth())
+                            ExpressiveInfoPill("Vulkan® library", info.libraryName ?: "Not available", Modifier.fillMaxWidth())
+                            ExpressiveInfoPill("Description", info.description?.takeIf { it.isNotBlank() } ?: "Not provided", Modifier.fillMaxWidth())
                             if (useTwoColumnPills) {
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     ExpressiveInfoPill("Driver name", info.driverName ?: "Not provided", Modifier.weight(1f))
@@ -12594,6 +12608,19 @@ private fun CapabilityItemCard(
 }
 
 @Composable
+private fun rememberFilterScrollBoundaryConnection(): NestedScrollConnection = remember {
+    object : NestedScrollConnection {
+        override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+            return if (available.y != 0f) Offset(0f, available.y) else Offset.Zero
+        }
+
+        override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+            return if (available.y != 0f) Velocity(0f, available.y) else Velocity.Zero
+        }
+    }
+}
+
+@Composable
 private fun ExpressiveSingleFilterSelector(
     labels: List<String>,
     selectedIndex: Int?,
@@ -12776,7 +12803,8 @@ private fun ExpressiveSingleFilterSelector(
                                     val targetPageItems = targetIndexed.drop(targetPage * pageSize).take(pageSize)
                                     val selectedOffset = if (targetQuery.isBlank()) targetPageItems.indexOfFirst { it.first == selectedIndex } else -1
                                     val targetListState = rememberLazyListState(initialFirstVisibleItemIndex = selectedOffset.coerceAtLeast(0))
-                                    Box(Modifier.fillMaxSize()) {
+                                    val boundaryScrollConnection = rememberFilterScrollBoundaryConnection()
+                                    Box(Modifier.fillMaxSize().nestedScroll(boundaryScrollConnection)) {
                                         LazyColumn(
                                             state = targetListState,
                                             modifier = Modifier.fillMaxSize(),
@@ -13017,7 +13045,8 @@ private fun ExpressiveMultiFilterBar(labels: List<String>, selectedLabels: Set<S
                             )
                         }
                         val listState = rememberLazyListState()
-                        Box(Modifier.fillMaxWidth().heightIn(min = 56.dp, max = 420.dp)) {
+                        val boundaryScrollConnection = rememberFilterScrollBoundaryConnection()
+                        Box(Modifier.fillMaxWidth().heightIn(min = 56.dp, max = 420.dp).nestedScroll(boundaryScrollConnection)) {
                             LazyColumn(
                                 state = listState,
                                 modifier = Modifier.fillMaxWidth(),

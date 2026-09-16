@@ -284,3 +284,31 @@ Final deterministic packaging/clean-extract evidence is executed as the release 
 - Clean extraction reran `verify_release_1400.py`, `test_release_1400_state_machine.py`, `test_release_1400_negative_mutations.py`, `verify_release_1400_regression.py` and `verify_compile_regressions.py`: PASS.
 - Quick-access vector XML parse: PASS.
 - Android `:app:assembleRelease` remains `NOT EXECUTED` in this environment because Gradle bootstrap could not resolve `services.gradle.org`; no Android build PASS is claimed.
+
+# VulkanScope 1.4.1 targeted filter-boundary/Turnip-slot audit
+
+## Scope and root cause
+- Immutable predecessor for this task: latest supplied VulkanScope 1.4.0 ZIP, 605 files, ZIP SHA-256 `f0a3c32f0bbc0f89b0fb0f5aca47e33a3c55e3389a2e96b02943c02243305c27`.
+- Both active in-layout filter result surfaces use `LazyColumn`. Once a list reached its first/last item, the child had no more vertical distance to consume and the remaining nested-scroll delta/velocity propagated to the owning scrollable page.
+- Managed Turnip metadata already retained validated `libraryName` and parsed `description`, and the Details dialog exposed them, but the slot cards did not.
+
+## Patch classification
+- `BUG/USABILITY`: contain only post-scroll residual Y delta and post-fling residual Y velocity at each filter result-list boundary. No pre-consumption is introduced, so normal list scrolling happens first and ordinary page scrolling outside the list remains available.
+- `USABILITY`: show existing Turnip `libraryName` and nonblank `description` values directly on both wide and compact managed-slot cards with explicit fallbacks.
+- Production runtime changes are restricted to `MainActivity.kt`; `app/build.gradle.kts` changes release identity only. Native/JNI, Vulkan/report/Database, Turnip archive-validation/import/activation/removal, storage-security, manifest, dependency and resource bytes are unchanged.
+
+## Targeted 1.4.1 evidence
+- `tools/verify_release_1401.py`: PASS.
+- `tools/test_release_1401_state_machine.py`: PASS.
+- `tools/test_release_1401_negative_mutations.py`: PASS.
+- `tools/verify_release_1401_regression.py`: PASS against the immutable latest 1.4.0 package.
+- Immutable 1.4.0 predecessor oracle with version checks skipped: expected FAIL because it lacks filter-boundary containment.
+- `tools/verify_compile_regressions.py`: PASS.
+- AndroidX nested-scroll API cross-check: `LazyColumn` participates in nested scrolling and a parent `NestedScrollConnection.onPostScroll` may consume remaining `available` delta; `onPostFling` provides remaining velocity for containment.
+- Android `:app:assembleRelease`: `NOT EXECUTED`; the wrapper attempted to download Gradle 9.7.1 but this environment cannot resolve `services.gradle.org` (`UnknownHostException`) before project compilation. No Android build PASS is claimed.
+
+## Final packaging evidence
+- Strict source/package census: 611 files, PASS.
+- Two independent deterministic ZIP generations were byte-identical.
+- Clean extraction was byte-identical to the source tree under `files.txt`.
+- Clean extraction reran the complete targeted 1.4.1 verifier/state/negative-mutation/regression suite and compile-regression guard: PASS.

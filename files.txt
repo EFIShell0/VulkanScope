@@ -289,6 +289,7 @@ rules/1.3.0_VULKAN_TRADEMARK_LIBRARY_LICENSE_AUDIT.md
 rules/1.3.1_FILTER_DROPDOWN_HDR_DISCLOSURE_AUDIT.md
 rules/1.3.2_UPDATE_TRANSFER_DIALOG_AUDIT.md
 rules/1.3.9_FILTER_STORAGE_UI_REFINEMENT_AUDIT.md
+rules/1.4.1_FILTER_BOUNDARY_TURNIP_SLOT_METADATA_AUDIT.md
 rules/IZZYONDROID.md
 rules/PROJECT_RULES.md
 rules/REFERENCE_4_12_AUDIT.md
@@ -373,6 +374,7 @@ tests/golden/1.3.6_material3_optin_contract.json
 tests/golden/1.3.7_ui_refinement_contract.json
 tests/golden/1.3.8_ui_storage_refinement_contract.json
 tests/golden/1.3.9_filter_turnip_about_contract.json
+tests/golden/1.4.0_filter_boundary_turnip_slot_metadata_contract.json
 tools/audit_extension_reference.py
 tools/compare_reference_4_12.py
 tools/generate_encyclopedia_symbols.py
@@ -478,6 +480,8 @@ tools/test_release_1313_negative_mutations.py
 tools/test_release_1313_state_machine.py
 tools/test_release_1400_negative_mutations.py
 tools/test_release_1400_state_machine.py
+tools/test_release_1401_negative_mutations.py
+tools/test_release_1401_state_machine.py
 tools/test_report_semantics_state_machine.py
 tools/test_report_surface_integrity_negative_mutations.py
 tools/test_report_surface_integrity_state_machine.py
@@ -586,6 +590,8 @@ tools/verify_release_1313.py
 tools/verify_release_1313_regression.py
 tools/verify_release_1400.py
 tools/verify_release_1400_regression.py
+tools/verify_release_1401.py
+tools/verify_release_1401_regression.py
 tools/verify_report_semantics_04140.py
 tools/verify_report_surface_integrity_04141.py
 tools/verify_responsive_overlay_ui_0815.py

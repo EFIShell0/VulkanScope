@@ -6,7 +6,7 @@
 
 Database: https://efishell0.github.io/VulkanScope_database/
 
-**Current version: 1.4.0**
+**Current version: 1.4.1**
 
 This app supports **Obtainium**; the project/release URL can be used for update tracking.
 
@@ -69,20 +69,20 @@ A capability that was not queried or could not be determined is not silently con
 # Screenshots
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/overview-3.jpg" width="200">
-  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/properties-3.jpg" width="200">
-  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/vulkan-3.jpg" width="200">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/overview-4.jpg" width="200">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/properties-4.jpg" width="200">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/vulkan-4.jpg" width="200">
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/surface-3.jpg" width="200">
-  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/display-3.jpg" width="200">
-  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/extensions-3.jpg" width="200">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/surface-4.jpg" width="200">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/display-4.jpg" width="200">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/extensions-4.jpg" width="200">
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/mumuplayer-3.png" width="500">
-  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/database_new4.png" width="500">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/mumuplayer-4.png" width="500">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/database_new5.png" width="500">
 </p>
 
 **NOTE: The first landscape image was taken from MuMuPlayer, and VM (hypervisor) software like BlueStacks, MuMuPlayer, LDPlayer, QEMU etc. is not supported.**
