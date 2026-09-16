@@ -724,3 +724,11 @@
 - Applied the same boundary containment to both shared single-selection filters and the Format explorer multi-selection filter without changing normal filter-list or page scrolling.
 - Added each managed Turnip slot's validated Vulkan library filename and package description directly to wide and compact slot cards using existing metadata and responsive evidence pills.
 - Kept Turnip ZIP validation/import/activation, Vulkan collection, reports, Database, updater and storage-security behavior unchanged.
+
+## 1.4.2
+- Reduced the expanded single-filter menu height in landscape so search, results and pagination remain visible without the panel stretching to the bottom edge.
+- Kept filter results internally scrollable while retaining the taller established portrait layout.
+- Centered the complete pagination control group in both portrait and landscape.
+- Reduced the editable page-number field from 96 dp to a compact 72 dp and centered its numeric text.
+- Preserved filter scroll containment, Turnip slot metadata, Vulkan collection, reports, Database, updater and storage-security behavior.
+- Removed the top-level screenshots folder from the VulkanScope source ZIP package.

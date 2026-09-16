@@ -168,3 +168,9 @@ The runtime never downloads or parses these sources; the checked-in query catalo
 - OkHttp releases, project pin 5.5.0: https://github.com/square/okhttp/releases
 - ZXing Core Maven Central versions, project pin 3.5.4: https://central.sonatype.com/artifact/com.google.zxing/core/versions
 - Android dynamic code loading security guidance: https://developer.android.com/privacy-and-security/risks/dynamic-code-loading
+
+## 1.4.3 configuration-retention sources
+- Android configuration changes: https://developer.android.com/guide/topics/resources/runtime-changes — Activity recreation is the default; declared `android:configChanges` values are delivered to the existing Activity, and Compose reads changing configuration through `LocalConfiguration`.
+- Android Activity API configuration-change contract: https://developer.android.com/reference/android/app/Activity#ConfigurationChanges — handled configuration values call `onConfigurationChanged` instead of restarting the Activity.
+- Android adaptive multi-window configuration handling: https://developer.android.com/develop/adaptive-apps/guides/support-multi-window-mode — `screenSize`, `smallestScreenSize`, `screenLayout` and `orientation` form the documented window-size/orientation handling set.
+- Android Compose state saving: https://developer.android.com/develop/ui/compose/state-saving — `rememberSaveable` is appropriate for small UI restoration metadata; large report payloads are not saved into the Bundle.

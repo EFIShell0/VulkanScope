@@ -4344,10 +4344,15 @@ private fun VulkanScopeApp(
     onRequestQuery: (String) -> Unit,
     queryTimingMs: Map<String, Long>
 ) {
-    var page by remember { mutableStateOf(Page.Overview) }
+    var page by rememberSaveable(
+        stateSaver = androidx.compose.runtime.saveable.Saver<Page, String>(
+            save = { it.name },
+            restore = { saved -> Page.values().find { it.name == saved } ?: Page.Overview }
+        )
+    ) { mutableStateOf(Page.Overview) }
     var settingsSection by rememberSaveable { mutableStateOf<SettingsSection?>(null) }
     var encyclopediaSeed by rememberSaveable { mutableStateOf("") }
-    var selectedDeviceIndex by remember { mutableIntStateOf(0) }
+    var selectedDeviceIndex by rememberSaveable { mutableIntStateOf(0) }
     LaunchedEffect(page) { onPageOpened(page) }
     LaunchedEffect(report?.devices?.size) {
         val count = report?.devices?.size ?: 0
@@ -12681,11 +12686,18 @@ private fun ExpressiveSingleFilterSelector(
     }
 
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val dropdownWidth = maxWidth.coerceAtMost(560.dp)
-        val screenHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
+        val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+        val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val dropdownWidth = if (landscape) maxWidth else maxWidth.coerceAtMost(560.dp)
+        val screenHeight = configuration.screenHeightDp.dp
         val imeHeight = with(density) { WindowInsets.ime.getBottom(density).toDp() }
-        val dropdownMaxHeight = (screenHeight - imeHeight - 96.dp).coerceIn(240.dp, 620.dp)
-        val visibleRows = indexed.drop(page * pageSize).take(pageSize).size.coerceIn(1, 7)
+        val usableHeight = (screenHeight - imeHeight).coerceAtLeast(220.dp)
+        val dropdownMaxHeight = if (landscape) {
+            ((usableHeight.value * 0.62f).dp).coerceIn(220.dp, 440.dp)
+        } else {
+            (usableHeight - 96.dp).coerceIn(240.dp, 620.dp)
+        }
+        val visibleRows = indexed.drop(page * pageSize).take(pageSize).size.coerceIn(1, if (landscape) 4 else 7)
         val dropdownDesiredHeight = (
             28.dp +
                 (if (showSearch) 96.dp else 0.dp) +
@@ -12851,64 +12863,67 @@ private fun ExpressiveSingleFilterSelector(
                             }
                             if (indexed.isNotEmpty() && pageCount > 1) {
                                 HorizontalDivider(color = VulkanOutlineVariant)
-                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    IconButton(
-                                        onClick = { if (page > 0) page -= 1 },
-                                        enabled = page > 0,
-                                        colors = IconButtonDefaults.iconButtonColors(
-                                            containerColor = VulkanAccentContainer,
-                                            contentColor = VulkanTextPrimary,
-                                            disabledContainerColor = VulkanSurfaceLow,
-                                            disabledContentColor = VulkanTextMuted
-                                        )
-                                    ) {
-                                        Icon(painterResource(R.drawable.ic_chevron_left), contentDescription = "Previous filter page")
-                                    }
-                                    OutlinedTextField(
-                                        value = pageField,
-                                        onValueChange = { value ->
-                                            val candidate = value.text
-                                            when {
-                                                candidate.isEmpty() -> pageField = value
-                                                candidate.length <= pageCount.toString().length && candidate.all { it.isDigit() } && !(candidate.length > 1 && candidate.startsWith('0')) -> {
-                                                    val requested = candidate.toIntOrNull()
-                                                    if (requested != null && requested in 1..pageCount) {
-                                                        pageField = value
-                                                        page = requested - 1
+                                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        IconButton(
+                                            onClick = { if (page > 0) page -= 1 },
+                                            enabled = page > 0,
+                                            colors = IconButtonDefaults.iconButtonColors(
+                                                containerColor = VulkanAccentContainer,
+                                                contentColor = VulkanTextPrimary,
+                                                disabledContainerColor = VulkanSurfaceLow,
+                                                disabledContentColor = VulkanTextMuted
+                                            )
+                                        ) {
+                                            Icon(painterResource(R.drawable.ic_chevron_left), contentDescription = "Previous filter page")
+                                        }
+                                        OutlinedTextField(
+                                            value = pageField,
+                                            onValueChange = { value ->
+                                                val candidate = value.text
+                                                when {
+                                                    candidate.isEmpty() -> pageField = value
+                                                    candidate.length <= pageCount.toString().length && candidate.all { it.isDigit() } && !(candidate.length > 1 && candidate.startsWith('0')) -> {
+                                                        val requested = candidate.toIntOrNull()
+                                                        if (requested != null && requested in 1..pageCount) {
+                                                            pageField = value
+                                                            page = requested - 1
+                                                        }
                                                     }
                                                 }
-                                            }
-                                        },
-                                        modifier = Modifier.width(96.dp).onFocusChanged { focus ->
-                                            if (focus.isFocused) {
-                                                pageField = pageField.copy(selection = TextRange(0, pageField.text.length))
-                                            } else if (pageField.text.isBlank()) {
-                                                pageField = TextFieldValue((page + 1).toString())
-                                            }
-                                        },
-                                        singleLine = true,
-                                        label = { Text("Page") },
-                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                        colors = OutlinedTextFieldDefaults.colors(
-                                            focusedBorderColor = VulkanAccentSoft,
-                                            unfocusedBorderColor = VulkanOutline,
-                                            focusedTextColor = VulkanTextPrimary,
-                                            unfocusedTextColor = VulkanTextPrimary,
-                                            cursorColor = VulkanAccentSoft
+                                            },
+                                            modifier = Modifier.width(72.dp).onFocusChanged { focus ->
+                                                if (focus.isFocused) {
+                                                    pageField = pageField.copy(selection = TextRange(0, pageField.text.length))
+                                                } else if (pageField.text.isBlank()) {
+                                                    pageField = TextFieldValue((page + 1).toString())
+                                                }
+                                            },
+                                            singleLine = true,
+                                            label = { Text("Page") },
+                                            textStyle = MaterialTheme.typography.bodyMedium.copy(textAlign = TextAlign.Center),
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedBorderColor = VulkanAccentSoft,
+                                                unfocusedBorderColor = VulkanOutline,
+                                                focusedTextColor = VulkanTextPrimary,
+                                                unfocusedTextColor = VulkanTextPrimary,
+                                                cursorColor = VulkanAccentSoft
+                                            )
                                         )
-                                    )
-                                    Text("/ $pageCount", color = VulkanTextSecondary, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                                    IconButton(
-                                        onClick = { if (page + 1 < pageCount) page += 1 },
-                                        enabled = page + 1 < pageCount,
-                                        colors = IconButtonDefaults.iconButtonColors(
-                                            containerColor = VulkanAccentContainer,
-                                            contentColor = VulkanTextPrimary,
-                                            disabledContainerColor = VulkanSurfaceLow,
-                                            disabledContentColor = VulkanTextMuted
-                                        )
-                                    ) {
-                                        Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = "Next filter page")
+                                        Text("/ $pageCount", color = VulkanTextSecondary, style = MaterialTheme.typography.bodyMedium)
+                                        IconButton(
+                                            onClick = { if (page + 1 < pageCount) page += 1 },
+                                            enabled = page + 1 < pageCount,
+                                            colors = IconButtonDefaults.iconButtonColors(
+                                                containerColor = VulkanAccentContainer,
+                                                contentColor = VulkanTextPrimary,
+                                                disabledContainerColor = VulkanSurfaceLow,
+                                                disabledContentColor = VulkanTextMuted
+                                            )
+                                        ) {
+                                            Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = "Next filter page")
+                                        }
                                     }
                                 }
                             }
