@@ -81,7 +81,7 @@ A capability that was not queried or could not be determined is not silently con
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/mumuplayer-4.png" width="500">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/mumuplayer-landscape-new.png" width="500">
   <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/database_new5.png" width="500">
 </p>
 
