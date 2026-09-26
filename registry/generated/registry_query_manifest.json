@@ -1,18 +1,18 @@
 {
   "schemaVersion": 6,
   "generator": "VulkanScope reproducible registry-query audit manifest",
-  "baseline": "Vulkan 1.4.362",
+  "baseline": "Vulkan 1.4.364",
   "registryRepository": "KhronosGroup/Vulkan-Docs",
-  "registryRef": "1.4.362",
+  "registryRef": "1.4.364",
   "registryPath": "xml/vk.xml",
-  "registrySha256": "cf31c965cf6e788697139601da0c7e02a75a9b6c7ac764e7641f5521ffd9da06",
+  "registrySha256": "4cfe3c137f3a95c15275b1cfda0aee407dbf131de2005a3552aa41c49f895c89",
   "bundledRegistryPath": "registry/upstream/vk.xml",
-  "publishedDate": "2026-09-04",
+  "publishedDate": "2026-09-25",
   "headerRepository": "KhronosGroup/Vulkan-Headers",
-  "headerCommit": "ee2ec5fd83dafce291024683b50dc89219333076",
-  "headerTag": "v1.4.362",
-  "headerVersion": 362,
-  "headerBaseline": "Vulkan 1.4.362 compile headers; validated query catalog Vulkan 1.4.362",
+  "headerCommit": "b0c3dd6851e22621f194306d511b9253e4c1577f",
+  "headerTag": "v1.4.364",
+  "headerVersion": 364,
+  "headerBaseline": "Vulkan 1.4.364 compile headers; validated query catalog Vulkan 1.4.364",
   "reportSchema": "4",
   "implementedPhysicalDeviceStructCount": 110,
   "implementedPhysicalDeviceStructs": [
@@ -234,7 +234,7 @@
     "caps412BufferDeviceAddress",
     "caps412ZeroInitializeWorkgroupMemory"
   ],
-  "validatedPhysicalDeviceQueryExtensionCount": 304,
+  "validatedPhysicalDeviceQueryExtensionCount": 305,
   "validatedPhysicalDeviceQueryExtensions": [
     "VK_AMDX_dense_geometry_format",
     "VK_AMDX_shader_enqueue",
@@ -376,6 +376,7 @@
     "VK_HUAWEI_invocation_mask",
     "VK_HUAWEI_subpass_shading",
     "VK_IMG_relaxed_line_rasterization",
+    "VK_INTEL_device_info",
     "VK_INTEL_shader_integer_functions2",
     "VK_KHR_16bit_storage",
     "VK_KHR_8bit_storage",
@@ -541,7 +542,7 @@
     "VK_VALVE_shader_mixed_float_dot_product",
     "VK_VALVE_video_encode_rgb_conversion"
   ],
-  "validatedStablePhysicalDeviceQueryExtensionCount": 299,
+  "validatedStablePhysicalDeviceQueryExtensionCount": 300,
   "validatedProvisionalPhysicalDeviceQueryExtensionCount": 5,
   "validatedProvisionalPhysicalDeviceQueryExtensions": [
     "VK_AMDX_dense_geometry_format",

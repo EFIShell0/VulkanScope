@@ -212,7 +212,16 @@ internal fun queryDiagnostics(entries: Map<String, String>, timingsMs: Map<Strin
         QueryDiagnosticRow(key, state, value, "Not recorded by the current per-query report contract")
     }
     val timelineRows = timingsMs.entries.mapIndexed { index, (group, elapsed) ->
-        QueryDiagnosticRow("timeline/${index.toString().padStart(3, '0')}/$group", "COMPLETED", "Dedicated probe completed for $group", "$elapsed ms")
+        val description = when {
+            group.startsWith("startup/") -> "Startup gate timing measured"
+            group.startsWith("collection/") -> "Collection orchestration phase measured"
+            group.startsWith("base/") -> "Base collector phase measured"
+            group.startsWith("enrichment/") -> "Enrichment phase measured"
+            group.startsWith("probe_total/") -> "Dedicated probe round-trip measured"
+            group.startsWith("service/") -> "Isolated probe-process phase measured"
+            else -> "Collection timing measured"
+        }
+        QueryDiagnosticRow("timeline/${index.toString().padStart(3, '0')}/$group", "COMPLETED", description, "$elapsed ms")
     }
     return (timelineRows + rows).sortedWith(compareBy<QueryDiagnosticRow> { it.key.substringBefore('/') }.thenBy { it.key })
 }

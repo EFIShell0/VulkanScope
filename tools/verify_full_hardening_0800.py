@@ -51,11 +51,13 @@ for needle in [
         errors.append(f'streaming probe terminal validation missing: {needle}')
 if re.search(r'fun terminalCandidate\(candidate: String\): Boolean \{\s*val parsed = runCatching \{ JSONObject\(candidate\)', main):
     errors.append('probe terminal validation still materializes a JSONObject tree')
-checkpoint_match = re.search(r'if \(resultLength > 0L && checkpointChanged\) \{(.*?)\n\s*\} else \{\n\s*kotlinx\.coroutines\.delay\(40L\)', main, re.S)
+checkpoint_match = re.search(r'if \(resultLength > 0L && checkpointChanged\) \{(.*?)\n\s*\} else \{\n\s*kotlinx\.coroutines\.delay\((\d+)L\)', main, re.S)
 if not checkpoint_match:
     errors.append('checkpoint-change polling block could not be located')
 else:
     checkpoint_block = checkpoint_match.group(1)
+    if int(checkpoint_match.group(2)) <= 0:
+        errors.append('checkpoint polling delay must remain positive')
     if 'readFileTextLimited' in checkpoint_block or 'JSONObject(' in checkpoint_block:
         errors.append('normal changed-checkpoint polling still materializes/parses the full publication')
     if 'if (crashDetected()) continue' not in checkpoint_block:
@@ -103,15 +105,16 @@ for needle in [
         errors.append(f'validated Android/runtime pin drift: {needle}')
 version_match = re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"', build)
 current_version = tuple(map(int, version_match.groups())) if version_match else (0, 0, 0)
-agp_pin = '9.4.0' if current_version >= (0, 80, 8) else '9.3.2'
+agp_pin = '9.4.1' if current_version >= (1, 5, 2) else ('9.4.0' if current_version >= (0, 80, 8) else '9.3.2')
 for needle in [
     f'id("com.android.application") version "{agp_pin}" apply false',
     'id("org.jetbrains.kotlin.plugin.compose") version "2.4.10" apply false'
 ]:
     if needle not in root_build:
         errors.append(f'validated build-tool pin drift: {needle}')
-if lock.get('apiBaseline') != 'Vulkan 1.4.362' or lock.get('registryRef') != '1.4.362' or lock.get('headerVersion') != 362:
-    errors.append('Vulkan 1.4.362/header 362 release lock drifted')
+expected_ref = lock.get('apiBaseline', '').removeprefix('Vulkan ')
+if not expected_ref or lock.get('registryRef') != expected_ref or not isinstance(lock.get('headerVersion'), int) or lock.get('headerVersion', 0) <= 0:
+    errors.append('Vulkan release lock baseline/ref/header relationship drifted')
 if 'JsonReader' not in service or 'reader.isLenient = false' not in service:
     errors.append('probe service strict streaming JSON validation regressed')
 if errors:

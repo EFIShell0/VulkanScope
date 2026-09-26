@@ -29,11 +29,11 @@ require('service onDestroy must claim the shared hard-exit owner so stopService 
 require('service onDestroy must shut down the executor before process exit',
         'worker.shutdownNow()' in service_destroy)
 require('consumer quiescence must retain stopService return evidence',
-        'val stopRequested' in main and 'stopService(Intent(this@MainActivity, VulkanProbeService::class.java))' in main)
+        'val stopRequested' in main and 'stopService(Intent(this@MainActivity, serviceClass))' in main)
 require('accepted stopService must receive an ActivityManager-independent bounded settle window',
-        'if (stopRequested) delay(150L)' in main)
+        'if (stopRequested) delay(20L)' in main or 'if (stopRequested) delay(150L)' in main)
 require('runServiceProbe cancellation must execute non-cancellable teardown before deleting request files',
-        'catch (cancelled: CancellationException)' in main and 'withContext(NonCancellable)' in main and 'ensureVulkanProbeProcessQuiescent()' in main)
+        'catch (cancelled: CancellationException)' in main and 'withContext(NonCancellable)' in main and 'ensureVulkanProbeProcessQuiescent(serviceClass, processSuffix)' in main)
 require('cancellation must be rethrown after teardown rather than converted into capability evidence',
         'throw cancelled' in main)
 

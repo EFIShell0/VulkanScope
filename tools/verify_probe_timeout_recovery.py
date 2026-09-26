@@ -41,9 +41,10 @@ require('consumer must pass its exact bounded timeout to the dedicated process w
         'delay(150L)' in main_timeout_catch and
         'val settledPublication = publishedBeforeTimeout ?: readPublishedCandidate()?.takeIf(::terminalCandidate)' in main_timeout_catch)
 require('consumer must enforce a bounded stale-process barrier before every new service probe',
-        'private suspend fun ensureVulkanProbeProcessQuiescent(timeoutMs: Long = 1_500L): Boolean' in main and
-        'if (!ensureVulkanProbeProcessQuiescent()) return@withLock unavailableProbe' in main and
-        main.find('if (!ensureVulkanProbeProcessQuiescent())') < main.find('startService(intent)', main.find('if (!ensureVulkanProbeProcessQuiescent())')))
+        'private suspend fun ensureVulkanProbeProcessQuiescent(' in main and
+        'timeoutMs: Long = 1_500L' in main and
+        'if (!ensureVulkanProbeProcessQuiescent(serviceClass, processSuffix)) return@withLock unavailableProbe' in main and
+        main.find('if (!ensureVulkanProbeProcessQuiescent(serviceClass, processSuffix))') < main.find('startService(intent)', main.find('if (!ensureVulkanProbeProcessQuiescent(serviceClass, processSuffix))')))
 require('base timeout must be bounded to 20 seconds', 'runServiceProbe("base", surface, 20_000L, modeSnapshot)' in main)
 require('terminal unavailable/timeout base results must not be retried automatically',
         'val retryablePartial = attempt == 0 &&' in main and 'root.optString("status", "unavailable") == "incomplete"' in main and 'parsed.error?.contains("timeout", ignoreCase = true) != true' in main)

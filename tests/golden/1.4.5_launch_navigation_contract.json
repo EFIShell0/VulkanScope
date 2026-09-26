@@ -1,0 +1,21 @@
+{
+  "predecessor_zip_sha256": "b78132731a6c2b0e4ef0f616979d25b235368838342ee3c103610c210ada5a8e",
+  "predecessor_file_count": 624,
+  "predecessor_sha256": {
+    "app/src/main/java/com/efishell/vulkanscope/MainActivity.kt": "3325c5eb5d8cc7c7f0c23572f424cc412956882bcefe596ff0a13404d11b33cb",
+    "app/build.gradle.kts": "52e690d89512026b246cbefbe5f0b72b6182494fd265518df803c23ac7b42f78",
+    "rules/PROJECT_RULES.md": "02ef9b7d6654f79bdda346a9d8268bd316a2cbc4ae0b124d6d1d944df937f4b3",
+    "tools/quality_gate.py": "9ca0d5e0598d2914fd3958064f5bfd4e5e71268275a9a517d23233753c5e7cad"
+  },
+  "allowed_changed_app_src_main": [
+    "app/src/main/java/com/efishell/vulkanscope/MainActivity.kt"
+  ],
+  "unchanged_security_sensitive_paths": [
+    "app/src/main/AndroidManifest.xml",
+    "app/src/main/cpp/vulkanscope.cpp",
+    "app/src/main/cpp/CMakeLists.txt",
+    "app/src/main/java/com/efishell/vulkanscope/VulkanProbeService.kt",
+    "registry/registry_lock.json",
+    "registry/video_registry_lock.json"
+  ]
+}

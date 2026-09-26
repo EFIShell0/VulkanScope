@@ -29,7 +29,7 @@ require('timeout boundary must recover already-published terminal result', 'Reco
 require('a bounded stale-process barrier must run before each new probe', 'ensureVulkanProbeProcessQuiescent' in main and 'Previous dedicated Vulkan probe process remained alive after bounded teardown' in main)
 require('background detail collection must have a finite total budget', 'private const val BACKGROUND_COLLECTION_BUDGET_MS = 60_000L' in main and 'deadlineNanos = System.nanoTime() + BACKGROUND_COLLECTION_BUDGET_MS * 1_000_000L' in main)
 require('budget exhaustion must become explicit unavailable evidence rather than silent omission', 'bounded background Vulkan detail-collection budget' in main and 'publishUnavailableGroups(' in main)
-require('background single-query execution must obey remaining total budget', 'withTimeout(remainingBudgetMs) { runIsolatedProbe(group, modeSnapshot) }' in main)
+require('background single-query execution must obey remaining total budget', 'withTimeout(remainingBudgetMs) { runIsolatedProbe(group, modeSnapshot) }' in main or ('withTimeout(remainingBudgetMs)' in main and ('runBackgroundIsolatedProbe(group, index % activeBackgroundProbeLanes, modeSnapshot)' in main or ('runBackgroundIsolatedProbe(group, lane, modeSnapshot)' in main or 'runBackgroundIsolatedProbe(group, lane, modeSnapshot, backgroundDriverPaths)' in main))))
 
 budget_path = root / 'registry/generated/resource_budget.json'
 if budget_path.is_file():

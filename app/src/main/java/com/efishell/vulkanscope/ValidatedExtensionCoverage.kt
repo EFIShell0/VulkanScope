@@ -141,6 +141,7 @@ internal val VALIDATED_PHYSICAL_DEVICE_QUERY_EXTENSIONS = setOf(
     "VK_HUAWEI_invocation_mask",
     "VK_HUAWEI_subpass_shading",
     "VK_IMG_relaxed_line_rasterization",
+    "VK_INTEL_device_info",
     "VK_INTEL_shader_integer_functions2",
     "VK_KHR_16bit_storage",
     "VK_KHR_8bit_storage",

@@ -1,3 +1,162 @@
+## 2.0.6
+- Made the Surface landing chooser vertically scrollable when its destination cards do not fit the available viewport, including compact landscape and system-navigation-constrained windows.
+- Reused the existing dynamic transient-overlay, bottom-navigation and horizontal system-navigation insets while adding shared scroll-boundary hints, so the third Surface destination and its action remain fully reachable above the floating tab bar.
+- Preserved 2.0.5 TV long-press input handling, 2.0.4/2.0.5 adaptive six-lane collection behavior, one-query-per-process isolation, Vulkan/report correctness and all security/network/build-chain constraints.
+
+## 2.0.5
+- Fixed the Android TV evidence long-press release compile blocker by removing the unavailable Compose `KeyEvent.nativeKeyEvent` extension path.
+- Reimplemented TV OK/DPAD_CENTER/Enter long-press detection using the public Compose `KeyEvent.key`, `KeyEvent.type` and `Key.nativeKeyCode` APIs plus a bounded 550 ms hold timer.
+- Short OK/Enter presses remain unconsumed, while a completed long press opens the existing Evidence provenance/actions dialog and consumes its release to avoid duplicate activation.
+- Preserved the 2.0.4 adaptive six-lane scheduler, one-query-per-process isolation, Turnip path snapshot, capability/query coverage, report semantics, desktop secondary-click suppression and all build-chain versions unchanged.
+
+## 2.0.4
+- Increased the adaptive one-shot background scheduler ceiling from four to six isolated private process lanes on devices with sufficient physical memory, available memory and CPU capacity, while retaining automatic 2/3/4/5-lane fallback under tighter resource conditions.
+- Resolved the active Turnip driver library/bundle paths once per background collection pass and reused that immutable snapshot across its one-shot probes, removing repeated private-storage metadata/library resolution without changing driver identity or query coverage.
+- Added Android TV evidence actions on a long press of remote OK/DPAD_CENTER/Enter: holding the focused evidence row opens the existing Evidence provenance/actions dialog. Normal directional navigation and short OK/Enter presses remain unchanged, and desktop secondary-click suppression remains preserved.
+- Retained one Vulkan query group per dedicated process lifetime, deterministic original-order merge, existing timeout/crash/cancellation recovery, 60-second background budget, Vulkan 1.4.364 registry/query coverage and report semantics.
+
+## 2.0.3
+- Replaced the conservative Java-heap-class lane heuristic with Android low-RAM state, current memory-pressure state, physical total/available memory and processor-count signals so capable phones can use four isolated one-shot lanes instead of being incorrectly held to two lanes.
+- Replaced static modulo assignment with a bounded work-stealing-style atomic scheduler: each lane claims the next pending Vulkan query only after finishing its current one, avoiding tail stalls when one lane receives a slower query sequence.
+- Removed the unconditional 150 ms pre-launch teardown sleep. A lane now fast-paths immediately when its previous private process is already gone; stale processes are still force-terminated and verified quiescent within the existing 1.5 second bound before a new query may start.
+- Reduced bounded result-publication polling intervals so durable terminal results are observed with less host-side latency while preserving terminal JSON validation, process isolation, timeouts and size limits.
+- Corrected diagnostic timing so `Slowest dedicated probe` uses the actual isolated host round-trip rather than queue wait plus probe time, and added `Longest scheduler wait` as a separate metric.
+- Preserved the 2.0.0/2.0.2 one-query-per-process correctness model, Vulkan 1.4.364 registry/query coverage, deterministic report merge order and all capability semantics.
+
+## 2.0.2
+- Withdraws the 2.0.1 multi-query-in-one-process experiment and restores the 2.0.0 one-query-per-process ownership model so every background query again receives a fresh isolated Vulkan process and teardown boundary.
+- Keeps the complete 2.0.0 query census and report merge semantics intact while reducing orchestration wall time through up to four independent one-shot background probe lanes. The runtime automatically lowers the active lane count on smaller Android heap classes.
+- Keeps base, metadata, Surface and explicit ad-hoc probes on the original primary one-shot lane; only automatic background detail queries use the bounded parallel lane pool.
+- Adds a diagnostic metric for the active parallel isolated-lane count while retaining all existing per-query timing evidence.
+- Fixes the Surface landing destination so collection/network/update overlays reserve real top clearance there just as they already do on lazy capability pages; bottom navigation and side system insets are reserved as well.
+- Suppresses the evidence right-click quick menu on desktop/PC/ARC-style Android environments while preserving touch long-press evidence actions and accessibility custom actions.
+- Preserves Vulkan 1.4.364 registry/header locks, 477 registered / 305 Android-queryable extension coverage, report/Database semantics, crash isolation, timeouts, cancellation recovery, permissions, updater security and AGP/Gradle versions from 2.0.0.
+
+## 2.0.0
+- Added bounded collection-timing instrumentation without changing Vulkan capability-query semantics or completeness gates.
+- Measures cold-start startup-gate delay, total collection time, base collection, metadata/Surface enrichment, background-detail collection, base probe attempts/decoding and every dedicated background probe round trip.
+- Added isolated-probe service timing telemetry for process dispatch, native library loading, JNI collector wall-clock time, terminal validation and pre-terminal service time. Telemetry is written to a private cache sidecar capped at 16 KiB, validated to remain beside the service-owned result file, consumed locally and deleted after each probe.
+- Expanded Analysis → Collection diagnostics with total/base/enrichment/background timing summary, dedicated-probe counts and slowest-probe evidence while explicitly distinguishing JNI collector wall-clock timing from per-Vulkan-command timing.
+- Preserved Vulkan 1.4.364 registry/header locks, report/Database semantics, crash isolation, timeout/cancellation handling, permissions, updater security, native ownership and build-chain versions from 1.5.5.
+
+## 1.5.5
+- Fixed landscape page content width by honoring Android navigation-bar side insets inside the shared `VulkanLazyPage` container, preventing right-edge cards, text and chevron actions from rendering underneath the system navigation strip.
+- Applied the same side-inset reservation to scroll indicators so landscape page arrows remain visually aligned with the narrowed safe content region.
+- Preserved the 1.5.4 compact landscape bottom-navigation footprint and the 1.5.3 dynamic top/bottom obstruction clearances.
+- No Vulkan/native/report/spec/build-chain behavior change; this release is a targeted landscape safe-width correction for page content.
+
+## 1.5.4
+- Fixed the compact landscape navigation bar so its width cap is actually enforced; the previous modifier chain still let the bar expand across almost the full screen width.
+- Added a dedicated landscape compact-navigation size profile with a smaller floating height, indicator, icon and label rhythm so the bottom tabs visually match the tighter Telegram-style landscape treatment more closely.
+- Preserved the 1.5.3 dynamic top/bottom obstruction clearances, so stacked transient banners and the floating compact tab bar continue to push page content clear of covered regions.
+- No Vulkan/native/report/spec/build-chain behavior change; this is a targeted landscape responsive-navigation correction.
+
+## 1.5.3
+- Moved the compact bottom tab bar above the system navigation area by applying Android navigation-bar insets, fixing the misaligned/overlapped tab presentation seen on three-button navigation devices.
+- Made every main capability page reserve dynamic top and bottom content clearance for transient status overlays and the bottom tab bar, so the last actionable controls can always be scrolled fully above those floating surfaces instead of being covered by them.
+- Made the top clearance react to the real stacked overlay height, so multiple collection/network/update banners push content and scroll indicators down while shown and release that space again when they disappear.
+- Kept Vulkan/native/report/spec/build-chain behavior unchanged from 1.5.2; this release is a targeted navigation/overlay usability, accessibility and obstruction fix.
+
+# 1.5.2
+
+- Updates the Android Gradle Plugin from 9.4.0 to the current stable 9.4.1 patch release while retaining the compatible Gradle 9.7.1 wrapper, Kotlin Compose plugin 2.4.10, compile/target SDK 37 and NDK r29 toolchain.
+- Pulls in the AGP 9.4.1 D8/R8 correctness, crash, performance and deterministic shrinking fixes without changing VulkanScope runtime code, permissions, endpoints, report schemas or native query behavior.
+- Re-audits the Vulkan 1.4.364 registry/header lock, report/profile/surface semantics, lifecycle and cancellation ownership, bounded archive/report handling, update and Database network trust boundaries, accessibility navigation targets, ABI policy and package hygiene.
+- Keeps Vulkan 1.4.364 as the locked current published Vulkan baseline; no speculative registry, profile requirement or capability change is introduced.
+- Adds a 1.5.2 release verifier, compatibility/accessibility state model, targeted negative mutations and immutable-predecessor regression boundary.
+
+# 1.5.1
+
+- Expands Vulkan Profiles presentation with mapped requirement totals, met/verified-unmet/unknown counts, visible aggregate metrics and per-category breakdowns while preserving exact missing/unknown evidence and UNKNOWN semantics.
+- Prevents satisfied OR requirements from reporting failed checks from an unnecessary alternative branch and keeps unavailable mapped evidence explicitly unknown.
+- Reduces the shared four-tab floating navigation to a 310 dp maximum width, keeps the compact 54 dp height and moves it to a 4 dp visual gap immediately above the platform navigation controls in both portrait and landscape.
+- Replaces the moving/global selection effect and rectangular press indication with a cell-local, fully clipped capsule using bounded alpha/scale motion so selection never exposes square overflow.
+- Refines the opening sequence into a restrained full-screen dark/radial-light/logo/accent-line animation that completes inside the existing startup watchdog budget.
+- Keeps Vulkan collection, registry/profile definitions, native/JNI implementation, permissions, endpoints, ABIs and dependency pins unchanged from 1.5.0.
+
+# 1.5.0
+
+- Compacts and repositions the shared four-tab floating navigation so portrait and landscape use the same smaller bottom surface immediately above the system navigation region.
+- Reduces navigation icon/label geometry and replaces the oversized edge-stretch selection effect with a bounded elastic capsule translation that cannot span intermediate tabs.
+- Couples scroll-boundary hint clearance to the exact floating-navigation geometry so scroll arrows remain above the bar.
+- Compacts collection/network/update status overlays without changing their state semantics or update actions.
+- Adds a bounded startup watchdog so the opening animation cannot remain indefinitely on its pre-animation frame when the platform splash handoff callback is absent; the fallback is independent of Vulkan device availability.
+- Keeps Vulkan collection/report/Profile/Database semantics and native implementation unchanged from 1.4.16.
+
+## 1.4.16
+
+- Rebuilds the requested changes directly from immutable 1.4.15.
+- Changes the primary floating navigation to four equal tabs and makes the resting selection indicator a true inset horizontal capsule while preserving the bounded elastic selection motion.
+- Moves Display & HDR under Surface. Surface now opens a three-card chooser: Display & HDR, Surface & color spaces, and Presentation.
+- Makes collection, network/offline and update-status messages translucent floating overlays instead of TopAppBar layout banners; modal dialogs and unrelated menus are unchanged.
+- Keeps Vulkan collection, Display/Surface evidence semantics, reports, Database submission, native code, permissions, ABIs and dependency pins unchanged.
+
+# 1.4.15
+
+- Uses one centered floating five-tab navigation bar in portrait, landscape and expanded/freeform layouts; the landscape navigation rail has been removed.
+- Matches the supplied reference geometry more closely with a 352 dp maximum width, 62 dp height, centered landscape placement and orientation-aware bottom spacing.
+- Replaces independent tab selection backgrounds with an elastic moving indicator whose leading edge stretches toward the destination before the trailing edge catches up, with temporary source/destination accent overlap during the handoff.
+- Keeps page content scrollable behind the translucent floating bar while moving main-page scroll-boundary arrows above the overlay so they remain visible and unobstructed.
+- Retains the five primary destinations, Profiles→Overview selection mapping, Vulkan/Profile/report behavior and 1.4.364 registry/query baseline unchanged.
+
+# 1.4.14
+
+- Fixes the compact primary navigation regression that could render only the selected destination instead of all five primary destinations.
+- Converts compact navigation into a true translucent floating overlay so scrolling page content can pass beneath it while the final content remains reachable above the overlay.
+- Tightens bar height, horizontal inset, icon/label alignment and selected-pill geometry to the supplied reference layout.
+- Applies the same visual hierarchy and accessibility-selected semantics to the landscape/wide navigation rail.
+- Keeps Profiles mapped to Overview selection and leaves Vulkan collection/report behavior unchanged.
+
+## 1.4.13
+
+- Replaces the hand-built compact primary navigation item geometry with Material 3 Expressive `ShortNavigationBar` / `ShortNavigationBarItem`, giving the compact bar the platform-defined 64 dp layout, 24 dp top icon and component-owned full-corner selected indicator.
+- Replaces the hand-built landscape/expanded navigation item geometry with Material 3 `NavigationRail` / `NavigationRailItem`, preserving the same selected-indicator model in the vertical layout.
+- Keeps the floating rounded VulkanScope navigation container, system-navigation inset separation, persistent labels, adaptive phone/tablet/landscape selection, desktop wheel scrolling and TV/keyboard focus behavior.
+- Keeps Overview selected when opening Profiles and retains the existing opening-animation icon normalization and detailed Vulkan Profiles UI/JSON/TXT/HTML/Database report evidence.
+
+# 1.4.12
+
+- Fixes the release Kotlin compile failure caused by the top-level Vulkan Profiles HTML helper referencing the `reportToHtml`-local `statusBadge` function.
+- Keeps the reference-screenshot-style primary navigation treatment with a single floating rounded container and selected icon-pill state; Profiles now correctly keeps Overview selected.
+- Keeps the Opening animation glyph as the header icon with VulkanScope accent tint and corrected 20 dp visual size.
+- Preserves detailed Vulkan Profiles evidence across UI, technical JSON, TXT, HTML and the Database submission payload, while incomplete/coverage-limited evidence remains UNKNOWN rather than being guessed as supported.
+- Restores the validated probe teardown/timeout/checkpoint settle timings required by the lifecycle and hardening gates while retaining prioritized query ordering.
+
+# 1.4.11
+
+- Reworked the shared floating navigation styling to align more closely with the requested floating-tab visual model while preserving VulkanScope's five primary destinations.
+- Fixed shared-navigation selection so opening Profiles from Overview keeps Overview visually selected.
+- Refined the Opening animation header icon so the supplied animation glyph replaces the generic information treatment with adjusted VulkanScope-consistent sizing/tint.
+- Expanded Vulkan Profiles detail presentation and exports: JSON now retains detailed failing/unknown arrays, TXT adds indented profile-detail lines, and HTML shows richer per-profile detail.
+- Added visible/pass/fail/unknown profile summary metrics on the Profiles page.
+
+## 1.4.10
+
+- Corrects the Opening animation preference icon placement: the supplied animation glyph now replaces the generic information glyph in the Opening animation section header.
+- Removes the duplicate animation glyph from the preference row so the section contains one semantic header icon and the switch row remains focused on label, status and toggle.
+- Converts the supplied dark-background icon asset into a transparent neutral-gray presentation asset for clean rendering inside the existing Material 3 Expressive header container without changing its glyph geometry.
+
+## 1.4.9
+
+- Restores visible scroll-boundary hint arrows for desktop-style wheel and mouse interactions by driving hint visibility from actual scroll-position changes, not only touch-style in-progress state. This fixes the missing up/down indicator feedback when using the mouse wheel or other rotary-style scrolling inputs.
+- Keeps markdown-backed document surfaces scrollable with the shared desktop pointer-scroll path and shared expressive scroll hints so release notes, packaged licenses and related long-form text views retain consistent desktop-style navigation affordances.
+- Adds the supplied opening-animation preference icon asset and uses it in the Preferences > Opening animation switch row.
+
+## 1.4.8
+
+- Reworks the startup animation presentation with a layered high-quality red glow, a softer framed center panel and larger horizontal-logo treatment in landscape so the opening screen no longer shows the coarse red block artifact.
+- Rebuilds compact bottom navigation and landscape navigation rail into rounded floating containers with selected icon pills, centered icon+label layout and consistent behavior across phone, tablet, freeform and desktop-style Android form factors.
+- Adds secondary-click quick actions for evidence rows on mouse-driven Android environments such as Googlebook OS: right click now opens Copy name + value, Share evidence, Add to watched evidence, Open in Encyclopedia and More details.
+- Keeps the existing wheel + primary-button drag scrolling path and applies the redesigned navigation/quick-action behavior without removing keyboard, touch, accessibility or long-press evidence flows.
+- Improves Vulkan background collection responsiveness by prioritizing the most visible advanced groups first and tightening bounded dedicated-probe teardown/handoff polling so the app reaches usable collected state faster without changing report schemas, validation boundaries or the isolated one-shot probe model.
+
+## 1.4.7
+
+- Fixes the release Kotlin/JVM setter-signature collision by keeping the `openingAnimationEnabled` property and renaming its persistence helper so `setOpeningAnimationEnabled(Z)V` is generated only once.
+- Adds generic Android mouse-pointer vertical scrolling across VulkanScope scroll surfaces: mouse wheel events use Android's platform vertical-scroll factor and primary-button drag pans content after touch slop without stealing ordinary clicks.
+- Applies pointer scrolling to primary Vulkan pages, navigation rail, detail dialogs, file managers, update/database logs, release notes and filter lists while preserving touch, keyboard, accessibility and existing startup-animation gating behavior.
+- Keeps Vulkan 1.4.364 registry/header/query data, native collector, report schemas, Database/updater boundaries, permissions, ABIs and packaged artwork unchanged from 1.4.6.
+
 ## 1.3.9
 
 - Keeps the shared single-filter popup open while live Vulkan collection expands its label set, anchors the popup to the selector, and makes Back dismiss the search keyboard/focus before the popup itself.
@@ -732,3 +891,29 @@
 - Reduced the editable page-number field from 96 dp to a compact 72 dp and centered its numeric text.
 - Preserved filter scroll containment, Turnip slot metadata, Vulkan collection, reports, Database, updater and storage-security behavior.
 - Removed the top-level screenshots folder from the VulkanScope source ZIP package.
+
+## 1.4.3
+- Kept the landscape filter surface aligned to the full selector width while retaining the 1.4.2 bounded landscape height and pagination behavior.
+- Retained Activity-owned Vulkan report state across orientation and ordinary window-size configuration changes instead of forcing a fresh base recollection.
+- Preserved Surface-only refresh semantics when the Android Surface itself is recreated.
+
+## 1.4.4
+- Added explicit ChromeOS ARC environment evidence without guessing a host ChromeOS version.
+- Expanded complex detail dialogs to use available landscape height with bounded margins and internal scrolling.
+- Replaced the custom landscape/TV navigation approximation with Material 3 `NavigationRail` / `NavigationRailItem`, while compact portrait uses Material 3 Expressive `ShortNavigationBar`.
+- Added a VulkanScope-branded Android SplashScreen transition using the packaged logo.
+
+## 1.4.5
+- Updated the locked Vulkan registry/header baseline to Vulkan 1.4.364 / `VK_HEADER_VERSION 364` from the supplied canonical registry and added complete `VK_INTEL_device_info` returned-properties coverage.
+- Added documented Android PC/freeform evidence for Googlebook-class environments while explicitly refusing model/brand/fingerprint heuristics; Googlebook OS identity/version stays unavailable when no public Android API exposes it.
+- Added Googlebook/desktop evidence parity across visible UI, Database JSON, complete TXT and complete HTML reports.
+- Made primary navigation responsive to the current app window: landscape, TV and windows at least 600 dp wide use the Material 3 rail; compact portrait retains the Expressive short navigation bar.
+- Re-ran current Vulkan registry, report semantics, Vulkan Video, lifecycle/timeout/cancellation, hardening, concurrency/resource, security, usability and accessibility source/state-machine gates.
+- Kept Android build/device/runtime evidence explicit: Gradle compilation, real Googlebook/ChromeOS hardware, TalkBack/keyboard runtime, validation layers, sanitizers and profiler are not reported as PASS when they were not executed.
+
+## 1.4.6
+- Replaced the compact portrait primary navigation with Material 3 `NavigationBar` / `NavigationBarItem`, keeping all five Overview/Vulkan/Surface/Display/Extensions labels visible beneath their icons and the selected destination inside the VulkanScope accent pill; landscape, TV and windows at least 600 dp wide retain the responsive `NavigationRail`.
+- Added a full-screen VulkanScope opening sequence using the packaged horizontal logo. The custom motion begins only after the AndroidX system splash exit animation has actually finished, so its timing is not consumed invisibly under the platform splash.
+- Added a startup gate so enabled opening animation defers Vulkan report/query collection, Android display inspection, default-network observation and the automatic startup update check until the custom opening sequence completes. Interrupted Activity recreation remains gated; recreation after completed startup does not replay the sequence.
+- Added a separate `Opening animation` card directly below Update preferences in Driver & Update Preferences. Its Expressive switch persists immediately with no confirmation dialog, defaults to enabled and applies on the next cold launch.
+- Retained Vulkan 1.4.364 registry/query coverage, report/Database schemas, native collector/service, permissions, ABI/dependency pins, packaged artwork, updater security and existing resource/concurrency hardening unchanged from 1.4.5.

@@ -1,0 +1,45 @@
+{
+  "predecessor_zip": "VulkanScope-1.4.4.zip",
+  "predecessor_zip_sha256": "749298194a15f825976bbc67603869e0a8ab6f6d89bfa37a929a7700808a2414",
+  "predecessor_file_count": 618,
+  "predecessor_sha256": {
+    "app/src/main/AndroidManifest.xml": "cd48442f29b3e4ead3466e7c8ce381aa1b4748d45cfd078c1f0b49c0f0762ea3",
+    "app/build.gradle.kts": "83106c66dbea32a06eb7f7289ef7bc50970ec15acdf620148c947348217e224c",
+    "app/src/main/java/com/efishell/vulkanscope/MainActivity.kt": "82933fc0196fff31902beb1626832873f12fa79525fbaff469895f6e75b92133",
+    "app/src/main/cpp/vulkanscope.cpp": "e0ab120e2859396fadb02c72950fca10001d42f1ad507ebc4e1db7be4603f84f",
+    "registry/registry_lock.json": "54393beaabff261ed8c350d5419a5810ff0b9483e035729ab87f4e0e9b876993"
+  },
+  "upstream_inputs": {
+    "vk_xml_sha256": "4cfe3c137f3a95c15275b1cfda0aee407dbf131de2005a3552aa41c49f895c89",
+    "video_xml_sha256": "d018b914014c06605e367a3b929670511e6f6de2f225c405a8b5e2d912408b76",
+    "opengl_gl_xml_sha256": "b9ca2cfa5c676e901c20d34af3407f1687cde0f1336a5ff7a8974d04c7494ad3",
+    "vulkan_registry_rnc_sha256": "61ff74662f6a43eec8edb469c7ea0ad48e86f42215898e09becfe6687b5d9b76",
+    "opengl_registry_rnc_sha256": "ec8ab86e7047d12045b09ce062915d61f86a0e64f3018939e88dfe629b2d0823"
+  },
+  "expected_vulkan": {
+    "baseline": "Vulkan 1.4.364",
+    "header_version": 364,
+    "registered_extensions": 477,
+    "validated_physical_device_query_extensions": 305,
+    "stable_physical_device_query_extensions": 300,
+    "provisional_physical_device_query_extensions": 5,
+    "new_extension": "VK_INTEL_device_info"
+  },
+  "allowed_changed_app_src_main": [
+    "app/src/main/cpp/CMakeLists.txt",
+    "app/src/main/cpp/extension_field_coverage_generated.inc",
+    "app/src/main/cpp/registry_query_catalog.h",
+    "app/src/main/cpp/runtime_extension_pnext_generated.inc",
+    "app/src/main/cpp/video_registry_generated.h",
+    "app/src/main/cpp/vulkanscope.cpp",
+    "app/src/main/java/com/efishell/vulkanscope/MainActivity.kt",
+    "app/src/main/java/com/efishell/vulkanscope/ValidatedExtensionCoverage.kt",
+    "app/src/main/java/com/efishell/vulkanscope/VulkanExtensionReference.kt",
+    "app/src/main/java/com/efishell/vulkanscope/VulkanSymbolIndex.kt",
+    "app/src/main/AndroidManifest.xml"
+  ],
+  "unchanged_security_sensitive_paths": [
+    "app/src/main/java/com/efishell/vulkanscope/VulkanProbeService.kt",
+    "app/src/main/res/xml/file_paths.xml"
+  ]
+}

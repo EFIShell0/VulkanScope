@@ -994,7 +994,15 @@ static void appendGeneratedStructFields(std::vector<GeneratedField>& dst, uint32
             generatedEmitBool(dst, section, "privateDataBaseHandle", value.privateDataBaseHandle);
             break;
         }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INFO_PROPERTIES_INTEL: {
+            const auto& value = *reinterpret_cast<const VkPhysicalDeviceInfoPropertiesINTEL*>(ptr);
+            const char* section = "Generated · VkPhysicalDeviceInfoPropertiesINTEL";
+            generatedEmitNumeric(dst, section, "deviceIpVersionArch", value.deviceIpVersionArch);
+            generatedEmitNumeric(dst, section, "deviceIpVersionRelease", value.deviceIpVersionRelease);
+            generatedEmitNumeric(dst, section, "deviceIpVersionRevision", value.deviceIpVersionRevision);
+            break;
+        }
         default: break;
     }
 }
-static constexpr uint32_t kGeneratedPhysicalDeviceStructSerializerCount = 116;
+static constexpr uint32_t kGeneratedPhysicalDeviceStructSerializerCount = 117;

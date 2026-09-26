@@ -5,12 +5,19 @@
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.type.pc" android:required="false" />
     <application android:theme="@style/AppTheme" android:label="VulkanScope" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:allowBackup="false" android:usesCleartextTraffic="false" android:supportsRtl="true" android:banner="@drawable/tv_banner">
         <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.fileprovider" android:exported="false" android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
         </provider>
         <service android:name=".VulkanProbeService" android:exported="false" android:process=":vulkan_probe" android:stopWithTask="true" />
-        <activity android:name=".MainActivity" android:exported="true" android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden">
+        <service android:name=".VulkanProbeServiceBg0" android:exported="false" android:process=":vulkan_probe_bg0" android:stopWithTask="true" />
+        <service android:name=".VulkanProbeServiceBg1" android:exported="false" android:process=":vulkan_probe_bg1" android:stopWithTask="true" />
+        <service android:name=".VulkanProbeServiceBg2" android:exported="false" android:process=":vulkan_probe_bg2" android:stopWithTask="true" />
+        <service android:name=".VulkanProbeServiceBg3" android:exported="false" android:process=":vulkan_probe_bg3" android:stopWithTask="true" />
+        <service android:name=".VulkanProbeServiceBg4" android:exported="false" android:process=":vulkan_probe_bg4" android:stopWithTask="true" />
+        <service android:name=".VulkanProbeServiceBg5" android:exported="false" android:process=":vulkan_probe_bg5" android:stopWithTask="true" />
+        <activity android:name=".MainActivity" android:exported="true" android:theme="@style/AppTheme.Starting" android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>

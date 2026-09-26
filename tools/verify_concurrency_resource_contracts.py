@@ -10,7 +10,7 @@ manifest = (root / 'app/src/main/AndroidManifest.xml').read_text(encoding='utf-8
 cpp = (root / 'app/src/main/cpp/vulkanscope.cpp').read_text(encoding='utf-8')
 errors = []
 checks = {
-    'probe coroutine mutex': 'private val probeMutex = Mutex()' in main and 'runServiceProbe(group: String, surface: Surface?, timeoutMs: Long, modeSnapshot: DriverMode): String = probeMutex.withLock' in main,
+    'probe coroutine mutex': 'private val probeMutex = Mutex()' in main and 'private val backgroundProbeMutexes = List(BACKGROUND_PROBE_LANES) { Mutex() }' in main and 'endpointMutex: Mutex' in main and '): String = endpointMutex.withLock {' in main and 'probeMutex' in main,
     'timeout starts after serialized service start': main.find('val started = runCatching') < main.find('withTimeout(timeoutMs)', main.find('private suspend fun runServiceProbe')),
     'dedicated process service': 'android:name=".VulkanProbeService" android:exported="false" android:process=":vulkan_probe"' in manifest,
     'single worker': 'Executors.newSingleThreadExecutor' in service,
@@ -18,7 +18,7 @@ checks = {
     'atomic service publication': 'Os.rename(temp.path, file.path)' in service,
     'atomic native publication': 'rename(tempPath.c_str(), path)' in cpp,
     'unique result path': 'java.util.UUID.randomUUID()' in main,
-    'hard timeout process stop': 'private fun stopVulkanProbeProcess()' in main and 'runningVulkanProbePids().forEach { pid ->' in main and 'Process.killProcess(pid)' in main and bool(re.search(r'catch \(_: kotlinx\.coroutines\.TimeoutCancellationException\) \{.*?stopVulkanProbeProcess\(\)', main, re.S)),
+    'hard timeout process stop': 'private fun stopVulkanProbeProcess(serviceClass: Class<out android.app.Service>, processSuffix: String)' in main and 'runningVulkanProbePids(processSuffix).forEach { pid ->' in main and 'Process.killProcess(pid)' in main and bool(re.search(r'catch \(_: kotlinx\.coroutines\.TimeoutCancellationException\) \{.*?stopVulkanProbeProcess\(serviceClass, processSuffix\)', main, re.S)),
     'worker cancellation on destroy': 'worker.shutdownNow()' in service,
     'native publication cap': 'kMaxProbePublishedBytes = 64ULL * 1024ULL * 1024ULL' in cpp,
     'main publication cap': 'val maxProbeResultBytes = 64L * 1024L * 1024L' in main,

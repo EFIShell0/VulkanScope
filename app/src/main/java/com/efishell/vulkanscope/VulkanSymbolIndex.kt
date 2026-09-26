@@ -3604,10 +3604,10 @@ private fun vulkanTokenSymbolChunk14(): Array<String> = arrayOf(
     "VK_INDIRECT_STATE_FLAG_FRONTFACE_BIT_NV\tVkIndirectStateFlagBitsNV\tCore/registry declaration",
     "VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR\tVkInstanceCreateFlagBits\tVK_KHR_portability_enumeration",
     "VK_INSTANCE_CREATE_RESERVED_616_BIT_EXT\tVkInstanceCreateFlagBits\tCore/registry declaration",
+    "VK_INTEL_DEVICE_INFO_EXTENSION_NAME\tExtension name macro\tVK_INTEL_device_info",
+    "VK_INTEL_DEVICE_INFO_SPEC_VERSION\tExtension revision macro\tVK_INTEL_device_info",
     "VK_INTEL_EXTENSION_243_EXTENSION_NAME\tExtension name macro\tCore/registry declaration",
     "VK_INTEL_EXTENSION_243_SPEC_VERSION\tExtension revision macro\tCore/registry declaration",
-    "VK_INTEL_EXTENSION_709_EXTENSION_NAME\tExtension name macro\tCore/registry declaration",
-    "VK_INTEL_EXTENSION_709_SPEC_VERSION\tExtension revision macro\tCore/registry declaration",
 )
 
 private fun vulkanTokenSymbolChunk15(): Array<String> = arrayOf(
@@ -3726,6 +3726,14 @@ private fun vulkanTokenSymbolChunk15(): Array<String> = arrayOf(
     "VK_KHR_EXTENSION_702_SPEC_VERSION\tExtension revision macro\tCore/registry declaration",
     "VK_KHR_EXTENSION_712_EXTENSION_NAME\tExtension name macro\tCore/registry declaration",
     "VK_KHR_EXTENSION_712_SPEC_VERSION\tExtension revision macro\tCore/registry declaration",
+    "VK_KHR_EXTENSION_713_EXTENSION_NAME\tExtension name macro\tCore/registry declaration",
+    "VK_KHR_EXTENSION_713_SPEC_VERSION\tExtension revision macro\tCore/registry declaration",
+    "VK_KHR_EXTENSION_714_EXTENSION_NAME\tExtension name macro\tCore/registry declaration",
+    "VK_KHR_EXTENSION_714_SPEC_VERSION\tExtension revision macro\tCore/registry declaration",
+    "VK_KHR_EXTENSION_715_EXTENSION_NAME\tExtension name macro\tCore/registry declaration",
+    "VK_KHR_EXTENSION_715_SPEC_VERSION\tExtension revision macro\tCore/registry declaration",
+    "VK_KHR_EXTENSION_716_EXTENSION_NAME\tExtension name macro\tCore/registry declaration",
+    "VK_KHR_EXTENSION_716_SPEC_VERSION\tExtension revision macro\tCore/registry declaration",
     "VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME\tExtension name macro\tVK_KHR_external_fence_capabilities",
     "VK_KHR_EXTERNAL_FENCE_CAPABILITIES_SPEC_VERSION\tExtension revision macro\tVK_KHR_external_fence_capabilities",
     "VK_KHR_EXTERNAL_FENCE_EXTENSION_NAME\tExtension name macro\tVK_KHR_external_fence",
@@ -3783,6 +3791,9 @@ private fun vulkanTokenSymbolChunk15(): Array<String> = arrayOf(
     "VK_KHR_MAINTENANCE1_EXTENSION_NAME\tExtension name macro\tVK_KHR_maintenance1",
     "VK_KHR_MAINTENANCE1_SPEC_VERSION\tExtension revision macro\tVK_KHR_maintenance1",
     "VK_KHR_MAINTENANCE2_EXTENSION_NAME\tExtension name macro\tVK_KHR_maintenance2",
+)
+
+private fun vulkanTokenSymbolChunk16(): Array<String> = arrayOf(
     "VK_KHR_MAINTENANCE2_SPEC_VERSION\tExtension revision macro\tVK_KHR_maintenance2",
     "VK_KHR_MAINTENANCE3_EXTENSION_NAME\tExtension name macro\tVK_KHR_maintenance3",
     "VK_KHR_MAINTENANCE3_SPEC_VERSION\tExtension revision macro\tVK_KHR_maintenance3",
@@ -3791,9 +3802,6 @@ private fun vulkanTokenSymbolChunk15(): Array<String> = arrayOf(
     "VK_KHR_MAINTENANCE_11_EXTENSION_NAME\tExtension name macro\tVK_KHR_maintenance11",
     "VK_KHR_MAINTENANCE_11_SPEC_VERSION\tExtension revision macro\tVK_KHR_maintenance11",
     "VK_KHR_MAINTENANCE_1_EXTENSION_NAME\tExtension name macro\tVK_KHR_maintenance1",
-)
-
-private fun vulkanTokenSymbolChunk16(): Array<String> = arrayOf(
     "VK_KHR_MAINTENANCE_1_SPEC_VERSION\tExtension revision macro\tVK_KHR_maintenance1",
     "VK_KHR_MAINTENANCE_2_EXTENSION_NAME\tExtension name macro\tVK_KHR_maintenance2",
     "VK_KHR_MAINTENANCE_2_SPEC_VERSION\tExtension revision macro\tVK_KHR_maintenance2",
@@ -3966,6 +3974,9 @@ private fun vulkanTokenSymbolChunk16(): Array<String> = arrayOf(
     "VK_KHR_VIDEO_MAINTENANCE_2_EXTENSION_NAME\tExtension name macro\tVK_KHR_video_maintenance2",
     "VK_KHR_VIDEO_MAINTENANCE_2_SPEC_VERSION\tExtension revision macro\tVK_KHR_video_maintenance2",
     "VK_KHR_VIDEO_QUEUE_EXTENSION_NAME\tExtension name macro\tVK_KHR_video_queue",
+)
+
+private fun vulkanTokenSymbolChunk17(): Array<String> = arrayOf(
     "VK_KHR_VIDEO_QUEUE_SPEC_VERSION\tExtension revision macro\tVK_KHR_video_queue",
     "VK_KHR_VULKAN_MEMORY_MODEL_EXTENSION_NAME\tExtension name macro\tVK_KHR_vulkan_memory_model",
     "VK_KHR_VULKAN_MEMORY_MODEL_SPEC_VERSION\tExtension revision macro\tVK_KHR_vulkan_memory_model",
@@ -3974,9 +3985,6 @@ private fun vulkanTokenSymbolChunk16(): Array<String> = arrayOf(
     "VK_KHR_WIN32_KEYED_MUTEX_EXTENSION_NAME\tExtension name macro\tVK_KHR_win32_keyed_mutex",
     "VK_KHR_WIN32_KEYED_MUTEX_SPEC_VERSION\tExtension revision macro\tVK_KHR_win32_keyed_mutex",
     "VK_KHR_WIN32_SURFACE_EXTENSION_NAME\tExtension name macro\tVK_KHR_win32_surface",
-)
-
-private fun vulkanTokenSymbolChunk17(): Array<String> = arrayOf(
     "VK_KHR_WIN32_SURFACE_SPEC_VERSION\tExtension revision macro\tVK_KHR_win32_surface",
     "VK_KHR_WORKGROUP_MEMORY_EXPLICIT_LAYOUT_EXTENSION_NAME\tExtension name macro\tVK_KHR_workgroup_memory_explicit_layout",
     "VK_KHR_WORKGROUP_MEMORY_EXPLICIT_LAYOUT_SPEC_VERSION\tExtension revision macro\tVK_KHR_workgroup_memory_explicit_layout",
@@ -4149,6 +4157,9 @@ private fun vulkanTokenSymbolChunk17(): Array<String> = arrayOf(
     "VK_NV_COOPERATIVE_MATRIX_2_SPEC_VERSION\tExtension revision macro\tVK_NV_cooperative_matrix2",
     "VK_NV_COOPERATIVE_MATRIX_DECODE_VECTOR_EXTENSION_NAME\tExtension name macro\tVK_NV_cooperative_matrix_decode_vector",
     "VK_NV_COOPERATIVE_MATRIX_DECODE_VECTOR_SPEC_VERSION\tExtension revision macro\tVK_NV_cooperative_matrix_decode_vector",
+)
+
+private fun vulkanTokenSymbolChunk18(): Array<String> = arrayOf(
     "VK_NV_COOPERATIVE_MATRIX_EXTENSION_NAME\tExtension name macro\tVK_NV_cooperative_matrix",
     "VK_NV_COOPERATIVE_MATRIX_SPEC_VERSION\tExtension revision macro\tVK_NV_cooperative_matrix",
     "VK_NV_COOPERATIVE_VECTOR_EXTENSION_NAME\tExtension name macro\tVK_NV_cooperative_vector",
@@ -4157,9 +4168,6 @@ private fun vulkanTokenSymbolChunk17(): Array<String> = arrayOf(
     "VK_NV_COPY_MEMORY_INDIRECT_SPEC_VERSION\tExtension revision macro\tVK_NV_copy_memory_indirect",
     "VK_NV_CORNER_SAMPLED_IMAGE_EXTENSION_NAME\tExtension name macro\tVK_NV_corner_sampled_image",
     "VK_NV_CORNER_SAMPLED_IMAGE_SPEC_VERSION\tExtension revision macro\tVK_NV_corner_sampled_image",
-)
-
-private fun vulkanTokenSymbolChunk18(): Array<String> = arrayOf(
     "VK_NV_COVERAGE_REDUCTION_MODE_EXTENSION_NAME\tExtension name macro\tVK_NV_coverage_reduction_mode",
     "VK_NV_COVERAGE_REDUCTION_MODE_SPEC_VERSION\tExtension revision macro\tVK_NV_coverage_reduction_mode",
     "VK_NV_CUDA_KERNEL_LAUNCH_EXTENSION_NAME\tExtension name macro\tVK_NV_cuda_kernel_launch",
@@ -4332,6 +4340,9 @@ private fun vulkanTokenSymbolChunk18(): Array<String> = arrayOf(
     "VK_NV_WIN32_KEYED_MUTEX_SPEC_VERSION\tExtension revision macro\tVK_NV_win32_keyed_mutex",
     "VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR\tVkObjectType\tVK_KHR_acceleration_structure",
     "VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_NV\tVkObjectType\tVK_NV_ray_tracing",
+)
+
+private fun vulkanTokenSymbolChunk19(): Array<String> = arrayOf(
     "VK_OBJECT_TYPE_BUFFER\tVkObjectType\tCore/registry declaration",
     "VK_OBJECT_TYPE_BUFFER_COLLECTION_FUCHSIA\tVkObjectType\tVK_FUCHSIA_buffer_collection",
     "VK_OBJECT_TYPE_BUFFER_VIEW\tVkObjectType\tCore/registry declaration",
@@ -4340,9 +4351,6 @@ private fun vulkanTokenSymbolChunk18(): Array<String> = arrayOf(
     "VK_OBJECT_TYPE_CUDA_FUNCTION_NV\tVkObjectType\tVK_NV_cuda_kernel_launch",
     "VK_OBJECT_TYPE_CUDA_MODULE_NV\tVkObjectType\tVK_NV_cuda_kernel_launch",
     "VK_OBJECT_TYPE_CU_FUNCTION_NVX\tVkObjectType\tVK_NVX_binary_import",
-)
-
-private fun vulkanTokenSymbolChunk19(): Array<String> = arrayOf(
     "VK_OBJECT_TYPE_CU_MODULE_NVX\tVkObjectType\tVK_NVX_binary_import",
     "VK_OBJECT_TYPE_DATA_GRAPH_PIPELINE_SESSION_ARM\tVkObjectType\tVK_ARM_data_graph",
     "VK_OBJECT_TYPE_DEBUG_REPORT_CALLBACK_EXT\tVkObjectType\tVK_EXT_debug_report",
@@ -4515,6 +4523,9 @@ private fun vulkanTokenSymbolChunk19(): Array<String> = arrayOf(
     "VK_PHYSICAL_DEVICE_DATA_GRAPH_PROCESSING_ENGINE_TYPE_DEFAULT_ARM\tVkPhysicalDeviceDataGraphProcessingEngineTypeARM\tCore/registry declaration",
     "VK_PHYSICAL_DEVICE_DATA_GRAPH_PROCESSING_ENGINE_TYPE_NEURAL_QCOM\tVkPhysicalDeviceDataGraphProcessingEngineTypeARM\tVK_QCOM_data_graph_model",
     "VK_PHYSICAL_DEVICE_LAYERED_API_D3D12_KHR\tVkPhysicalDeviceLayeredApiKHR\tCore/registry declaration",
+)
+
+private fun vulkanTokenSymbolChunk20(): Array<String> = arrayOf(
     "VK_PHYSICAL_DEVICE_LAYERED_API_METAL_KHR\tVkPhysicalDeviceLayeredApiKHR\tCore/registry declaration",
     "VK_PHYSICAL_DEVICE_LAYERED_API_OPENGLES_KHR\tVkPhysicalDeviceLayeredApiKHR\tCore/registry declaration",
     "VK_PHYSICAL_DEVICE_LAYERED_API_OPENGL_KHR\tVkPhysicalDeviceLayeredApiKHR\tCore/registry declaration",
@@ -4523,9 +4534,6 @@ private fun vulkanTokenSymbolChunk19(): Array<String> = arrayOf(
     "VK_PHYSICAL_DEVICE_SCHEDULING_CONTROLS_SHADER_CORE_COUNT_ARM\tVkPhysicalDeviceSchedulingControlsFlagBitsARM\tCore/registry declaration",
     "VK_PHYSICAL_DEVICE_TYPE_CPU\tVkPhysicalDeviceType\tCore/registry declaration",
     "VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU\tVkPhysicalDeviceType\tCore/registry declaration",
-)
-
-private fun vulkanTokenSymbolChunk20(): Array<String> = arrayOf(
     "VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU\tVkPhysicalDeviceType\tCore/registry declaration",
     "VK_PHYSICAL_DEVICE_TYPE_OTHER\tVkPhysicalDeviceType\tCore/registry declaration",
     "VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU\tVkPhysicalDeviceType\tCore/registry declaration",
@@ -4698,6 +4706,9 @@ private fun vulkanTokenSymbolChunk20(): Array<String> = arrayOf(
     "VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT\tVkPipelineStageFlagBits2\tCore/registry declaration",
     "VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT_KHR\tVkPipelineStageFlagBits2\tVK_KHR_synchronization2",
     "VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT\tVkPipelineStageFlagBits2\tCore/registry declaration",
+)
+
+private fun vulkanTokenSymbolChunk21(): Array<String> = arrayOf(
     "VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT_KHR\tVkPipelineStageFlagBits2\tVK_KHR_synchronization2",
     "VK_PIPELINE_STAGE_2_BLIT_BIT\tVkPipelineStageFlagBits2\tCore/registry declaration",
     "VK_PIPELINE_STAGE_2_BLIT_BIT_KHR\tVkPipelineStageFlagBits2\tVK_KHR_synchronization2",
@@ -4706,9 +4717,6 @@ private fun vulkanTokenSymbolChunk20(): Array<String> = arrayOf(
     "VK_PIPELINE_STAGE_2_CLEAR_BIT\tVkPipelineStageFlagBits2\tCore/registry declaration",
     "VK_PIPELINE_STAGE_2_CLEAR_BIT_KHR\tVkPipelineStageFlagBits2\tVK_KHR_synchronization2",
     "VK_PIPELINE_STAGE_2_CLUSTER_CULLING_SHADER_BIT_HUAWEI\tVkPipelineStageFlagBits2\tVK_HUAWEI_cluster_culling_shader",
-)
-
-private fun vulkanTokenSymbolChunk21(): Array<String> = arrayOf(
     "VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT\tVkPipelineStageFlagBits2\tCore/registry declaration",
     "VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR\tVkPipelineStageFlagBits2\tVK_KHR_synchronization2",
     "VK_PIPELINE_STAGE_2_COMMAND_PREPROCESS_BIT_EXT\tVkPipelineStageFlagBits2\tVK_KHR_synchronization2",
@@ -4881,6 +4889,9 @@ private fun vulkanTokenSymbolChunk21(): Array<String> = arrayOf(
     "VK_QCOM_EXTENSION_695_SPEC_VERSION\tExtension revision macro\tCore/registry declaration",
     "VK_QCOM_EXTENSION_699_EXTENSION_NAME\tExtension name macro\tCore/registry declaration",
     "VK_QCOM_EXTENSION_699_SPEC_VERSION\tExtension revision macro\tCore/registry declaration",
+)
+
+private fun vulkanTokenSymbolChunk22(): Array<String> = arrayOf(
     "VK_QCOM_FILTER_CUBIC_CLAMP_EXTENSION_NAME\tExtension name macro\tVK_QCOM_filter_cubic_clamp",
     "VK_QCOM_FILTER_CUBIC_CLAMP_SPEC_VERSION\tExtension revision macro\tVK_QCOM_filter_cubic_clamp",
     "VK_QCOM_FILTER_CUBIC_WEIGHTS_EXTENSION_NAME\tExtension name macro\tVK_QCOM_filter_cubic_weights",
@@ -4889,9 +4900,6 @@ private fun vulkanTokenSymbolChunk21(): Array<String> = arrayOf(
     "VK_QCOM_FRAGMENT_DENSITY_MAP_OFFSET_SPEC_VERSION\tExtension revision macro\tVK_QCOM_fragment_density_map_offset",
     "VK_QCOM_IMAGE_PROCESSING_2_EXTENSION_NAME\tExtension name macro\tVK_QCOM_image_processing2",
     "VK_QCOM_IMAGE_PROCESSING_2_SPEC_VERSION\tExtension revision macro\tVK_QCOM_image_processing2",
-)
-
-private fun vulkanTokenSymbolChunk22(): Array<String> = arrayOf(
     "VK_QCOM_IMAGE_PROCESSING_3_EXTENSION_NAME\tExtension name macro\tVK_QCOM_image_processing3",
     "VK_QCOM_IMAGE_PROCESSING_3_SPEC_VERSION\tExtension revision macro\tVK_QCOM_image_processing3",
     "VK_QCOM_IMAGE_PROCESSING_EXTENSION_NAME\tExtension name macro\tVK_QCOM_image_processing",
@@ -5064,6 +5072,9 @@ private fun vulkanTokenSymbolChunk22(): Array<String> = arrayOf(
     "VK_RESOLVE_MODE_NONE_KHR\tVkResolveModeFlagBits\tVK_KHR_depth_stencil_resolve",
     "VK_RESOLVE_MODE_SAMPLE_ZERO_BIT\tVkResolveModeFlagBits\tCore/registry declaration",
     "VK_RESOLVE_MODE_SAMPLE_ZERO_BIT_KHR\tVkResolveModeFlagBits\tVK_KHR_depth_stencil_resolve",
+)
+
+private fun vulkanTokenSymbolChunk23(): Array<String> = arrayOf(
     "VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER\tVkSamplerAddressMode\tCore/registry declaration",
     "VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE\tVkSamplerAddressMode\tCore/registry declaration",
     "VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT\tVkSamplerAddressMode\tCore/registry declaration",
@@ -5072,9 +5083,6 @@ private fun vulkanTokenSymbolChunk22(): Array<String> = arrayOf(
     "VK_SAMPLER_ADDRESS_MODE_REPEAT\tVkSamplerAddressMode\tCore/registry declaration",
     "VK_SAMPLER_CREATE_DESCRIPTOR_BUFFER_CAPTURE_REPLAY_BIT_EXT\tVkSamplerCreateFlagBits\tVK_EXT_descriptor_buffer",
     "VK_SAMPLER_CREATE_IMAGE_PROCESSING_BIT_QCOM\tVkSamplerCreateFlagBits\tVK_QCOM_image_processing",
-)
-
-private fun vulkanTokenSymbolChunk23(): Array<String> = arrayOf(
     "VK_SAMPLER_CREATE_NON_SEAMLESS_CUBE_MAP_BIT_EXT\tVkSamplerCreateFlagBits\tVK_EXT_non_seamless_cube_map",
     "VK_SAMPLER_CREATE_SUBSAMPLED_BIT_EXT\tVkSamplerCreateFlagBits\tVK_EXT_fragment_density_map",
     "VK_SAMPLER_CREATE_SUBSAMPLED_COARSE_RECONSTRUCTION_BIT_EXT\tVkSamplerCreateFlagBits\tVK_EXT_fragment_density_map",
@@ -5247,6 +5255,9 @@ private fun vulkanTokenSymbolChunk23(): Array<String> = arrayOf(
     "VK_STENCIL_OP_DECREMENT_AND_WRAP\tVkStencilOp\tCore/registry declaration",
     "VK_STENCIL_OP_INCREMENT_AND_CLAMP\tVkStencilOp\tCore/registry declaration",
     "VK_STENCIL_OP_INCREMENT_AND_WRAP\tVkStencilOp\tCore/registry declaration",
+)
+
+private fun vulkanTokenSymbolChunk24(): Array<String> = arrayOf(
     "VK_STENCIL_OP_INVERT\tVkStencilOp\tCore/registry declaration",
     "VK_STENCIL_OP_KEEP\tVkStencilOp\tCore/registry declaration",
     "VK_STENCIL_OP_REPLACE\tVkStencilOp\tCore/registry declaration",
@@ -5255,9 +5266,6 @@ private fun vulkanTokenSymbolChunk23(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR\tVkStructureType\tVK_KHR_acceleration_structure",
     "VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CAPTURE_DESCRIPTOR_DATA_INFO_EXT\tVkStructureType\tVK_EXT_descriptor_buffer",
     "VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_2_KHR\tVkStructureType\tVK_KHR_device_address_commands",
-)
-
-private fun vulkanTokenSymbolChunk24(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR\tVkStructureType\tVK_KHR_acceleration_structure",
     "VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_NV\tVkStructureType\tVK_NV_ray_tracing",
     "VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DENSE_GEOMETRY_FORMAT_TRIANGLES_DATA_AMDX\tVkStructureType\tVK_AMDX_dense_geometry_format",
@@ -5430,6 +5438,9 @@ private fun vulkanTokenSymbolChunk24(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_D3D12_FENCE_SUBMIT_INFO_KHR\tVkStructureType\tVK_KHR_external_semaphore_win32",
     "VK_STRUCTURE_TYPE_DATA_GRAPH_OPTICAL_FLOW_IMAGE_FORMAT_INFO_ARM\tVkStructureType\tVK_ARM_data_graph_optical_flow",
     "VK_STRUCTURE_TYPE_DATA_GRAPH_OPTICAL_FLOW_IMAGE_FORMAT_PROPERTIES_ARM\tVkStructureType\tVK_ARM_data_graph_optical_flow",
+)
+
+private fun vulkanTokenSymbolChunk25(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_DATA_GRAPH_PIPELINE_BUILTIN_MODEL_CREATE_INFO_QCOM\tVkStructureType\tVK_QCOM_data_graph_model",
     "VK_STRUCTURE_TYPE_DATA_GRAPH_PIPELINE_COMPILER_CONTROL_CREATE_INFO_ARM\tVkStructureType\tVK_ARM_data_graph",
     "VK_STRUCTURE_TYPE_DATA_GRAPH_PIPELINE_CONSTANT_ARM\tVkStructureType\tVK_ARM_data_graph",
@@ -5438,9 +5449,6 @@ private fun vulkanTokenSymbolChunk24(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_DATA_GRAPH_PIPELINE_DISPATCH_INFO_ARM\tVkStructureType\tVK_ARM_data_graph",
     "VK_STRUCTURE_TYPE_DATA_GRAPH_PIPELINE_IDENTIFIER_CREATE_INFO_ARM\tVkStructureType\tVK_ARM_data_graph",
     "VK_STRUCTURE_TYPE_DATA_GRAPH_PIPELINE_INFO_ARM\tVkStructureType\tVK_ARM_data_graph",
-)
-
-private fun vulkanTokenSymbolChunk25(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_DATA_GRAPH_PIPELINE_NEURAL_STATISTICS_CREATE_INFO_ARM\tVkStructureType\tVK_ARM_data_graph_neural_accelerator_statistics",
     "VK_STRUCTURE_TYPE_DATA_GRAPH_PIPELINE_OPTICAL_FLOW_CREATE_INFO_ARM\tVkStructureType\tVK_ARM_data_graph_optical_flow",
     "VK_STRUCTURE_TYPE_DATA_GRAPH_PIPELINE_OPTICAL_FLOW_DISPATCH_INFO_ARM\tVkStructureType\tVK_ARM_data_graph_optical_flow",
@@ -5613,6 +5621,9 @@ private fun vulkanTokenSymbolChunk25(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_TENSOR_CREATE_INFO_ARM\tVkStructureType\tVK_ARM_tensors",
     "VK_STRUCTURE_TYPE_EXTERNAL_SEMAPHORE_PROPERTIES\tVkStructureType\tVK_BASE_VERSION_1_1",
     "VK_STRUCTURE_TYPE_EXTERNAL_SEMAPHORE_PROPERTIES_KHR\tVkStructureType\tVK_KHR_external_semaphore_capabilities",
+)
+
+private fun vulkanTokenSymbolChunk26(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_EXTERNAL_TENSOR_PROPERTIES_ARM\tVkStructureType\tVK_ARM_tensors",
     "VK_STRUCTURE_TYPE_FAULT_CALLBACK_INFO\tVkStructureType\tCore/registry declaration",
     "VK_STRUCTURE_TYPE_FAULT_DATA\tVkStructureType\tCore/registry declaration",
@@ -5621,9 +5632,6 @@ private fun vulkanTokenSymbolChunk25(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_FENCE_GET_SCI_SYNC_INFO_NV\tVkStructureType\tCore/registry declaration",
     "VK_STRUCTURE_TYPE_FENCE_GET_WIN32_HANDLE_INFO_KHR\tVkStructureType\tVK_KHR_external_fence_win32",
     "VK_STRUCTURE_TYPE_FILTER_CUBIC_IMAGE_VIEW_IMAGE_FORMAT_PROPERTIES_EXT\tVkStructureType\tVK_EXT_filter_cubic",
-)
-
-private fun vulkanTokenSymbolChunk26(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2\tVkStructureType\tVK_BASE_VERSION_1_1",
     "VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2_KHR\tVkStructureType\tVK_KHR_get_physical_device_properties2",
     "VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3\tVkStructureType\tVK_BASE_VERSION_1_3",
@@ -5796,6 +5804,9 @@ private fun vulkanTokenSymbolChunk26(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2\tVkStructureType\tVK_BASE_VERSION_1_1",
     "VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2_KHR\tVkStructureType\tVK_KHR_get_memory_requirements2",
     "VK_STRUCTURE_TYPE_MEMORY_SCI_BUF_PROPERTIES_NV\tVkStructureType\tCore/registry declaration",
+)
+
+private fun vulkanTokenSymbolChunk27(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_MEMORY_TO_IMAGE_COPY\tVkStructureType\tVK_BASE_VERSION_1_4",
     "VK_STRUCTURE_TYPE_MEMORY_TO_IMAGE_COPY_EXT\tVkStructureType\tVK_EXT_host_image_copy",
     "VK_STRUCTURE_TYPE_MEMORY_UNMAP_INFO\tVkStructureType\tVK_BASE_VERSION_1_4",
@@ -5804,9 +5815,6 @@ private fun vulkanTokenSymbolChunk26(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_MEMORY_ZIRCON_HANDLE_PROPERTIES_FUCHSIA\tVkStructureType\tVK_FUCHSIA_external_memory",
     "VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT\tVkStructureType\tVK_EXT_metal_surface",
     "VK_STRUCTURE_TYPE_MICROMAP_BUILD_INFO_EXT\tVkStructureType\tVK_EXT_opacity_micromap",
-)
-
-private fun vulkanTokenSymbolChunk27(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_MICROMAP_BUILD_SIZES_INFO_EXT\tVkStructureType\tVK_EXT_opacity_micromap",
     "VK_STRUCTURE_TYPE_MICROMAP_CREATE_INFO_EXT\tVkStructureType\tVK_EXT_opacity_micromap",
     "VK_STRUCTURE_TYPE_MICROMAP_VERSION_INFO_EXT\tVkStructureType\tVK_EXT_opacity_micromap",
@@ -5979,6 +5987,9 @@ private fun vulkanTokenSymbolChunk27(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_MEMORY_SCREEN_BUFFER_FEATURES_QNX\tVkStructureType\tVK_QNX_external_memory_screen_buffer",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_SCI_BUF_FEATURES_NV\tVkStructureType\tCore/registry declaration",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_SCI_SYNC_2_FEATURES_NV\tVkStructureType\tCore/registry declaration",
+)
+
+private fun vulkanTokenSymbolChunk28(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_SCI_SYNC_FEATURES_NV\tVkStructureType\tCore/registry declaration",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_SEMAPHORE_INFO\tVkStructureType\tVK_BASE_VERSION_1_1",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_SEMAPHORE_INFO_KHR\tVkStructureType\tVK_KHR_external_semaphore_capabilities",
@@ -5987,9 +5998,6 @@ private fun vulkanTokenSymbolChunk27(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_KHR\tVkStructureType\tVK_KHR_device_fault",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_PROPERTIES_KHR\tVkStructureType\tVK_KHR_device_fault",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2\tVkStructureType\tVK_BASE_VERSION_1_1",
-)
-
-private fun vulkanTokenSymbolChunk28(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2_KHR\tVkStructureType\tVK_KHR_get_physical_device_properties2",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FLOAT16_INT8_FEATURES_KHR\tVkStructureType\tVK_KHR_shader_float16_int8",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FLOAT_CONTROLS_PROPERTIES\tVkStructureType\tVK_COMPUTE_VERSION_1_2",
@@ -6058,6 +6066,7 @@ private fun vulkanTokenSymbolChunk28(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INDEX_TYPE_UINT8_FEATURES\tVkStructureType\tVK_BASE_VERSION_1_4",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INDEX_TYPE_UINT8_FEATURES_EXT\tVkStructureType\tVK_EXT_index_type_uint8",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INDEX_TYPE_UINT8_FEATURES_KHR\tVkStructureType\tVK_KHR_index_type_uint8",
+    "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INFO_PROPERTIES_INTEL\tVkStructureType\tVK_INTEL_device_info",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INHERITED_VIEWPORT_SCISSOR_FEATURES_NV\tVkStructureType\tVK_NV_inherited_viewport_scissor",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_FEATURES\tVkStructureType\tVK_COMPUTE_VERSION_1_3",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_FEATURES_EXT\tVkStructureType\tVK_EXT_inline_uniform_block",
@@ -6161,6 +6170,9 @@ private fun vulkanTokenSymbolChunk28(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_ROBUSTNESS_FEATURES\tVkStructureType\tVK_COMPUTE_VERSION_1_4",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_ROBUSTNESS_FEATURES_EXT\tVkStructureType\tVK_EXT_pipeline_robustness",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_ROBUSTNESS_PROPERTIES\tVkStructureType\tVK_COMPUTE_VERSION_1_4",
+)
+
+private fun vulkanTokenSymbolChunk29(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_ROBUSTNESS_PROPERTIES_EXT\tVkStructureType\tVK_EXT_pipeline_robustness",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_POINT_CLIPPING_PROPERTIES\tVkStructureType\tVK_GRAPHICS_VERSION_1_1",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_POINT_CLIPPING_PROPERTIES_KHR\tVkStructureType\tVK_KHR_maintenance2",
@@ -6170,9 +6182,6 @@ private fun vulkanTokenSymbolChunk28(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENTATION_PROPERTIES_OHOS\tVkStructureType\tCore/registry declaration",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_BARRIER_FEATURES_NV\tVkStructureType\tVK_NV_present_barrier",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_2_FEATURES_KHR\tVkStructureType\tVK_KHR_present_id2",
-)
-
-private fun vulkanTokenSymbolChunk29(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR\tVkStructureType\tVK_KHR_present_id",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_METERING_FEATURES_NV\tVkStructureType\tVK_NV_present_metering",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_MODE_FIFO_LATEST_READY_FEATURES_EXT\tVkStructureType\tVK_EXT_present_mode_fifo_latest_ready",
@@ -6344,6 +6353,9 @@ private fun vulkanTokenSymbolChunk29(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TOOL_PROPERTIES\tVkStructureType\tVK_BASE_VERSION_1_3",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TOOL_PROPERTIES_EXT\tVkStructureType\tVK_EXT_tooling_info",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT\tVkStructureType\tVK_EXT_transform_feedback",
+)
+
+private fun vulkanTokenSymbolChunk30(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_PROPERTIES_EXT\tVkStructureType\tVK_EXT_transform_feedback",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFIED_IMAGE_LAYOUTS_FEATURES_KHR\tVkStructureType\tVK_KHR_unified_image_layouts",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFORM_BUFFER_STANDARD_LAYOUT_FEATURES\tVkStructureType\tVK_COMPUTE_VERSION_1_2",
@@ -6353,9 +6365,6 @@ private fun vulkanTokenSymbolChunk29(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VARIABLE_POINTER_FEATURES\tVkStructureType\tVK_COMPUTE_VERSION_1_1",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VARIABLE_POINTER_FEATURES_KHR\tVkStructureType\tVK_KHR_variable_pointers",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES\tVkStructureType\tVK_GRAPHICS_VERSION_1_4",
-)
-
-private fun vulkanTokenSymbolChunk30(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_EXT\tVkStructureType\tVK_EXT_vertex_attribute_divisor",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_KHR\tVkStructureType\tVK_KHR_vertex_attribute_divisor",
     "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_PROPERTIES\tVkStructureType\tVK_GRAPHICS_VERSION_1_4",
@@ -6527,6 +6536,9 @@ private fun vulkanTokenSymbolChunk30(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_LOCATION_INFO\tVkStructureType\tVK_GRAPHICS_VERSION_1_4",
     "VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_LOCATION_INFO_KHR\tVkStructureType\tVK_KHR_dynamic_rendering_local_read",
     "VK_STRUCTURE_TYPE_RENDERING_END_INFO_EXT\tVkStructureType\tVK_EXT_fragment_density_map_offset",
+)
+
+private fun vulkanTokenSymbolChunk31(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_RENDERING_END_INFO_KHR\tVkStructureType\tVK_KHR_maintenance10",
     "VK_STRUCTURE_TYPE_RENDERING_FRAGMENT_DENSITY_MAP_ATTACHMENT_INFO_EXT\tVkStructureType\tVK_EXT_fragment_density_map",
     "VK_STRUCTURE_TYPE_RENDERING_FRAGMENT_SHADING_RATE_ATTACHMENT_INFO_KHR\tVkStructureType\tVK_KHR_fragment_shading_rate",
@@ -6536,9 +6548,6 @@ private fun vulkanTokenSymbolChunk30(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_RENDERING_INPUT_ATTACHMENT_INDEX_INFO_KHR\tVkStructureType\tVK_KHR_dynamic_rendering_local_read",
     "VK_STRUCTURE_TYPE_RENDER_PASS_ATTACHMENT_BEGIN_INFO\tVkStructureType\tVK_GRAPHICS_VERSION_1_2",
     "VK_STRUCTURE_TYPE_RENDER_PASS_ATTACHMENT_BEGIN_INFO_KHR\tVkStructureType\tVK_KHR_imageless_framebuffer",
-)
-
-private fun vulkanTokenSymbolChunk31(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO\tVkStructureType\tCore/registry declaration",
     "VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO\tVkStructureType\tCore/registry declaration",
     "VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2\tVkStructureType\tVK_GRAPHICS_VERSION_1_2",
@@ -6710,6 +6719,9 @@ private fun vulkanTokenSymbolChunk31(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_VIDEO_DECODE_AV1_CAPABILITIES_KHR\tVkStructureType\tVK_KHR_video_decode_av1",
     "VK_STRUCTURE_TYPE_VIDEO_DECODE_AV1_DPB_SLOT_INFO_KHR\tVkStructureType\tVK_KHR_video_decode_av1",
     "VK_STRUCTURE_TYPE_VIDEO_DECODE_AV1_INLINE_SESSION_PARAMETERS_INFO_KHR\tVkStructureType\tVK_KHR_video_maintenance2",
+)
+
+private fun vulkanTokenSymbolChunk32(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_VIDEO_DECODE_AV1_PICTURE_INFO_KHR\tVkStructureType\tVK_KHR_video_decode_av1",
     "VK_STRUCTURE_TYPE_VIDEO_DECODE_AV1_PROFILE_INFO_KHR\tVkStructureType\tVK_KHR_video_decode_av1",
     "VK_STRUCTURE_TYPE_VIDEO_DECODE_AV1_SESSION_PARAMETERS_CREATE_INFO_KHR\tVkStructureType\tVK_KHR_video_decode_av1",
@@ -6719,9 +6731,6 @@ private fun vulkanTokenSymbolChunk31(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_VIDEO_DECODE_H264_INLINE_SESSION_PARAMETERS_INFO_KHR\tVkStructureType\tVK_KHR_video_maintenance2",
     "VK_STRUCTURE_TYPE_VIDEO_DECODE_H264_PICTURE_INFO_KHR\tVkStructureType\tVK_KHR_video_decode_h264",
     "VK_STRUCTURE_TYPE_VIDEO_DECODE_H264_PROFILE_INFO_KHR\tVkStructureType\tVK_KHR_video_decode_h264",
-)
-
-private fun vulkanTokenSymbolChunk32(): Array<String> = arrayOf(
     "VK_STRUCTURE_TYPE_VIDEO_DECODE_H264_SESSION_PARAMETERS_ADD_INFO_KHR\tVkStructureType\tVK_KHR_video_decode_h264",
     "VK_STRUCTURE_TYPE_VIDEO_DECODE_H264_SESSION_PARAMETERS_CREATE_INFO_KHR\tVkStructureType\tVK_KHR_video_decode_h264",
     "VK_STRUCTURE_TYPE_VIDEO_DECODE_H265_CAPABILITIES_KHR\tVkStructureType\tVK_KHR_video_decode_h265",
@@ -6893,6 +6902,9 @@ private fun vulkanTokenSymbolChunk32(): Array<String> = arrayOf(
     "VK_SWAPCHAIN_CREATE_DEFERRED_MEMORY_ALLOCATION_BIT_KHR\tVkSwapchainCreateFlagBitsKHR\tVK_KHR_swapchain_maintenance1",
     "VK_SWAPCHAIN_CREATE_MULTISAMPLED_RENDER_TO_SINGLE_SAMPLED_BIT_EXT\tVkSwapchainCreateFlagBitsKHR\tVK_EXT_multisampled_render_to_swapchain",
     "VK_SWAPCHAIN_CREATE_MUTABLE_FORMAT_BIT_KHR\tVkSwapchainCreateFlagBitsKHR\tVK_KHR_swapchain_mutable_format",
+)
+
+private fun vulkanTokenSymbolChunk33(): Array<String> = arrayOf(
     "VK_SWAPCHAIN_CREATE_PRESENT_ID_2_BIT_KHR\tVkSwapchainCreateFlagBitsKHR\tVK_KHR_present_id2",
     "VK_SWAPCHAIN_CREATE_PRESENT_TIMING_BIT_EXT\tVkSwapchainCreateFlagBitsKHR\tVK_EXT_present_timing",
     "VK_SWAPCHAIN_CREATE_PRESENT_WAIT_2_BIT_KHR\tVkSwapchainCreateFlagBitsKHR\tVK_KHR_present_wait2",
@@ -6902,9 +6914,6 @@ private fun vulkanTokenSymbolChunk32(): Array<String> = arrayOf(
     "VK_SWAPCHAIN_CREATE_RESERVED_5_BIT_EXT\tVkSwapchainCreateFlagBitsKHR\tCore/registry declaration",
     "VK_SWAPCHAIN_CREATE_SPLIT_INSTANCE_BIND_REGIONS_BIT_KHR\tVkSwapchainCreateFlagBitsKHR\tVK_KHR_device_group, VK_KHR_swapchain",
     "VK_SWAPCHAIN_IMAGE_USAGE_SHARED_BIT_ANDROID\tVkSwapchainImageUsageFlagBitsANDROID\tCore/registry declaration",
-)
-
-private fun vulkanTokenSymbolChunk33(): Array<String> = arrayOf(
     "VK_SWAPCHAIN_IMAGE_USAGE_SHARED_BIT_OHOS\tVkSwapchainImageUsageFlagBitsOHOS\tCore/registry declaration",
     "VK_SYSTEM_ALLOCATION_SCOPE_CACHE\tVkSystemAllocationScope\tCore/registry declaration",
     "VK_SYSTEM_ALLOCATION_SCOPE_COMMAND\tVkSystemAllocationScope\tCore/registry declaration",
@@ -7076,6 +7085,9 @@ private fun vulkanTokenSymbolChunk33(): Array<String> = arrayOf(
     "VK_VIDEO_ENCODE_FEEDBACK_BITSTREAM_BYTES_WRITTEN_BIT_KHR\tVkVideoEncodeFeedbackFlagBitsKHR\tCore/registry declaration",
     "VK_VIDEO_ENCODE_FEEDBACK_BITSTREAM_HAS_OVERRIDES_BIT_KHR\tVkVideoEncodeFeedbackFlagBitsKHR\tCore/registry declaration",
     "VK_VIDEO_ENCODE_FEEDBACK_INTER_PIXELS_BIT_KHR\tVkVideoEncodeFeedbackFlagBitsKHR\tVK_KHR_video_encode_feedback2",
+)
+
+private fun vulkanTokenSymbolChunk34(): Array<String> = arrayOf(
     "VK_VIDEO_ENCODE_FEEDBACK_INTRA_PIXELS_BIT_KHR\tVkVideoEncodeFeedbackFlagBitsKHR\tVK_KHR_video_encode_feedback2",
     "VK_VIDEO_ENCODE_FEEDBACK_MAX_QUANTIZATION_BIT_KHR\tVkVideoEncodeFeedbackFlagBitsKHR\tVK_KHR_video_encode_feedback2",
     "VK_VIDEO_ENCODE_FEEDBACK_MIN_QUANTIZATION_BIT_KHR\tVkVideoEncodeFeedbackFlagBitsKHR\tVK_KHR_video_encode_feedback2",
@@ -7085,9 +7097,6 @@ private fun vulkanTokenSymbolChunk33(): Array<String> = arrayOf(
     "VK_VIDEO_ENCODE_H264_CAPABILITY_B_FRAME_IN_L1_LIST_BIT_KHR\tVkVideoEncodeH264CapabilityFlagBitsKHR\tCore/registry declaration",
     "VK_VIDEO_ENCODE_H264_CAPABILITY_B_PICTURE_INTRA_REFRESH_BIT_KHR\tVkVideoEncodeH264CapabilityFlagBitsKHR\tVK_KHR_video_encode_intra_refresh",
     "VK_VIDEO_ENCODE_H264_CAPABILITY_DIFFERENT_SLICE_TYPE_BIT_KHR\tVkVideoEncodeH264CapabilityFlagBitsKHR\tCore/registry declaration",
-)
-
-private fun vulkanTokenSymbolChunk34(): Array<String> = arrayOf(
     "VK_VIDEO_ENCODE_H264_CAPABILITY_GENERATE_PREFIX_NALU_BIT_KHR\tVkVideoEncodeH264CapabilityFlagBitsKHR\tCore/registry declaration",
     "VK_VIDEO_ENCODE_H264_CAPABILITY_HRD_COMPLIANCE_BIT_KHR\tVkVideoEncodeH264CapabilityFlagBitsKHR\tCore/registry declaration",
     "VK_VIDEO_ENCODE_H264_CAPABILITY_MB_QP_DIFF_WRAPAROUND_BIT_KHR\tVkVideoEncodeH264CapabilityFlagBitsKHR\tVK_KHR_video_encode_quantization_map",
@@ -8577,6 +8586,7 @@ private fun vulkanTypeSymbolChunk7(): Array<String> = arrayOf(
     "VkPhysicalDeviceIndexTypeUint8Features\tstruct\tVK_BASE_VERSION_1_4",
     "VkPhysicalDeviceIndexTypeUint8FeaturesEXT\tstruct\tVK_EXT_index_type_uint8",
     "VkPhysicalDeviceIndexTypeUint8FeaturesKHR\tstruct\tVK_KHR_index_type_uint8",
+    "VkPhysicalDeviceInfoPropertiesINTEL\tstruct\tVK_INTEL_device_info",
     "VkPhysicalDeviceInheritedViewportScissorFeaturesNV\tstruct\tVK_NV_inherited_viewport_scissor",
     "VkPhysicalDeviceInlineUniformBlockFeatures\tstruct\tVK_COMPUTE_VERSION_1_3",
     "VkPhysicalDeviceInlineUniformBlockFeaturesEXT\tstruct\tVK_EXT_inline_uniform_block",
@@ -8679,10 +8689,10 @@ private fun vulkanTypeSymbolChunk7(): Array<String> = arrayOf(
     "VkPhysicalDevicePipelineOpacityMicromapFeaturesARM\tstruct\tVK_ARM_pipeline_opacity_micromap",
     "VkPhysicalDevicePipelinePropertiesFeaturesEXT\tstruct\tVK_EXT_pipeline_properties",
     "VkPhysicalDevicePipelineProtectedAccessFeatures\tstruct\tVK_COMPUTE_VERSION_1_4",
-    "VkPhysicalDevicePipelineProtectedAccessFeaturesEXT\tstruct\tVK_EXT_pipeline_protected_access",
 )
 
 private fun vulkanTypeSymbolChunk8(): Array<String> = arrayOf(
+    "VkPhysicalDevicePipelineProtectedAccessFeaturesEXT\tstruct\tVK_EXT_pipeline_protected_access",
     "VkPhysicalDevicePipelineRobustnessFeatures\tstruct\tVK_COMPUTE_VERSION_1_4",
     "VkPhysicalDevicePipelineRobustnessFeaturesEXT\tstruct\tVK_EXT_pipeline_robustness",
     "VkPhysicalDevicePipelineRobustnessProperties\tstruct\tVK_COMPUTE_VERSION_1_4",
@@ -8862,10 +8872,10 @@ private fun vulkanTypeSymbolChunk8(): Array<String> = arrayOf(
     "VkPhysicalDeviceTileShadingFeaturesQCOM\tstruct\tVK_QCOM_tile_shading",
     "VkPhysicalDeviceTileShadingPropertiesQCOM\tstruct\tVK_QCOM_tile_shading",
     "VkPhysicalDeviceTimelineSemaphoreFeatures\tstruct\tVK_BASE_VERSION_1_2",
-    "VkPhysicalDeviceTimelineSemaphoreFeaturesKHR\tstruct\tVK_KHR_timeline_semaphore",
 )
 
 private fun vulkanTypeSymbolChunk9(): Array<String> = arrayOf(
+    "VkPhysicalDeviceTimelineSemaphoreFeaturesKHR\tstruct\tVK_KHR_timeline_semaphore",
     "VkPhysicalDeviceTimelineSemaphoreProperties\tstruct\tVK_BASE_VERSION_1_2",
     "VkPhysicalDeviceTimelineSemaphorePropertiesKHR\tstruct\tVK_KHR_timeline_semaphore",
     "VkPhysicalDeviceToolProperties\tstruct\tVK_BASE_VERSION_1_3",
@@ -9045,10 +9055,10 @@ private fun vulkanTypeSymbolChunk9(): Array<String> = arrayOf(
     "VkPipelineViewportShadingRateImageStateCreateInfoNV\tstruct\tVK_NV_shading_rate_image",
     "VkPipelineViewportStateCreateFlags\tbitmask\tVK_GRAPHICS_VERSION_1_0",
     "VkPipelineViewportStateCreateInfo\tstruct\tVK_GRAPHICS_VERSION_1_0",
-    "VkPipelineViewportSwizzleStateCreateFlagsNV\tbitmask\tVK_NV_viewport_swizzle",
 )
 
 private fun vulkanTypeSymbolChunk10(): Array<String> = arrayOf(
+    "VkPipelineViewportSwizzleStateCreateFlagsNV\tbitmask\tVK_NV_viewport_swizzle",
     "VkPipelineViewportSwizzleStateCreateInfoNV\tstruct\tVK_NV_viewport_swizzle",
     "VkPipelineViewportWScalingStateCreateInfoNV\tstruct\tVK_NV_clip_space_w_scaling",
     "VkPointClippingBehavior\tenum\tVK_BASE_VERSION_1_1",
@@ -9228,10 +9238,10 @@ private fun vulkanTypeSymbolChunk10(): Array<String> = arrayOf(
     "VkSampleLocationsInfoEXT\tstruct\tVK_EXT_sample_locations",
     "VkSampleMask\tbasetype\tVK_GRAPHICS_VERSION_1_0",
     "VkSampler\thandle\tVK_COMPUTE_VERSION_1_0",
-    "VkSamplerAddressMode\tenum\tVK_COMPUTE_VERSION_1_0",
 )
 
 private fun vulkanTypeSymbolChunk11(): Array<String> = arrayOf(
+    "VkSamplerAddressMode\tenum\tVK_COMPUTE_VERSION_1_0",
     "VkSamplerBlockMatchWindowCreateInfoQCOM\tstruct\tVK_QCOM_image_processing2",
     "VkSamplerBorderColorComponentMappingCreateInfoEXT\tstruct\tVK_EXT_border_color_swizzle",
     "VkSamplerCaptureDescriptorDataInfoEXT\tstruct\tVK_EXT_descriptor_buffer",
@@ -9411,10 +9421,10 @@ private fun vulkanTypeSymbolChunk11(): Array<String> = arrayOf(
     "VkSurfacePresentModeEXT\tstruct\tVK_EXT_surface_maintenance1",
     "VkSurfacePresentModeKHR\tstruct\tVK_KHR_surface_maintenance1",
     "VkSurfacePresentScalingCapabilitiesEXT\tstruct\tVK_EXT_surface_maintenance1",
-    "VkSurfacePresentScalingCapabilitiesKHR\tstruct\tVK_KHR_surface_maintenance1",
 )
 
 private fun vulkanTypeSymbolChunk12(): Array<String> = arrayOf(
+    "VkSurfacePresentScalingCapabilitiesKHR\tstruct\tVK_KHR_surface_maintenance1",
     "VkSurfaceProtectedCapabilitiesKHR\tstruct\tVK_KHR_surface_protected_capabilities",
     "VkSurfaceTransformFlagBitsKHR\tenum\tVK_KHR_surface",
     "VkSurfaceTransformFlagsKHR\tbitmask\tVK_KHR_display, VK_KHR_surface",
@@ -9594,10 +9604,10 @@ private fun vulkanTypeSymbolChunk12(): Array<String> = arrayOf(
     "VkVideoEncodeH264FrameSizeKHR\tstruct\tVK_KHR_video_encode_h264",
     "VkVideoEncodeH264GopRemainingFrameInfoKHR\tstruct\tVK_KHR_video_encode_h264",
     "VkVideoEncodeH264NaluSliceInfoKHR\tstruct\tVK_KHR_video_encode_h264",
-    "VkVideoEncodeH264PictureInfoKHR\tstruct\tVK_KHR_video_encode_h264",
 )
 
 private fun vulkanTypeSymbolChunk13(): Array<String> = arrayOf(
+    "VkVideoEncodeH264PictureInfoKHR\tstruct\tVK_KHR_video_encode_h264",
     "VkVideoEncodeH264ProfileInfoKHR\tstruct\tVK_KHR_video_encode_h264",
     "VkVideoEncodeH264QpKHR\tstruct\tVK_KHR_video_encode_h264",
     "VkVideoEncodeH264QualityLevelPropertiesKHR\tstruct\tVK_KHR_video_encode_h264",
@@ -9791,8 +9801,8 @@ private val VULKAN_TYPE_SYMBOLS: List<String> by lazy(LazyThreadSafetyMode.PUBLI
 }
 
 internal const val VULKAN_COMMAND_SYMBOL_COUNT = 842
-internal const val VULKAN_TOKEN_SYMBOL_COUNT = 6248
-internal const val VULKAN_TYPE_SYMBOL_COUNT = 2461
+internal const val VULKAN_TOKEN_SYMBOL_COUNT = 6257
+internal const val VULKAN_TYPE_SYMBOL_COUNT = 2462
 
 private fun decodeVulkanRegistrySymbol(encoded: String): VulkanRegistrySymbolReference? {
     val first = encoded.indexOf('\t')

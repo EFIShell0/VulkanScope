@@ -11,8 +11,8 @@ android {
         applicationId = "com.efishell.vulkanscope"
         minSdk = 31
         targetSdk = 37
-        versionCode = 1403
-        versionName = "1.4.3"
+        versionCode = 2006
+        versionName = "2.0.6"
         
         
         ndkVersion = "29.0.14206865"
@@ -57,6 +57,7 @@ android {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.19.0")
+    implementation("androidx.core:core-splashscreen:1.2.0")
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.compose.ui:ui:1.12.0")
     implementation("androidx.compose.foundation:foundation:1.12.0")

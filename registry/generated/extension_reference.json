@@ -1,6 +1,6 @@
 {
   "schema": 2,
-  "baseline": "Vulkan 1.4.362",
+  "baseline": "Vulkan 1.4.364",
   "source": "Khronos vk.xml",
   "entries": [
     {
@@ -5954,6 +5954,28 @@
       ],
       "queryGroup": "",
       "specUrl": "https://registry.khronos.org/vulkan/specs/latest/man/html/VK_IMG_relaxed_line_rasterization.html"
+    },
+    {
+      "name": "VK_INTEL_device_info",
+      "authorTag": "INTEL",
+      "author": "Intel Corporation",
+      "specVersion": "1",
+      "type": "device",
+      "platform": "",
+      "promotedTo": "",
+      "depends": "VK_KHR_get_physical_device_properties2,VK_VERSION_1_1",
+      "requires": "",
+      "deprecatedBy": "",
+      "obsoletedBy": "",
+      "provisional": false,
+      "commands": [],
+      "enums": [
+        "VK_INTEL_DEVICE_INFO_EXTENSION_NAME",
+        "VK_INTEL_DEVICE_INFO_SPEC_VERSION",
+        "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INFO_PROPERTIES_INTEL"
+      ],
+      "queryGroup": "",
+      "specUrl": "https://registry.khronos.org/vulkan/specs/latest/man/html/VK_INTEL_device_info.html"
     },
     {
       "name": "VK_INTEL_performance_query",

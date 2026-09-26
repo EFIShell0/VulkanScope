@@ -433,6 +433,10 @@ static size_t appendAllGeneratedExtensionPNext(const char* selectedExtension, co
         storage.add<VkPhysicalDevicePrivateDataBaseHandleFeaturesNV>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRIVATE_DATA_BASE_HANDLE_FEATURES_NV, true, false);
         ++added;
     }
+    if (std::strcmp(selectedExtension, "VK_INTEL_device_info") == 0) {
+        storage.add<VkPhysicalDeviceInfoPropertiesINTEL>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INFO_PROPERTIES_INTEL, false, true);
+        ++added;
+    }
     return added;
 }
-static constexpr uint32_t kGeneratedRuntimePNextTypeCount = 103;
+static constexpr uint32_t kGeneratedRuntimePNextTypeCount = 104;

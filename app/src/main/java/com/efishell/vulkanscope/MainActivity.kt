@@ -7,6 +7,7 @@ import android.content.res.Configuration
 import android.os.Build
 import android.os.Process
 import android.view.Surface
+import android.view.KeyEvent as AndroidKeyEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.util.Log
@@ -23,6 +24,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import java.io.File
 import java.io.FileOutputStream
 import java.io.FileInputStream
@@ -48,6 +50,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -57,10 +60,12 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
@@ -68,6 +73,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.ScrollableState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
@@ -96,6 +102,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -128,9 +136,12 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.ShortNavigationBar
 import androidx.compose.material3.ShortNavigationBarItem
-import androidx.compose.material3.ShortNavigationBarItemDefaults
+import androidx.compose.material3.NavigationItemIconPosition
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
@@ -152,6 +163,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.derivedStateOf
@@ -174,12 +187,24 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerType
+import androidx.compose.ui.input.pointer.isPrimaryPressed
+import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.nativeKeyCode
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -213,6 +238,9 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -243,11 +271,19 @@ private val VulkanTextSecondary = ComposeColor(0xFFB6ACAE)
 private val VulkanTextMuted = ComposeColor(0xFF968D8F)
 private val VulkanOutline = ComposeColor(0xFF494244)
 private val VulkanOutlineVariant = ComposeColor(0xFF2A2527)
+private val PrimaryNavigationMaxWidth = 310.dp
+private val PrimaryNavigationHeight = 54.dp
+private val PrimaryNavigationIndicatorHeight = 42.dp
+private val PrimaryNavigationIndicatorHorizontalInset = 8.dp
+private val PrimaryNavigationBottomGap = 4.dp
+private val PrimaryNavigationContentGap = 10.dp
 private val LocalDetailKeyValuePresentation = staticCompositionLocalOf { false }
 private data class EvidenceActionEnvironment(val openEncyclopedia: (String) -> Unit, val addWatch: (String) -> Unit)
 private val LocalEvidenceActionEnvironment = staticCompositionLocalOf<EvidenceActionEnvironment?> { null }
 private typealias SharedStorageAccessRequest = ((() -> Unit), (() -> Unit)) -> Unit
 private val LocalSharedStorageAccessRequest = staticCompositionLocalOf<SharedStorageAccessRequest> { { granted, _ -> granted() } }
+private val LocalTransientOverlayContentInset = staticCompositionLocalOf { 0.dp }
+private val LocalBottomNavigationContentInset = staticCompositionLocalOf { PrimaryNavigationBottomGap + PrimaryNavigationHeight + PrimaryNavigationContentGap }
 private val VulkanExpressiveShapes = Shapes(
     extraSmall = RoundedCornerShape(12.dp),
     small = RoundedCornerShape(16.dp),
@@ -278,6 +314,8 @@ private val VulkanTypography = Typography(
     labelSmall = VulkanBaseTypography.labelSmall.copy(textDirection = TextDirection.ContentOrLtr)
 )
 
+
+private fun elapsedMillis(startNanos: Long): Long = ((System.nanoTime() - startNanos) / 1_000_000L).coerceAtLeast(0L)
 
 private val VULKAN_TRADEMARK_DISPLAY_REGEX = Regex("""\bVulkan(?!Scope|®)""")
 
@@ -553,6 +591,12 @@ private enum class SettingsSection(val label: String, val description: String, v
     DRIVER_UPDATES("Driver & Update Preferences", "Vulkan driver management, built-in GitHub update preference and Obtainium guidance.", R.drawable.ic_settings)
 }
 
+private enum class SurfaceSection(val label: String, val description: String, val icon: Int) {
+    DISPLAY("Display & HDR", "Android display modes, HDR capabilities, wide color gamut and Vulkan interpretation.", R.drawable.ic_tablet),
+    SURFACE_FORMATS("Surface & color spaces", "VkSurfaceKHR capabilities, format/color-space pairs and HDR or wide-color surface evidence.", R.drawable.ic_surface),
+    PRESENTATION("Presentation", "Present modes and queue-family presentation support for the active Android Surface.", R.drawable.ic_surface_khr)
+}
+
 private enum class DriverMode(val label: String) {
     SYSTEM("System Vulkan driver"),
     TURNIP("Turnip / third-party driver")
@@ -608,7 +652,42 @@ private data class AppUpdate(
 private const val OFFICIAL_DATABASE_API_ENDPOINT = "https://vulkanscope-database-api.vulkanscope.workers.dev"
 private const val OFFICIAL_DATABASE_WEB_URL = "https://efishell0.github.io/VulkanScope_database/"
 private const val BACKGROUND_COLLECTION_BUDGET_MS = 60_000L
+private const val BACKGROUND_PROBE_LANES = 6
 private const val TURNIP_ARCHIVE_INPUT_MAX_BYTES = 96L * 1024L * 1024L
+private const val CHROMEOS_ARC_FEATURE = "org.chromium.arc"
+
+private fun isChromeOsRuntime(context: Context): Boolean = runCatching {
+    context.packageManager.hasSystemFeature(CHROMEOS_ARC_FEATURE)
+}.getOrDefault(false)
+
+private fun isAndroidPcFormFactor(context: Context): Boolean = runCatching {
+    context.packageManager.hasSystemFeature(PackageManager.FEATURE_PC)
+}.getOrDefault(false)
+
+private fun hasFreeformWindowManagement(context: Context): Boolean = runCatching {
+    context.packageManager.hasSystemFeature(PackageManager.FEATURE_FREEFORM_WINDOW_MANAGEMENT)
+}.getOrDefault(false)
+
+private fun platformRuntimeName(context: Context): String = when {
+    isChromeOsRuntime(context) -> "ChromeOS Android Runtime (ARC)"
+    isAndroidPcFormFactor(context) -> "Android desktop / PC runtime"
+    else -> "Android"
+}
+
+private fun hostPlatformVersionEvidence(context: Context): String = if (isChromeOsRuntime(context)) {
+    "Unavailable through Android public APIs"
+} else {
+    Build.VERSION.RELEASE.ifBlank { "Unavailable" }
+}
+
+private fun googlebookEnvironmentEvidence(context: Context): String = when {
+    isChromeOsRuntime(context) -> "ChromeOS ARC detected; Googlebook identity is not inferred"
+    isAndroidPcFormFactor(context) && hasFreeformWindowManagement(context) -> "Android PC form factor with freeform window management detected; Googlebook-compatible environment evidence only"
+    isAndroidPcFormFactor(context) -> "Android PC form factor detected; Googlebook identity is not exposed by a documented public Android API"
+    else -> "Googlebook identity is not exposed by a documented public Android API"
+}
+
+private fun googlebookOsVersionEvidence(): String = "Unavailable through documented public Android APIs"
 
 private class BoundedDriverArchiveInputStream(input: InputStream, private val maxBytes: Long) : FilterInputStream(input) {
     private var consumedBytes = 0L
@@ -1419,6 +1498,24 @@ class MainActivity : ComponentActivity() {
     private val surfaceLock = Any()
     private val collectMutex = Mutex()
     private val probeMutex = Mutex()
+    private val driverBundleMutex = Mutex()
+    private val backgroundProbeMutexes = List(BACKGROUND_PROBE_LANES) { Mutex() }
+    private val backgroundProbeServices = arrayOf(
+        VulkanProbeServiceBg0::class.java,
+        VulkanProbeServiceBg1::class.java,
+        VulkanProbeServiceBg2::class.java,
+        VulkanProbeServiceBg3::class.java,
+        VulkanProbeServiceBg4::class.java,
+        VulkanProbeServiceBg5::class.java
+    )
+    private val backgroundProbeProcessSuffixes = arrayOf(
+        ":vulkan_probe_bg0",
+        ":vulkan_probe_bg1",
+        ":vulkan_probe_bg2",
+        ":vulkan_probe_bg3",
+        ":vulkan_probe_bg4",
+        ":vulkan_probe_bg5"
+    )
     private var currentSurface: Surface? = null
     private var surfaceGeneration = 0L
     private var surfaceRefreshPending = false
@@ -1459,6 +1556,15 @@ class MainActivity : ComponentActivity() {
     private var updateCancelConfirmationVisible by mutableStateOf(false)
     private var directUpdatesEnabled by mutableStateOf(true)
     private var directUpdatesConsentVisible by mutableStateOf(false)
+    private var openingAnimationEnabled by mutableStateOf(true)
+    private val startupActivityStartNanos = System.nanoTime()
+    private var startupTimingColdLaunch = true
+    private var startupGateDelayMs: Long? = null
+    private var startupGateOpen by mutableStateOf(false)
+    private var platformSplashExited by mutableStateOf(false)
+    private var startupPostAnimationWorkStarted = false
+    private var activityStarted = false
+    private var displayListenerRegistered = false
     private var pendingUpdateApk: File? = null
     private var updateCheckJob: Job? = null
     private var updateStatusHideJob: Job? = null
@@ -1509,18 +1615,61 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        getSystemService(DisplayManager::class.java).registerDisplayListener(displayListener, null)
-        refreshDisplayReport()
-        registerNetworkStateCallback()
+        activityStarted = true
+        if (startupGateOpen) startRuntimeObservers()
     }
 
     override fun onStop() {
+        activityStarted = false
         if (networkCallbackRegistered) {
             runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networkCallback) }
             networkCallbackRegistered = false
         }
-        getSystemService(DisplayManager::class.java).unregisterDisplayListener(displayListener)
+        if (displayListenerRegistered) {
+            runCatching { getSystemService(DisplayManager::class.java).unregisterDisplayListener(displayListener) }
+            displayListenerRegistered = false
+        }
         super.onStop()
+    }
+
+    private fun startRuntimeObservers() {
+        if (!startupGateOpen || !activityStarted) return
+        if (!displayListenerRegistered) {
+            getSystemService(DisplayManager::class.java).registerDisplayListener(displayListener, null)
+            displayListenerRegistered = true
+        }
+        refreshDisplayReport()
+        registerNetworkStateCallback()
+        if (startupPostAnimationWorkStarted) return
+        startupPostAnimationWorkStarted = true
+        val surfaceReadyForCollection = synchronized(surfaceLock) { currentSurface?.isValid == true }
+        if (surfaceReadyForCollection && latestReport == null && !collectionInFlight && pendingCollectionTasks.isEmpty()) requestReportCollection()
+        if (directUpdatesEnabled) {
+            activityScope.launch { checkForApplicationUpdate(showProgress = false) }
+        } else {
+            showDirectUpdatesDisabledIntroIfFirstInstall()
+        }
+    }
+
+    private fun completeOpeningSequence() {
+        if (startupTimingColdLaunch && startupGateDelayMs == null) startupGateDelayMs = elapsedMillis(startupActivityStartNanos)
+        startupGateOpen = true
+        startRuntimeObservers()
+    }
+
+    private fun armOpeningSequenceWatchdog() {
+        if (!openingAnimationEnabled || startupGateOpen) return
+        activityScope.launch {
+            delay(900L)
+            if (!startupGateOpen && !platformSplashExited) platformSplashExited = true
+            delay(2_100L)
+            if (!startupGateOpen) completeOpeningSequence()
+        }
+    }
+
+    private fun persistOpeningAnimationPreference(enabled: Boolean) {
+        openingAnimationEnabled = enabled
+        prefs.edit().putBoolean("opening_animation_enabled", enabled).apply()
     }
 
     private fun registerNetworkStateCallback() {
@@ -1563,7 +1712,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        refreshDisplayReport()
+        if (startupGateOpen) refreshDisplayReport()
         val pending = pendingUpdateApk
         if (pending != null && pending.exists() && directUpdatesEnabled && (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls())) {
             pendingUpdateApk = null
@@ -1585,6 +1734,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean("startup_gate_open", startupGateOpen)
+        super.onSaveInstanceState(outState)
+    }
+
     override fun onDestroy() {
         activeUpdateCheckCall?.cancel()
         activeUpdateDownloadCall?.cancel()
@@ -1592,25 +1746,43 @@ class MainActivity : ComponentActivity() {
         updateStatusHideJob?.cancel()
         updateDownloadJob?.cancel()
         turnipFileManagerScanJob?.cancel()
-        stopVulkanProbeProcess()
+        stopAllVulkanProbeProcesses()
         activityScope.cancel()
         super.onDestroy()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        startupTimingColdLaunch = savedInstanceState == null
+        val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
+        splashScreen.setOnExitAnimationListener { provider ->
+            provider.view.animate()
+                .alpha(0f)
+                .scaleX(1.08f)
+                .scaleY(1.08f)
+                .setDuration(360L)
+                .withEndAction {
+                    provider.remove()
+                    platformSplashExited = true
+                }
+                .start()
+        }
         window.navigationBarColor = android.graphics.Color.rgb(17, 17, 17)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
         }
         prefs = getSharedPreferences("settings", MODE_PRIVATE)
         directUpdatesEnabled = prefs.getBoolean("direct_updates_enabled", true)
+        openingAnimationEnabled = prefs.getBoolean("opening_animation_enabled", true)
+        startupGateOpen = savedInstanceState?.getBoolean("startup_gate_open", false) == true || !openingAnimationEnabled
+        platformSplashExited = savedInstanceState != null
         if (runCatching { migrateLegacyTurnipBundleIfNeeded(filesDir, prefs) }.getOrDefault(false)) turnipManagerRevision += 1
-        displayReportState = displayReport()
         driverMode = DriverMode.values().find { it.name == prefs.getString("driver_mode", DriverMode.SYSTEM.name) } ?: DriverMode.SYSTEM
         if (!isTurnipPlatformEligible()) turnipSupport = TurnipSupport.UNSUPPORTED
         setContent {
             CompositionLocalProvider(LocalSharedStorageAccessRequest provides { granted, denied -> requestSharedStorageAccess(granted, denied) }) {
+            Box(Modifier.fillMaxSize()) {
+            if (startupGateOpen || !openingAnimationEnabled) {
             VulkanScopeApp(
                 displayReport = displayReportState ?: DisplayReport("Unknown", "Unknown", null, "Unknown", emptyList(), "Unknown", "Unknown", "Unknown", emptyList(), "unknown"),
                 report = latestReport,
@@ -1641,6 +1813,8 @@ class MainActivity : ComponentActivity() {
                 directUpdatesEnabled = directUpdatesEnabled,
                 directUpdatesConsentVisible = directUpdatesConsentVisible,
                 onDirectUpdatesChanged = { enabled -> requestDirectUpdatesChanged(enabled) },
+                openingAnimationEnabled = openingAnimationEnabled,
+                onOpeningAnimationChanged = { enabled -> persistOpeningAnimationPreference(enabled) },
                 onDismissDirectUpdatesConsent = { directUpdatesConsentVisible = false },
                 onConfirmDirectUpdatesConsent = { confirmDirectUpdatesConsent() },
                 surfaceReady = { hostGeneration, surface ->
@@ -1656,7 +1830,7 @@ class MainActivity : ComponentActivity() {
                             true
                         }
                     }
-                    if (changed) {
+                    if (changed && startupGateOpen && activityStarted) {
                         if (driverSurfaceRebindPending && hostGeneration == surfaceHostGeneration) {
                             driverSurfaceRebindPending = false
                             requestReportCollection()
@@ -1712,13 +1886,14 @@ class MainActivity : ComponentActivity() {
                     onImport = { importSelectedTurnipFiles() }
                 )
             }
+            } else {
+                VulkanScopeOpeningAnimation(startAnimation = platformSplashExited, onFinished = { completeOpeningSequence() })
+            }
+            }
             }
         }
-        if (directUpdatesEnabled) {
-            activityScope.launch { checkForApplicationUpdate(showProgress = false) }
-        } else {
-            showDirectUpdatesDisabledIntroIfFirstInstall()
-        }
+        armOpeningSequenceWatchdog()
+        if (startupGateOpen) completeOpeningSequence()
     }
 
     private fun showDirectUpdatesDisabledIntroIfFirstInstall() {
@@ -2126,7 +2301,7 @@ class MainActivity : ComponentActivity() {
         if (slot !in 1..TURNIP_MANAGER_MAX_DRIVERS || driverImportInFlight || turnipManagerBusy || !completeReportMutationReady()) return
         turnipManagerBusy = true
         activityScope.launch {
-            val valid = withContext(Dispatchers.IO) { probeMutex.withLock { resolveTurnipLibrary(turnipSlotBundleRoot(filesDir, slot)) != null } }
+            val valid = withContext(Dispatchers.IO) { driverBundleMutex.withLock { resolveTurnipLibrary(turnipSlotBundleRoot(filesDir, slot)) != null } }
             if (!valid) {
                 turnipManagerBusy = false
                 turnipManagerRevision += 1
@@ -2162,7 +2337,7 @@ class MainActivity : ComponentActivity() {
                     return@launch
                 }
             }
-            val removed = withContext(Dispatchers.IO) { probeMutex.withLock { turnipSlotRoot(filesDir, slot).deleteRecursively() } }
+            val removed = withContext(Dispatchers.IO) { driverBundleMutex.withLock { turnipSlotRoot(filesDir, slot).deleteRecursively() } }
             turnipManagerBusy = false
             turnipManagerRevision += 1
             if (switchToSystem) applyDriverModeChange(DriverMode.SYSTEM, true)
@@ -2236,6 +2411,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestReportCollection() {
+        if (!startupGateOpen || !activityStarted) return
         if (isFinishing || isDestroyed) return
         if (driverImportInFlight) {
             collectionPending = true
@@ -2248,8 +2424,9 @@ class MainActivity : ComponentActivity() {
         collectionGeneration += 1L
         val generation = collectionGeneration
         val modeSnapshot = driverMode
+        val collectionStartNanos = System.nanoTime()
         requestedQueryGroups.clear()
-        queryTimingMs = emptyMap()
+        queryTimingMs = startupGateDelayMs?.let { mapOf("startup/gate_delay" to it) } ?: emptyMap()
         pendingCollectionTasks.clear()
         pendingCollectionTasks.add("$generation:base")
         pendingCollectionTasks.add("$generation:enrichment")
@@ -2259,29 +2436,41 @@ class MainActivity : ComponentActivity() {
         collectionStatus = CollectionStatus.COLLECTING
         activityScope.launch {
             try {
-                val base = runCatching { collectReport(modeSnapshot) }.getOrElse { e ->
+                val basePhaseTimings = linkedMapOf<String, Long>()
+                val baseStartNanos = System.nanoTime()
+                val base = runCatching { collectReport(modeSnapshot, basePhaseTimings) }.getOrElse { e ->
                     Log.e("VulkanScope", "Vulkan base orchestration failed", e)
                     VulkanReport("Unknown", emptyList(), emptyList(), emptyList(), "Vulkan base report unavailable: ${e.message ?: "probe failed"}")
                 }
+                val baseElapsedMs = elapsedMillis(baseStartNanos)
                 if (generation != collectionGeneration || modeSnapshot != driverMode) {
                     pendingCollectionTasks.removeAll { it.startsWith("$generation:") }
                     return@launch
                 }
+                queryTimingMs = queryTimingMs + basePhaseTimings + ("collection/base_total" to baseElapsedMs)
                 latestReport = base
                 updateTurnipSupport(base)
                 reportLoading = false
                 completeCollectionTask("$generation:base")
-                val enriched = runCatching { enrichReport(base, modeSnapshot) }.getOrElse { e ->
+                val enrichmentPhaseTimings = linkedMapOf<String, Long>()
+                val enrichmentStartNanos = System.nanoTime()
+                val enriched = runCatching { enrichReport(base, modeSnapshot, enrichmentPhaseTimings) }.getOrElse { e ->
                     Log.e("VulkanScope", "Vulkan advanced enrichment failed", e)
                     markSurfaceProbeState(markMetadataProbeUnavailable(base, e.message ?: "Unexpected enrichment failure."), "unavailable", e.message ?: "Unexpected enrichment failure.")
                 }
+                val enrichmentElapsedMs = elapsedMillis(enrichmentStartNanos)
                 if (generation != collectionGeneration || modeSnapshot != driverMode) {
                     pendingCollectionTasks.removeAll { it.startsWith("$generation:") }
                     return@launch
                 }
+                queryTimingMs = queryTimingMs + enrichmentPhaseTimings + ("collection/enrichment_total" to enrichmentElapsedMs)
                 latestReport = enriched
                 completeCollectionTask("$generation:enrichment")
+                val backgroundStartNanos = System.nanoTime()
                 startBackgroundInformationCollection(generation, modeSnapshot)
+                queryTimingMs = queryTimingMs +
+                    ("collection/background_total" to elapsedMillis(backgroundStartNanos)) +
+                    ("collection/total" to elapsedMillis(collectionStartNanos))
             } finally {
                 collectionInFlight = false
                 settleCollectionState()
@@ -2347,6 +2536,29 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun backgroundProbeLaneCount(): Int {
+        val activityManager = getSystemService(ActivityManager::class.java) ?: return 2
+        val memoryInfo = ActivityManager.MemoryInfo()
+        val memoryInfoAvailable = runCatching {
+            activityManager.getMemoryInfo(memoryInfo)
+            memoryInfo.totalMem > 0L
+        }.getOrDefault(false)
+        if (!memoryInfoAvailable) return 2
+        val mib = 1024L * 1024L
+        val totalMiB = memoryInfo.totalMem / mib
+        val availableMiB = memoryInfo.availMem / mib
+        val availableRatio = memoryInfo.availMem.toDouble() / memoryInfo.totalMem.toDouble()
+        val processors = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
+        return when {
+            activityManager.isLowRamDevice || memoryInfo.lowMemory -> 2
+            totalMiB < 3072L || availableMiB < 768L || availableRatio < 0.12 || processors < 4 -> 2
+            totalMiB < 5120L || availableMiB < 1280L || availableRatio < 0.16 || processors < 6 -> 3
+            totalMiB < 6144L || availableMiB < 1536L || availableRatio < 0.18 || processors < 8 -> 4
+            totalMiB < 7168L || availableMiB < 2048L || availableRatio < 0.22 -> 5
+            else -> BACKGROUND_PROBE_LANES
+        }
+    }
+
     private suspend fun startBackgroundInformationCollection(generation: Long = collectionGeneration, modeSnapshot: DriverMode = driverMode) {
         val report = latestReport
         if (report == null || report.devices.isEmpty()) {
@@ -2363,11 +2575,29 @@ class MainActivity : ComponentActivity() {
             .sorted()
             .map { "ext::$it" }
             .toList()
-        val allGroups = backgroundQueryGroups.toList() + exhaustiveExtensionGroups
+        val prioritizedBackgroundGroups = backgroundQueryGroups.toList().sortedBy { group ->
+            when (group) {
+                "queue2" -> 0
+                "memory2" -> 1
+                "format2" -> 2
+                "imageFormat2" -> 3
+                "external" -> 4
+                "tools" -> 5
+                "groups" -> 6
+                "sparse" -> 7
+                "videoCapabilities" -> 8
+                else -> 9
+            }
+        }
+        val allGroups = prioritizedBackgroundGroups + exhaustiveExtensionGroups
         exhaustiveExtensionGroups.forEach { pendingCollectionTasks.add("$generation:group:$it") }
         val newGroups = allGroups.filter { requestedQueryGroups.add(it) }
         allGroups.filterNot { newGroups.contains(it) }.forEach { completeCollectionTask("$generation:group:$it") }
         val deadlineNanos = System.nanoTime() + BACKGROUND_COLLECTION_BUDGET_MS * 1_000_000L
+        val activeBackgroundProbeLanes = backgroundProbeLaneCount()
+        val backgroundDriverPaths = withContext(Dispatchers.IO) {
+            findTurnipIcd(modeSnapshot) to findTurnipBundle(modeSnapshot)
+        }
 
         fun unavailableRaw(group: String, reason: String): String = JSONObject()
             .put("status", "unavailable")
@@ -2396,53 +2626,69 @@ class MainActivity : ComponentActivity() {
             groups.forEach { completeCollectionTask("$generation:group:$it") }
         }
 
-        var groupIndex = 0
-        for (group in newGroups) {
-            val remainingNanos = deadlineNanos - System.nanoTime()
-            if (remainingNanos <= 0L) {
-                publishUnavailableGroups(
-                    newGroups.drop(groupIndex),
-                    "Unavailable: the bounded background Vulkan detail-collection budget of ${BACKGROUND_COLLECTION_BUDGET_MS / 1000L} seconds was exhausted. The base report remains complete; this optional detail can be retried from its page."
-                )
-                break
-            }
-            val taskId = "$generation:group:$group"
-            try {
-                if (generation != collectionGeneration || modeSnapshot != driverMode) {
-                    pendingCollectionTasks.removeAll { it.startsWith("$generation:") }
-                    return
-                }
-                val current = latestReport ?: break
-                val extensionName = if (group.startsWith("ext::")) group.removePrefix("ext::") else ISOLATED_EXTENSION_GROUPS[group]
-                val remainingBudgetMs = (remainingNanos / 1_000_000L).coerceAtLeast(1L)
-                val timingStartNanos = System.nanoTime()
-                val raw = runCatching {
-                    withTimeout(remainingBudgetMs) { runIsolatedProbe(group, modeSnapshot) }
-                }.getOrElse { e ->
-                    Log.e("VulkanScope", "Vulkan background query failed: $group", e)
-                    unavailableRaw(group, e.message ?: "The dedicated background query failed.")
-                }.ifBlank {
-                    JSONObject().put("status", "unavailable").put("group", group).put("reason", "The dedicated background query returned no data.").put("devices", JSONArray()).toString()
-                }
-                val elapsedMs = ((System.nanoTime() - timingStartNanos) / 1_000_000L).coerceAtLeast(0L)
-                withContext(Dispatchers.Main.immediate) {
-                    if (generation != collectionGeneration || modeSnapshot != driverMode) return@withContext
-                    queryTimingMs = queryTimingMs + (group to elapsedMs)
-                    val currentReport = latestReport ?: current
-                    latestReport = if (extensionName != null) {
-                        mergeExtensionGroupReport(currentReport, raw, group, extensionName)
-                    } else {
-                        val label = ISOLATED_ADVANCED_GROUPS[group] ?: ISOLATED_CORE_GROUPS[group] ?: group
-                        mergeAdvancedQueryReport(currentReport, raw, group, label)
-                    }
-                }
-            } finally {
-                withContext(Dispatchers.Main.immediate) {
-                    completeCollectionTask(taskId)
-                }
-            }
-            groupIndex += 1
+        if (generation != collectionGeneration || modeSnapshot != driverMode) {
+            pendingCollectionTasks.removeAll { it.startsWith("$generation:") }
+            return
         }
+        val backgroundResults = coroutineScope {
+            val nextGroup = java.util.concurrent.atomic.AtomicInteger(0)
+            (0 until activeBackgroundProbeLanes).map { lane ->
+                async(Dispatchers.IO) {
+                    val laneResults = mutableListOf<Pair<Int, Triple<String, String, Long>>>()
+                    while (true) {
+                        val index = nextGroup.getAndIncrement()
+                        if (index >= newGroups.size) break
+                        val group = newGroups[index]
+                        val remainingNanos = deadlineNanos - System.nanoTime()
+                        val budgetReason = "Unavailable: the bounded background Vulkan detail-collection budget of ${BACKGROUND_COLLECTION_BUDGET_MS / 1000L} seconds was exhausted. The base report remains complete; this optional detail can be retried from its page."
+                        if (remainingNanos <= 0L) {
+                            laneResults += index to Triple(group, unavailableRaw(group, budgetReason), 0L)
+                            continue
+                        }
+                        val remainingBudgetMs = (remainingNanos / 1_000_000L).coerceAtLeast(1L)
+                        val scheduledStartNanos = System.nanoTime()
+                        val raw = try {
+                            withTimeout(remainingBudgetMs) {
+                                runBackgroundIsolatedProbe(group, lane, modeSnapshot, backgroundDriverPaths)
+                            }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (error: Throwable) {
+                            Log.e("VulkanScope", "Vulkan background query failed: $group", error)
+                            unavailableRaw(group, error.message ?: "The dedicated background query failed.")
+                        }.ifBlank {
+                            unavailableRaw(group, "The dedicated background query returned no data.")
+                        }
+                        laneResults += index to Triple(group, raw, elapsedMillis(scheduledStartNanos))
+                    }
+                    laneResults
+                }
+            }.awaitAll().flatten().sortedBy { it.first }.map { it.second }
+        }
+        withContext(Dispatchers.Main.immediate) {
+            if (generation != collectionGeneration || modeSnapshot != driverMode) {
+                pendingCollectionTasks.removeAll { it.startsWith("$generation:") }
+                return@withContext
+            }
+            var currentReport = latestReport ?: report
+            val timingMap = queryTimingMs.toMutableMap()
+            timingMap["collection/background_process_lanes"] = activeBackgroundProbeLanes.toLong()
+            for ((group, raw, scheduledElapsedMs) in backgroundResults) {
+                val hostElapsedMs = timingMap["service/$group/host_total"] ?: scheduledElapsedMs
+                timingMap["probe_total/$group"] = hostElapsedMs
+                timingMap["probe_queue_wait/$group"] = (scheduledElapsedMs - hostElapsedMs).coerceAtLeast(0L)
+                val extensionName = if (group.startsWith("ext::")) group.removePrefix("ext::") else ISOLATED_EXTENSION_GROUPS[group]
+                currentReport = if (extensionName != null) {
+                    mergeExtensionGroupReport(currentReport, raw, group, extensionName)
+                } else {
+                    val label = ISOLATED_ADVANCED_GROUPS[group] ?: ISOLATED_CORE_GROUPS[group] ?: group
+                    mergeAdvancedQueryReport(currentReport, raw, group, label)
+                }
+            }
+            queryTimingMs = timingMap
+            latestReport = currentReport
+        }
+        newGroups.forEach { completeCollectionTask("$generation:group:$it") }
     }
 
     private fun finishCollectionStatusSoon(delayMillis: Long = 2000L) {
@@ -3050,38 +3296,44 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    private suspend fun collectReport(modeSnapshot: DriverMode): VulkanReport = withContext(Dispatchers.IO) {
+    private suspend fun collectReport(modeSnapshot: DriverMode, timings: MutableMap<String, Long>): VulkanReport = withContext(Dispatchers.IO) {
         collectMutex.withLock {
-            collectBaseReport(modeSnapshot)
+            collectBaseReport(modeSnapshot, timings)
         }
     }
 
-    private suspend fun collectBaseReport(modeSnapshot: DriverMode): VulkanReport {
+    private suspend fun collectBaseReport(modeSnapshot: DriverMode, timings: MutableMap<String, Long>): VulkanReport {
         var lastParsed: VulkanReport? = null
         var lastFailure = "Base probe returned no terminal result."
         for (attempt in 0 until 2) {
-            val raw = runCatching { runProbe(null, modeSnapshot) }.getOrElse { e ->
-                Log.e("VulkanScope", "Vulkan base probe failed (attempt=${attempt + 1})", e)
+            val attemptNumber = attempt + 1
+            val probeStartNanos = System.nanoTime()
+            val rawResult = runCatching { runProbe(null, modeSnapshot) }
+            timings["base/attempt_${attemptNumber}/probe"] = elapsedMillis(probeStartNanos)
+            val raw = rawResult.getOrElse { e ->
+                Log.e("VulkanScope", "Vulkan base probe failed (attempt=$attemptNumber)", e)
                 lastFailure = e.message ?: "probe failed"
                 break
             }
-            Log.i("VulkanScope", "Vulkan base probe result bytes=${raw.length} attempt=${attempt + 1}")
+            Log.i("VulkanScope", "Vulkan base probe result bytes=${raw.length} attempt=$attemptNumber")
+            val decodeStartNanos = System.nanoTime()
             val root = runCatching { JSONObject(raw) }.getOrElse { e ->
-                Log.e("VulkanScope", "Vulkan base JSON parse failed before report decoding: length=${raw.length} attempt=${attempt + 1}", e)
+                Log.e("VulkanScope", "Vulkan base JSON parse failed before report decoding: length=${raw.length} attempt=$attemptNumber", e)
                 lastFailure = e.message ?: "invalid probe result"
                 break
             }
             val parsed = runCatching { parseReport(raw) }.getOrElse { e ->
-                Log.e("VulkanScope", "Vulkan base report decode failed: length=${raw.length} attempt=${attempt + 1}", e)
+                Log.e("VulkanScope", "Vulkan base report decode failed: length=${raw.length} attempt=$attemptNumber", e)
                 lastFailure = e.message ?: "invalid probe result"
                 break
             }
+            timings["base/attempt_${attemptNumber}/decode"] = elapsedMillis(decodeStartNanos)
             if (hasCompleteBaseCoverage(parsed)) return parsed
             lastParsed = parsed
             lastFailure = parsed.error ?: "Base probe returned an incomplete core Vulkan dataset."
             Log.w(
                 "VulkanScope",
-                "Rejecting incomplete base report attempt=${attempt + 1}: status=${root.optString("status", "unknown")} " +
+                "Rejecting incomplete base report attempt=$attemptNumber: status=${root.optString("status", "unknown")} " +
                     parsed.devices.joinToString { d ->
                         "${d.name}: features=${d.features.size}, queues=${d.queues.size}, heaps=${d.heaps.size}, memoryTypes=${d.memoryTypes.size}, limits=${d.limits.size}, extensions=${d.extensions.size}"
                     }
@@ -3118,7 +3370,7 @@ class MainActivity : ComponentActivity() {
                     device.limits.isNotEmpty()
             }
 
-    private suspend fun enrichReport(base: VulkanReport, modeSnapshot: DriverMode): VulkanReport = withContext(Dispatchers.IO) {
+    private suspend fun enrichReport(base: VulkanReport, modeSnapshot: DriverMode, timings: MutableMap<String, Long>): VulkanReport = withContext(Dispatchers.IO) {
         var enriched = base.copy(devices = base.devices.map { device ->
             if (apiAtLeast(device.apiVersion, 1, 1)) {
                 device.copy(
@@ -3130,6 +3382,7 @@ class MainActivity : ComponentActivity() {
             }
         })
 
+        val metadataStartNanos = System.nanoTime()
         runCatching {
             val rawMetadata = runIsolatedProbe("metadata", modeSnapshot)
             enriched = mergeMetadataReport(enriched, rawMetadata)
@@ -3137,6 +3390,7 @@ class MainActivity : ComponentActivity() {
             Log.e("VulkanScope", "Vulkan metadata query failed", e)
             enriched = markMetadataProbeUnavailable(enriched, e.message ?: "The dedicated metadata query failed.")
         }
+        timings["enrichment/metadata"] = elapsedMillis(metadataStartNanos)
 
         if (enriched.devices.isEmpty()) return@withContext enriched
 
@@ -3145,6 +3399,7 @@ class MainActivity : ComponentActivity() {
         }
         if (surfaceSnapshot != null && enriched.devices.isNotEmpty()) {
             val (surface, surfaceToken) = surfaceSnapshot
+            val surfaceStartNanos = System.nanoTime()
             runCatching {
                 val rawSurface = runSurfaceProbe(surface, modeSnapshot)
                 val stillCurrent = synchronized(surfaceLock) {
@@ -3176,7 +3431,9 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+            timings["enrichment/surface"] = elapsedMillis(surfaceStartNanos)
         } else {
+            timings["enrichment/surface"] = 0L
             enriched = markSurfaceProbeState(enriched, "unavailable", "No live Android Surface was available for dedicated Surface collection.")
         }
 
@@ -3187,6 +3444,7 @@ class MainActivity : ComponentActivity() {
         runServiceProbe(group, null, if (group in ISOLATED_ADVANCED_GROUPS.keys) 30_000L else 12_000L, modeSnapshot)
 
     private fun requestQueryGroup(group: String) {
+        if (!startupGateOpen) return
         if (driverImportInFlight) {
             collectionPending = true
             return
@@ -3214,7 +3472,7 @@ class MainActivity : ComponentActivity() {
                 val elapsedMs = ((System.nanoTime() - timingStartNanos) / 1_000_000L).coerceAtLeast(0L)
                 withContext(Dispatchers.Main.immediate) {
                     if (generation != collectionGeneration || modeSnapshot != driverMode || latestReport == null) return@withContext
-                    queryTimingMs = queryTimingMs + (group to elapsedMs)
+                    queryTimingMs = queryTimingMs + ("probe_total/$group" to elapsedMs)
                     val currentReport = latestReport ?: current
                     latestReport = if (extensionName != null) {
                         mergeExtensionGroupReport(currentReport, raw, group, extensionName)
@@ -3267,64 +3525,131 @@ class MainActivity : ComponentActivity() {
         return runServiceProbe("surface", surface, 25_000L, modeSnapshot)
     }
 
-    private fun runningVulkanProbePids(): List<Int> = runCatching {
+    private fun runningVulkanProbePids(processSuffix: String): List<Int> = runCatching {
         val activityManager = getSystemService(ActivityManager::class.java) ?: return@runCatching emptyList()
-        val expectedName = "${packageName}:vulkan_probe"
+        val expectedName = packageName + processSuffix
         activityManager.runningAppProcesses.orEmpty()
             .filter { it.uid == Process.myUid() && it.processName == expectedName }
             .map { it.pid }
             .distinct()
     }.getOrElse { error ->
-        Log.w("VulkanScope", "Unable to inspect the dedicated Vulkan probe process", error)
+        Log.w("VulkanScope", "Unable to inspect dedicated Vulkan probe process $processSuffix", error)
         emptyList()
     }
 
-    private fun stopVulkanProbeProcess() {
-        runCatching { stopService(Intent(this@MainActivity, VulkanProbeService::class.java)) }
-        runningVulkanProbePids().forEach { pid ->
+    private fun stopVulkanProbeProcess(serviceClass: Class<out android.app.Service>, processSuffix: String) {
+        runCatching { stopService(Intent(this@MainActivity, serviceClass)) }
+        runningVulkanProbePids(processSuffix).forEach { pid ->
             runCatching { Process.killProcess(pid) }.onFailure { error ->
-                Log.w("VulkanScope", "Unable to kill stale Vulkan probe pid=$pid", error)
+                Log.w("VulkanScope", "Unable to kill stale Vulkan probe pid=$pid for $processSuffix", error)
             }
         }
     }
 
-    private suspend fun ensureVulkanProbeProcessQuiescent(timeoutMs: Long = 1_500L): Boolean {
-        val deadline = System.nanoTime() + timeoutMs * 1_000_000L
+    private fun stopVulkanProbeProcess() {
+        stopVulkanProbeProcess(VulkanProbeService::class.java, ":vulkan_probe")
+    }
+
+    private fun stopAllVulkanProbeProcesses() {
+        stopVulkanProbeProcess()
+        backgroundProbeServices.indices.forEach { index ->
+            stopVulkanProbeProcess(backgroundProbeServices[index], backgroundProbeProcessSuffixes[index])
+        }
+    }
+
+    private suspend fun ensureVulkanProbeProcessQuiescent(
+        serviceClass: Class<out android.app.Service>,
+        processSuffix: String,
+        timeoutMs: Long = 1_500L
+    ): Boolean {
+        val initialPids = runningVulkanProbePids(processSuffix)
         val stopRequested = runCatching {
-            withContext(Dispatchers.Main.immediate) { stopService(Intent(this@MainActivity, VulkanProbeService::class.java)) }
+            withContext(Dispatchers.Main.immediate) { stopService(Intent(this@MainActivity, serviceClass)) }
         }.getOrDefault(false)
-        if (stopRequested) delay(150L)
+        if (initialPids.isEmpty() && !stopRequested) return true
+        val deadline = System.nanoTime() + timeoutMs * 1_000_000L
+        if (stopRequested) delay(20L)
+        initialPids.forEach { pid -> runCatching { Process.killProcess(pid) } }
         while (true) {
-            val pids = runningVulkanProbePids()
+            val pids = runningVulkanProbePids(processSuffix)
             if (pids.isEmpty()) return true
             pids.forEach { pid -> runCatching { Process.killProcess(pid) } }
             if (System.nanoTime() >= deadline) {
-                Log.e("VulkanScope", "Previous dedicated Vulkan probe process remained alive after bounded teardown: pids=$pids")
+                Log.e("VulkanScope", "Previous dedicated Vulkan probe process remained alive after bounded teardown for $processSuffix: pids=$pids")
                 return false
             }
-            delay(25L)
+            delay(10L)
         }
     }
 
-    private suspend fun runServiceProbe(group: String, surface: Surface?, timeoutMs: Long, modeSnapshot: DriverMode): String = probeMutex.withLock {
+    private suspend fun runServiceProbe(
+        group: String,
+        surface: Surface?,
+        timeoutMs: Long,
+        modeSnapshot: DriverMode
+    ): String = runServiceProbeEndpoint(
+        group,
+        surface,
+        timeoutMs,
+        modeSnapshot,
+        VulkanProbeService::class.java,
+        ":vulkan_probe",
+        probeMutex
+    )
+
+    private suspend fun runBackgroundIsolatedProbe(
+        group: String,
+        lane: Int,
+        modeSnapshot: DriverMode,
+        driverPaths: Pair<String?, String?>
+    ): String {
+        val safeLane = lane.coerceIn(0, BACKGROUND_PROBE_LANES - 1)
+        val timeoutMs = if (group in ISOLATED_ADVANCED_GROUPS.keys) 30_000L else 12_000L
+        return runServiceProbeEndpoint(
+            group,
+            null,
+            timeoutMs,
+            modeSnapshot,
+            backgroundProbeServices[safeLane],
+            backgroundProbeProcessSuffixes[safeLane],
+            backgroundProbeMutexes[safeLane],
+            driverPaths
+        )
+    }
+
+    private suspend fun runServiceProbeEndpoint(
+        group: String,
+        surface: Surface?,
+        timeoutMs: Long,
+        modeSnapshot: DriverMode,
+        serviceClass: Class<out android.app.Service>,
+        processSuffix: String,
+        endpointMutex: Mutex,
+        resolvedDriverPaths: Pair<String?, String?>? = null
+    ): String = endpointMutex.withLock {
         fun unavailableProbe(reason: String): String = if (group == "base") {
             JSONObject().put("status", "unavailable").put("reason", reason).put("baseReportComplete", false).put("devices", JSONArray()).toString()
         } else {
             JSONObject().put("status", "unavailable").put("group", group).put("reason", reason).put("devices", JSONArray()).toString()
         }
+        val hostProbeStartNanos = System.nanoTime()
         if (driverImportInFlight) return@withLock unavailableProbe("The Vulkan probe was deferred while the private driver bundle was being updated.")
-        if (!ensureVulkanProbeProcessQuiescent()) return@withLock unavailableProbe("The previous dedicated Vulkan probe process could not be terminated within the bounded teardown window.")
+        val quiescenceStartNanos = System.nanoTime()
+        if (!ensureVulkanProbeProcessQuiescent(serviceClass, processSuffix)) return@withLock unavailableProbe("The previous dedicated Vulkan probe process could not be terminated within the bounded teardown window.")
+        val quiescenceMs = elapsedMillis(quiescenceStartNanos)
         val maxProbeResultBytes = 64L * 1024L * 1024L
         val resultFile = File(cacheDir, "vulkan_probe_${java.util.UUID.randomUUID()}.json")
         val crashMarkerFile = File(resultFile.absolutePath + ".crash")
         val terminalFile = File(resultFile.absolutePath + ".done")
+        val timingFile = File(resultFile.absolutePath + ".timing")
         resultFile.delete()
         crashMarkerFile.delete()
         terminalFile.delete()
-        val driverPaths = withContext(Dispatchers.IO) {
+        timingFile.delete()
+        val driverPaths = resolvedDriverPaths ?: withContext(Dispatchers.IO) {
             findTurnipIcd(modeSnapshot) to findTurnipBundle(modeSnapshot)
         }
-        val intent = Intent(this@MainActivity, VulkanProbeService::class.java)
+        val intent = Intent(this@MainActivity, serviceClass)
             .putExtra(VulkanProbeService.EXTRA_QUERY_GROUP, group)
             .putExtra(VulkanProbeService.EXTRA_DRIVER_MODE, modeSnapshot.name)
             .putExtra(VulkanProbeService.EXTRA_DRIVER_ICD, driverPaths.first)
@@ -3332,6 +3657,7 @@ class MainActivity : ComponentActivity() {
             .putExtra(VulkanProbeService.EXTRA_HOOK_LIB_DIR, applicationInfo.nativeLibraryDir)
             .putExtra(VulkanProbeService.EXTRA_RESULT_PATH, resultFile.absolutePath)
             .putExtra(VulkanProbeService.EXTRA_TERMINAL_PATH, terminalFile.absolutePath)
+            .putExtra(VulkanProbeService.EXTRA_TIMING_PATH, timingFile.absolutePath)
             .putExtra(VulkanProbeService.EXTRA_TIMEOUT_MS, timeoutMs)
         if (surface != null) intent.putExtra(VulkanProbeService.EXTRA_SURFACE, surface)
         val started = runCatching { withContext(Dispatchers.Main.immediate) { startService(intent) } }.isSuccess
@@ -3339,12 +3665,14 @@ class MainActivity : ComponentActivity() {
             resultFile.delete()
             crashMarkerFile.delete()
             terminalFile.delete()
+            timingFile.delete()
             return@withLock if (group == "base") {
                 "{\"status\":\"unavailable\",\"reason\":\"Unable to start the dedicated Vulkan probe process\",\"devices\":[]}"
             } else {
                 "{\"status\":\"unavailable\",\"group\":${JSONObject.quote(group)},\"reason\":\"Unable to start the dedicated Vulkan query process\",\"devices\":[]}"
             }
         }
+        var timingSnapshot: Map<String, Long> = emptyMap()
         val result = withContext(Dispatchers.IO) {
             var value: String? = null
             var lastObservedLength = -1L
@@ -3360,6 +3688,17 @@ class MainActivity : ComponentActivity() {
                 val resultLength = resultFile.length()
                 if (resultLength !in 1L..maxProbeResultBytes) return null
                 return runCatching { readFileTextLimited(resultFile, maxProbeResultBytes.toInt()) }.getOrNull()
+            }
+            fun readTimingTelemetry(): Map<String, Long> {
+                if (!timingFile.isFile || timingFile.length() !in 1L..16_384L) return emptyMap()
+                return runCatching {
+                    val json = JSONObject(readFileTextLimited(timingFile, 16_384))
+                    buildMap {
+                        listOf("dispatchToWorkerMs", "libraryLoadMs", "nativeCallMs", "terminalValidationMs", "servicePreTerminalMs").forEach { key ->
+                            if (json.has(key) && !json.isNull(key)) put(key, json.getLong(key).coerceAtLeast(0L))
+                        }
+                    }
+                }.getOrDefault(emptyMap())
             }
             suspend fun readServiceTerminalCandidateWithGrace(graceMs: Long = 300L): String? {
                 val deadline = System.nanoTime() + graceMs * 1_000_000L
@@ -3390,7 +3729,7 @@ class MainActivity : ComponentActivity() {
                             } else {
                                 value = unavailable("The dedicated Vulkan $group probe terminated after a native signal before publishing a valid result.")
                             }
-                            stopVulkanProbeProcess()
+                            stopVulkanProbeProcess(serviceClass, processSuffix)
                             continue
                         }
                         if (resultFile.isFile) {
@@ -3398,7 +3737,7 @@ class MainActivity : ComponentActivity() {
                             val resultModified = resultFile.lastModified()
                             if (resultLength > maxProbeResultBytes) {
                                 value = unavailable("The Vulkan probe result exceeded the safety size limit.")
-                                stopVulkanProbeProcess()
+                                stopVulkanProbeProcess(serviceClass, processSuffix)
                                 continue
                             }
                             val resultInode = runCatching { android.system.Os.stat(resultFile.path).st_ino }.getOrDefault(-1L)
@@ -3408,34 +3747,48 @@ class MainActivity : ComponentActivity() {
                                 lastObservedModified = resultModified
                                 lastObservedInode = resultInode
                                 if (crashDetected()) continue
-                                kotlinx.coroutines.delay(20L)
+                                kotlinx.coroutines.delay(10L)
                             } else {
-                                kotlinx.coroutines.delay(40L)
+                                kotlinx.coroutines.delay(15L)
                             }
                         } else {
-                            kotlinx.coroutines.delay(60L)
+                            kotlinx.coroutines.delay(12L)
                         }
                     }
                 }
             } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
                 val publishedBeforeTimeout = readPublishedCandidate()?.takeIf(::terminalCandidate)
-                stopVulkanProbeProcess()
+                stopVulkanProbeProcess(serviceClass, processSuffix)
                 delay(150L)
                 val settledPublication = publishedBeforeTimeout ?: readPublishedCandidate()?.takeIf(::terminalCandidate)
                 value = settledPublication ?: unavailable("The dedicated $group probe did not complete within the timeout.")
                 if (settledPublication != null) Log.w("VulkanScope", "Recovered an atomic $group probe publication at the timeout boundary instead of discarding it.")
             } catch (cancelled: CancellationException) {
                 withContext(NonCancellable) {
-                    val quiescent = ensureVulkanProbeProcessQuiescent()
+                    val quiescent = ensureVulkanProbeProcessQuiescent(serviceClass, processSuffix)
                     if (!quiescent) Log.e("VulkanScope", "Cancelled Vulkan $group probe did not reach a confirmed quiescent state before request cleanup.")
                 }
                 throw cancelled
             } finally {
+                timingSnapshot = readTimingTelemetry()
                 resultFile.delete()
                 crashMarkerFile.delete()
                 terminalFile.delete()
+                timingFile.delete()
             }
             value ?: unavailable("The dedicated $group probe returned no result.")
+        }
+        val hostTotalMs = elapsedMillis(hostProbeStartNanos)
+        withContext(Dispatchers.Main.immediate) {
+            val timingEntries = linkedMapOf<String, Long>()
+            timingEntries["service/$group/host_total"] = hostTotalMs
+            timingEntries["service/$group/quiescence"] = quiescenceMs
+            timingSnapshot["dispatchToWorkerMs"]?.let { timingEntries["service/$group/dispatch_to_worker"] = it }
+            timingSnapshot["libraryLoadMs"]?.let { timingEntries["service/$group/library_load"] = it }
+            timingSnapshot["nativeCallMs"]?.let { timingEntries["service/$group/native_call"] = it }
+            timingSnapshot["terminalValidationMs"]?.let { timingEntries["service/$group/terminal_validation"] = it }
+            timingSnapshot["servicePreTerminalMs"]?.let { timingEntries["service/$group/pre_terminal"] = it }
+            queryTimingMs = queryTimingMs + timingEntries
         }
         result
     }
@@ -4293,6 +4646,212 @@ private fun deviceTypeName(type: Int): String = when (type) {
 }
 
 @Composable
+private fun VulkanScopeOpeningAnimation(startAnimation: Boolean, onFinished: () -> Unit) {
+    var phase by remember { mutableIntStateOf(0) }
+    val contentAlpha by animateFloatAsState(
+        targetValue = when {
+            phase >= 4 -> 0f
+            phase >= 1 -> 1f
+            else -> 0f
+        },
+        animationSpec = tween(durationMillis = if (phase >= 4) 260 else 360, easing = FastOutSlowInEasing),
+        label = "openingContentAlpha"
+    )
+    val logoScale by animateFloatAsState(
+        targetValue = when {
+            phase >= 4 -> 1.025f
+            phase >= 2 -> 1f
+            phase >= 1 -> 1.012f
+            else -> 0.94f
+        },
+        animationSpec = tween(durationMillis = if (phase >= 4) 280 else 520, easing = FastOutSlowInEasing),
+        label = "openingLogoScale"
+    )
+    val haloAlpha by animateFloatAsState(
+        targetValue = when {
+            phase >= 4 -> 0f
+            phase >= 3 -> 0.26f
+            phase >= 2 -> 0.52f
+            phase >= 1 -> 0.34f
+            else -> 0f
+        },
+        animationSpec = tween(durationMillis = 460, easing = FastOutSlowInEasing),
+        label = "openingHaloAlpha"
+    )
+    val haloScale by animateFloatAsState(
+        targetValue = when {
+            phase >= 4 -> 1.08f
+            phase >= 2 -> 1f
+            phase >= 1 -> 0.92f
+            else -> 0.84f
+        },
+        animationSpec = tween(durationMillis = 620, easing = FastOutSlowInEasing),
+        label = "openingHaloScale"
+    )
+    val lineScale by animateFloatAsState(
+        targetValue = when {
+            phase >= 4 -> 0.58f
+            phase >= 3 -> 0.88f
+            phase >= 2 -> 1f
+            phase >= 1 -> 0.34f
+            else -> 0f
+        },
+        animationSpec = tween(durationMillis = 520, easing = FastOutSlowInEasing),
+        label = "openingLineScale"
+    )
+    val lineAlpha by animateFloatAsState(
+        targetValue = when {
+            phase >= 4 -> 0f
+            phase >= 1 -> 1f
+            else -> 0f
+        },
+        animationSpec = tween(durationMillis = if (phase >= 4) 220 else 300, easing = FastOutSlowInEasing),
+        label = "openingLineAlpha"
+    )
+    val accentPulse by animateFloatAsState(
+        targetValue = when {
+            phase >= 4 -> 0f
+            phase >= 3 -> 0.28f
+            phase >= 2 -> 0.82f
+            phase >= 1 -> 0.46f
+            else -> 0f
+        },
+        animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing),
+        label = "openingAccentPulse"
+    )
+    LaunchedEffect(startAnimation) {
+        if (!startAnimation) return@LaunchedEffect
+        phase = 1
+        delay(520L)
+        phase = 2
+        delay(500L)
+        phase = 3
+        delay(300L)
+        phase = 4
+        delay(280L)
+        onFinished()
+    }
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(ComposeColor.Black, ComposeColor(0xFF070707), ComposeColor(0xFF0A0607), ComposeColor.Black)
+                )
+            )
+            .pointerInput(Unit) { detectTapGestures { } },
+        contentAlignment = Alignment.Center
+    ) {
+        val landscape = maxWidth > maxHeight
+        val logoMaxWidth = if (landscape) 560.dp else 360.dp
+        val logoWidthFraction = if (landscape) 0.52f else 0.78f
+        val haloSize = if (landscape) 620.dp else 470.dp
+        val coreGlowSize = if (landscape) 390.dp else 300.dp
+        val lineWidth = if (landscape) 180.dp else 142.dp
+        Box(
+            Modifier
+                .size(haloSize)
+                .graphicsLayer {
+                    alpha = haloAlpha
+                    scaleX = haloScale
+                    scaleY = haloScale
+                }
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            ComposeColor(0x665B1519),
+                            ComposeColor(0x33230A0C),
+                            ComposeColor.Transparent
+                        ),
+                        radius = if (landscape) 560f else 450f
+                    )
+                )
+        )
+        Box(
+            Modifier
+                .size(coreGlowSize)
+                .graphicsLayer {
+                    alpha = accentPulse
+                    scaleX = 0.9f + accentPulse * 0.12f
+                    scaleY = 0.9f + accentPulse * 0.12f
+                }
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            VulkanAccent.copy(alpha = 0.28f),
+                            ComposeColor(0x242E0A0C),
+                            ComposeColor.Transparent
+                        )
+                    )
+                )
+        )
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(if (landscape) 18.dp else 16.dp),
+            modifier = Modifier.graphicsLayer {
+                alpha = contentAlpha
+                scaleX = logoScale
+                scaleY = logoScale
+            }
+        ) {
+            Image(
+                painter = painterResource(R.drawable.vulkanscope_logo_horizontal),
+                contentDescription = "VulkanScope",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .widthIn(max = logoMaxWidth)
+                    .fillMaxWidth(logoWidthFraction)
+                    .heightIn(max = if (landscape) 112.dp else 96.dp)
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.graphicsLayer { alpha = lineAlpha }
+            ) {
+                Box(
+                    Modifier
+                        .size(4.dp)
+                        .graphicsLayer {
+                            scaleX = 0.72f + accentPulse * 0.34f
+                            scaleY = 0.72f + accentPulse * 0.34f
+                        }
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(VulkanAccentSoft.copy(alpha = 0.78f))
+                )
+                Box(
+                    Modifier
+                        .width(lineWidth)
+                        .height(2.dp)
+                        .graphicsLayer { scaleX = lineScale }
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(
+                                    ComposeColor.Transparent,
+                                    ComposeColor(0xFF7A171B),
+                                    VulkanAccentSoft,
+                                    ComposeColor(0xFF7A171B),
+                                    ComposeColor.Transparent
+                                )
+                            )
+                        )
+                )
+                Box(
+                    Modifier
+                        .size(4.dp)
+                        .graphicsLayer {
+                            scaleX = 0.72f + accentPulse * 0.34f
+                            scaleY = 0.72f + accentPulse * 0.34f
+                        }
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(VulkanAccentSoft.copy(alpha = 0.78f))
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun VulkanScopeApp(
     displayReport: DisplayReport,
     report: VulkanReport?,
@@ -4320,6 +4879,8 @@ private fun VulkanScopeApp(
     directUpdatesEnabled: Boolean,
     directUpdatesConsentVisible: Boolean,
     onDirectUpdatesChanged: (Boolean) -> Unit,
+    openingAnimationEnabled: Boolean,
+    onOpeningAnimationChanged: (Boolean) -> Unit,
     onDismissDirectUpdatesConsent: () -> Unit,
     onConfirmDirectUpdatesConsent: () -> Unit,
     surfaceReady: (Long, Surface) -> Unit,
@@ -4347,10 +4908,14 @@ private fun VulkanScopeApp(
     var page by rememberSaveable(
         stateSaver = androidx.compose.runtime.saveable.Saver<Page, String>(
             save = { it.name },
-            restore = { saved -> Page.values().find { it.name == saved } ?: Page.Overview }
+            restore = { saved ->
+                val restored = Page.values().find { it.name == saved } ?: Page.Overview
+                if (restored == Page.Display) Page.Surface else restored
+            }
         )
     ) { mutableStateOf(Page.Overview) }
     var settingsSection by rememberSaveable { mutableStateOf<SettingsSection?>(null) }
+    var surfaceSection by rememberSaveable { mutableStateOf<SurfaceSection?>(null) }
     var encyclopediaSeed by rememberSaveable { mutableStateOf("") }
     var selectedDeviceIndex by rememberSaveable { mutableIntStateOf(0) }
     LaunchedEffect(page) { onPageOpened(page) }
@@ -4382,65 +4947,43 @@ private fun VulkanScopeApp(
         shapes = VulkanExpressiveShapes,
         motionScheme = MotionScheme.expressive()
     ) {
-        BackHandler(enabled = page != Page.Overview || settingsSection != null) {
-            if (page == Page.Settings && settingsSection != null) settingsSection = null else page = Page.Overview
+        BackHandler(enabled = page != Page.Overview || settingsSection != null || surfaceSection != null) {
+            when {
+                page == Page.Settings && settingsSection != null -> settingsSection = null
+                page == Page.Surface && surfaceSection != null -> surfaceSection = null
+                else -> page = Page.Overview
+            }
         }
 
-        val configuration = androidx.compose.ui.platform.LocalConfiguration.current
-        val isTelevision = configuration.uiMode and Configuration.UI_MODE_TYPE_MASK == Configuration.UI_MODE_TYPE_TELEVISION
-        val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-        val useRail = isLandscape || isTelevision
-        CompositionLocalProvider(LocalValidatedNetwork provides validatedNetworkAvailable) {
+        val density = LocalDensity.current
+        var transientOverlayHeightPx by remember { mutableIntStateOf(0) }
+        var bottomNavigationHeightPx by remember { mutableIntStateOf(0) }
+        val transientOverlayContentInset = with(density) { transientOverlayHeightPx.toDp() }.let { if (it > 0.dp) it + 8.dp else 0.dp }
+        val bottomNavigationContentInset = with(density) { bottomNavigationHeightPx.toDp() } + PrimaryNavigationContentGap
+
+        CompositionLocalProvider(
+            LocalValidatedNetwork provides validatedNetworkAvailable,
+            LocalTransientOverlayContentInset provides transientOverlayContentInset,
+            LocalBottomNavigationContentInset provides bottomNavigationContentInset
+        ) {
             Scaffold(
-            containerColor = ComposeColor.Black,
-            topBar = {
-                Column {
+                containerColor = ComposeColor.Black,
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                topBar = {
                     AppHeader(
                         page,
-                        onBack = { if (page == Page.Settings && settingsSection != null) settingsSection = null else page = Page.Overview },
+                        onBack = {
+                            when {
+                                page == Page.Settings && settingsSection != null -> settingsSection = null
+                                page == Page.Surface && surfaceSection != null -> surfaceSection = null
+                                else -> page = Page.Overview
+                            }
+                        },
                         onSettings = { settingsSection = null; page = Page.Settings }
                     )
-                    CollectionStatusBanner(collectionStatus)
-                    ConnectivityStatusHost(collectionStatus, networkStateKnown, validatedNetworkAvailable, networkBannerState)
-                    UpdateStatusBanner(updateStatus, onRequestUpdateConfirmation)
                 }
-            },
-            bottomBar = {
-                if (!useRail) {
-                    ShortNavigationBar(containerColor = ComposeColor(0xFF0A0A0A)) {
-                        navigationItems().forEach { item ->
-                            var animationTrigger by remember(item.page) { mutableIntStateOf(0) }
-                            ShortNavigationBarItem(
-                                selected = selectedNavigationPage(page) == item.page,
-                                onClick = {
-                                    animationTrigger += 1
-                                    page = item.page
-                                },
-                                icon = { AnimatedNavigationIcon(item.page, item.icon, animationTrigger, 24.dp) },
-                                label = { Text(trademarkVulkanDisplayText(item.label), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                colors = ShortNavigationBarItemDefaults.colors(
-                                    selectedIconColor = VulkanAccentSoft,
-                                    selectedTextColorTopIconPosition = VulkanTextPrimary,
-                                    selectedTextColorStartIconPosition = VulkanTextPrimary,
-                                    selectedIndicatorColor = VulkanAccentContainer,
-                                    unselectedIconColor = ComposeColor(0xFFB8B8B8),
-                                    unselectedTextColor = ComposeColor(0xFFB8B8B8)
-                                )
-                            )
-                        }
-                    }
-                }
-            }
-        ) { padding ->
-            Row(Modifier.fillMaxSize().padding(padding)) {
-                if (useRail) {
-                    CompactNavigationRail(
-                        selectedPage = selectedNavigationPage(page),
-                        onPageSelected = { page = it },
-                        requestInitialFocus = isTelevision
-                    )
-                }
-                Box(Modifier.weight(1f)) {
+            ) { padding ->
+                Box(Modifier.fillMaxSize().padding(padding)) {
                     androidx.compose.runtime.key(surfaceHostGeneration) {
                         SurfaceProbe(
                             modifier = Modifier.matchParentSize(),
@@ -4449,11 +4992,13 @@ private fun VulkanScopeApp(
                             onDestroyed = surfaceDestroyed
                         )
                     }
-                    if (loading) LoadingView()
-                    else {
+                    if (loading) {
+                        LoadingView()
+                    } else {
                         val current = report
-                        if (current == null) EmptyState("No Vulkan® report")
-                        else {
+                        if (current == null) {
+                            EmptyState("No Vulkan® report")
+                        } else {
                             AnimatedContent(
                                 targetState = page,
                                 transitionSpec = {
@@ -4482,7 +5027,10 @@ private fun VulkanScopeApp(
                                                     if (clean.isNotBlank()) {
                                                         val prefs = evidenceContext.getSharedPreferences("analysis_tools", Context.MODE_PRIVATE)
                                                         val watched = prefs.getStringSet("watched", emptySet())?.toMutableSet() ?: mutableSetOf()
-                                                        if (watched.size < ANALYSIS_MAX_WATCHED || clean in watched) { watched += clean; prefs.edit().putStringSet("watched", watched).apply() }
+                                                        if (watched.size < ANALYSIS_MAX_WATCHED || clean in watched) {
+                                                            watched += clean
+                                                            prefs.edit().putStringSet("watched", watched).apply()
+                                                        }
                                                     }
                                                 }
                                             )
@@ -4505,10 +5053,30 @@ private fun VulkanScopeApp(
                                                 updateCheckInFlight = updateCheckInFlight,
                                                 directUpdatesEnabled = directUpdatesEnabled,
                                                 onDirectUpdatesChanged = onDirectUpdatesChanged,
+                                                openingAnimationEnabled = openingAnimationEnabled,
+                                                onOpeningAnimationChanged = onOpeningAnimationChanged,
                                                 collectionStatus = collectionStatus,
-                                                onNavigate = { target -> if (target == Page.Settings) settingsSection = null; page = target },
+                                                onNavigate = { target ->
+                                                    when (target) {
+                                                        Page.Settings -> {
+                                                            settingsSection = null
+                                                            page = Page.Settings
+                                                        }
+                                                        Page.Display -> {
+                                                            surfaceSection = SurfaceSection.DISPLAY
+                                                            page = Page.Surface
+                                                        }
+                                                        Page.Surface -> {
+                                                            surfaceSection = null
+                                                            page = Page.Surface
+                                                        }
+                                                        else -> page = target
+                                                    }
+                                                },
                                                 settingsSection = settingsSection,
                                                 onSettingsSectionChanged = { settingsSection = it },
+                                                surfaceSection = surfaceSection,
+                                                onSurfaceSectionChanged = { surfaceSection = it },
                                                 onRequestQuery = onRequestQuery,
                                                 queryTimingMs = queryTimingMs,
                                                 encyclopediaSeed = encyclopediaSeed
@@ -4519,8 +5087,28 @@ private fun VulkanScopeApp(
                             }
                         }
                     }
+                    CompactBottomNavigationBar(
+                        selectedPage = selectedNavigationPage(page),
+                        onPageSelected = { target ->
+                            if (target == Page.Surface) surfaceSection = null
+                            page = target
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .onSizeChanged { bottomNavigationHeightPx = it.height }
+                    )
+                    TransientStatusOverlayHost(
+                        collectionStatus = collectionStatus,
+                        networkStateKnown = networkStateKnown,
+                        networkAvailable = validatedNetworkAvailable,
+                        networkBannerState = networkBannerState,
+                        updateStatus = updateStatus,
+                        onInstallUpdate = onRequestUpdateConfirmation,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .onSizeChanged { transientOverlayHeightPx = it.height }
+                    )
                 }
-            }
             }
         }
         if (directUpdatesConsentVisible) {
@@ -4621,28 +5209,119 @@ private fun PhysicalDeviceSelector(devices: List<DeviceReport>, selectedIndex: I
 }
 
 @Composable
+private fun rememberPointerWheelScalePx(): Float {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    return remember(context) { android.view.ViewConfiguration.get(context).scaledVerticalScrollFactor.coerceAtLeast(1f) }
+}
+
+@Composable
+private fun Modifier.desktopVerticalPointerScroll(state: ScrollableState): Modifier =
+    desktopVerticalPointerScroll(state, rememberPointerWheelScalePx())
+
+private fun Modifier.desktopVerticalPointerScroll(state: ScrollableState, wheelScalePx: Float): Modifier =
+    this
+        .pointerInput(state, wheelScalePx) {
+            awaitPointerEventScope {
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Main)
+                    if (event.type != PointerEventType.Scroll) continue
+                    val change = event.changes.firstOrNull { !it.isConsumed } ?: continue
+                    val axis = if (change.scrollDelta.y != 0f) change.scrollDelta.y else change.scrollDelta.x
+                    if (axis == 0f) continue
+                    val consumed = state.dispatchRawDelta(axis * wheelScalePx)
+                    if (consumed != 0f) change.consume()
+                }
+            }
+        }
+        .pointerInput(state) {
+            val slop = viewConfiguration.touchSlop
+            awaitPointerEventScope {
+                var activeId: androidx.compose.ui.input.pointer.PointerId? = null
+                var lastY = 0f
+                var accumulatedY = 0f
+                var dragging = false
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Main)
+                    val mouse = event.changes.firstOrNull { change ->
+                        change.type == PointerType.Mouse && (activeId == null || change.id == activeId)
+                    }
+                    if (mouse == null) {
+                        if (!event.buttons.isPrimaryPressed) {
+                            activeId = null
+                            dragging = false
+                            accumulatedY = 0f
+                        }
+                        continue
+                    }
+                    if (!event.buttons.isPrimaryPressed || !mouse.pressed) {
+                        activeId = null
+                        dragging = false
+                        accumulatedY = 0f
+                        continue
+                    }
+                    if (activeId == null) {
+                        activeId = mouse.id
+                        lastY = mouse.position.y
+                        accumulatedY = 0f
+                        dragging = false
+                        continue
+                    }
+                    val deltaY = mouse.position.y - lastY
+                    lastY = mouse.position.y
+                    if (deltaY == 0f) continue
+                    if (!dragging) {
+                        accumulatedY += deltaY
+                        if (kotlin.math.abs(accumulatedY) <= slop) continue
+                        dragging = true
+                        val slopDirection = if (accumulatedY > 0f) slop else -slop
+                        val overSlop = accumulatedY - slopDirection
+                        if (overSlop != 0f) state.dispatchRawDelta(-overSlop)
+                        mouse.consume()
+                    } else {
+                        state.dispatchRawDelta(-deltaY)
+                        mouse.consume()
+                    }
+                }
+            }
+        }
+
+@Composable
 private fun VulkanLazyPage(
     verticalSpacing: Dp,
     modifier: Modifier = Modifier,
     content: LazyListScope.() -> Unit
 ) {
     val listState = rememberLazyListState()
+    val pointerWheelScalePx = rememberPointerWheelScalePx()
     val navigationPadding = WindowInsets.navigationBars.asPaddingValues()
+    val layoutDirection = LocalLayoutDirection.current
+    val transientOverlayContentInset = LocalTransientOverlayContentInset.current
+    val bottomNavigationContentInset = LocalBottomNavigationContentInset.current
+    val horizontalNavigationStartInset = navigationPadding.calculateLeftPadding(layoutDirection)
+    val horizontalNavigationEndInset = navigationPadding.calculateRightPadding(layoutDirection)
     Box(modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                start = 18.dp,
-                top = navigationPadding.calculateTopPadding(),
-                end = 18.dp,
-                bottom = navigationPadding.calculateBottomPadding()
+                start = 18.dp + horizontalNavigationStartInset,
+                top = navigationPadding.calculateTopPadding() + transientOverlayContentInset,
+                end = 18.dp + horizontalNavigationEndInset,
+                bottom = bottomNavigationContentInset
             ),
-            modifier = Modifier.fillMaxSize().focusGroup(),
+            modifier = Modifier.fillMaxSize().desktopVerticalPointerScroll(listState, pointerWheelScalePx).focusGroup(),
             verticalArrangement = Arrangement.spacedBy(verticalSpacing),
             userScrollEnabled = true,
             content = content
         )
-        ExpressiveScrollHints(listState, Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp))
+        ExpressiveScrollHints(
+            listState,
+            Modifier.fillMaxSize().padding(
+                start = 12.dp + horizontalNavigationStartInset,
+                top = transientOverlayContentInset + 10.dp,
+                end = 12.dp + horizontalNavigationEndInset,
+                bottom = bottomNavigationContentInset + 4.dp
+            )
+        )
     }
 }
 
@@ -4650,7 +5329,10 @@ private fun VulkanLazyPage(
 private fun ScrollBoundaryIndicators(listState: LazyListState, modifier: Modifier = Modifier) {
     val showUp by remember(listState) { derivedStateOf { listState.canScrollBackward } }
     val showDown by remember(listState) { derivedStateOf { listState.canScrollForward } }
-    val visible = rememberScrollIndicatorVisibility(listState.isScrollInProgress, showUp || showDown)
+    val visibilityKey by remember(listState) {
+        derivedStateOf { Triple(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset, listState.layoutInfo.totalItemsCount) }
+    }
+    val visible = rememberScrollIndicatorVisibility(visibilityKey, showUp || showDown, listState.isScrollInProgress)
     ScrollBoundaryIndicatorColumn(showUp, showDown, visible, modifier)
 }
 
@@ -4658,7 +5340,10 @@ private fun ScrollBoundaryIndicators(listState: LazyListState, modifier: Modifie
 private fun ScrollBoundaryIndicators(gridState: LazyGridState, modifier: Modifier = Modifier) {
     val showUp by remember(gridState) { derivedStateOf { gridState.canScrollBackward } }
     val showDown by remember(gridState) { derivedStateOf { gridState.canScrollForward } }
-    val visible = rememberScrollIndicatorVisibility(gridState.isScrollInProgress, showUp || showDown)
+    val visibilityKey by remember(gridState) {
+        derivedStateOf { Triple(gridState.firstVisibleItemIndex, gridState.firstVisibleItemScrollOffset, gridState.layoutInfo.totalItemsCount) }
+    }
+    val visible = rememberScrollIndicatorVisibility(visibilityKey, showUp || showDown, gridState.isScrollInProgress)
     ScrollBoundaryIndicatorColumn(showUp, showDown, visible, modifier)
 }
 
@@ -4666,7 +5351,7 @@ private fun ScrollBoundaryIndicators(gridState: LazyGridState, modifier: Modifie
 private fun ScrollBoundaryIndicators(scrollState: ScrollState, modifier: Modifier = Modifier) {
     val showUp by remember(scrollState) { derivedStateOf { scrollState.value > 0 } }
     val showDown by remember(scrollState) { derivedStateOf { scrollState.value < scrollState.maxValue } }
-    val visible = rememberScrollIndicatorVisibility(scrollState.isScrollInProgress, showUp || showDown)
+    val visible = rememberScrollIndicatorVisibility(scrollState.value to scrollState.maxValue, showUp || showDown, scrollState.isScrollInProgress)
     ScrollBoundaryIndicatorColumn(showUp, showDown, visible, modifier)
 }
 
@@ -4680,17 +5365,15 @@ private fun ExpressiveScrollHints(gridState: LazyGridState, modifier: Modifier =
 private fun ExpressiveScrollHints(scrollState: ScrollState, modifier: Modifier = Modifier) = ScrollBoundaryIndicators(scrollState, modifier)
 
 @Composable
-private fun rememberScrollIndicatorVisibility(isScrollInProgress: Boolean, hasScrollableDirection: Boolean): Boolean {
+private fun rememberScrollIndicatorVisibility(triggerKey: Any, hasScrollableDirection: Boolean, isScrollInProgress: Boolean): Boolean {
     var visible by remember { mutableStateOf(hasScrollableDirection) }
-    LaunchedEffect(isScrollInProgress, hasScrollableDirection) {
+    LaunchedEffect(triggerKey, hasScrollableDirection, isScrollInProgress) {
         if (!hasScrollableDirection) {
             visible = false
         } else {
             visible = true
-            if (!isScrollInProgress) {
-                delay(900)
-                visible = false
-            }
+            delay(if (isScrollInProgress) 1050 else 900)
+            visible = false
         }
     }
     return visible
@@ -4722,7 +5405,7 @@ private fun ScrollBoundaryIndicatorColumn(showUp: Boolean, showDown: Boolean, vi
 private fun ScrollBoundaryIndicatorBubble(up: Boolean) {
     Surface(
         shape = MaterialTheme.shapes.extraLarge,
-        color = VulkanAccentContainer.copy(alpha = 0.96f),
+        color = VulkanAccentContainer.copy(alpha = 0.84f),
         tonalElevation = 4.dp,
         shadowElevation = 3.dp
     ) {
@@ -4754,10 +5437,14 @@ private fun PageContent(
     updateCheckInFlight: Boolean,
     directUpdatesEnabled: Boolean,
     onDirectUpdatesChanged: (Boolean) -> Unit,
+    openingAnimationEnabled: Boolean,
+    onOpeningAnimationChanged: (Boolean) -> Unit,
     collectionStatus: CollectionStatus,
     onNavigate: (Page) -> Unit,
     settingsSection: SettingsSection?,
     onSettingsSectionChanged: (SettingsSection?) -> Unit,
+    surfaceSection: SurfaceSection?,
+    onSurfaceSectionChanged: (SurfaceSection?) -> Unit,
     onRequestQuery: (String) -> Unit,
     queryTimingMs: Map<String, Long>,
     encyclopediaSeed: String
@@ -4767,7 +5454,7 @@ private fun PageContent(
         Page.Overview -> OverviewPage(report, device, display, driverMode, onNavigate)
         Page.Vulkan -> VulkanPage(report, device, turnipSupport)
         Page.Display -> DisplayPage(display, device)
-        Page.Surface -> SurfacePage(device)
+        Page.Surface -> SurfaceDestinationPage(display, device, surfaceSection, onSurfaceSectionChanged)
         Page.Features -> FeaturesPage(device)
         Page.Memory -> MemoryPage(device)
         Page.Queues -> QueuesPage(device)
@@ -4793,6 +5480,8 @@ private fun PageContent(
             collectionStatus = collectionStatus,
             directUpdatesEnabled = directUpdatesEnabled,
             onDirectUpdatesChanged = onDirectUpdatesChanged,
+            openingAnimationEnabled = openingAnimationEnabled,
+            onOpeningAnimationChanged = onOpeningAnimationChanged,
             onCheckForUpdates = onCheckForUpdates,
             updateCheckInFlight = updateCheckInFlight,
             selectedSection = settingsSection,
@@ -4813,6 +5502,8 @@ private fun PageContent(
             collectionStatus = collectionStatus,
             directUpdatesEnabled = directUpdatesEnabled,
             onDirectUpdatesChanged = onDirectUpdatesChanged,
+            openingAnimationEnabled = openingAnimationEnabled,
+            onOpeningAnimationChanged = onOpeningAnimationChanged,
             onCheckForUpdates = onCheckForUpdates,
             updateCheckInFlight = updateCheckInFlight,
             selectedSection = SettingsSection.INFO,
@@ -5268,7 +5959,7 @@ private fun EncyclopediaPage(initialQuery: String = "") {
         item {
             CapabilitySectionCard("Encyclopedia") {
                 Text(
-                    "Offline Vulkan reference built from the locked Vulkan 1.4.362 registry plus curated VulkanScope interpretation rules. Search exact symbols such as VK_SUCCESS, vkGetPhysicalDeviceFeatures2, VkPhysicalDeviceProperties2 or VK_KHR_swapchain.",
+                    "Offline Vulkan reference built from the locked Vulkan 1.4.364 registry plus curated VulkanScope interpretation rules. Search exact symbols such as VK_SUCCESS, vkGetPhysicalDeviceFeatures2, VkPhysicalDeviceProperties2 or VK_KHR_swapchain.",
                     color = VulkanTextSecondary,
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -5286,7 +5977,7 @@ private fun EncyclopediaPage(initialQuery: String = "") {
                     when {
                         (category == "Commands" || category == "VK_*" || category == "Types") && query.trim().length < 2 -> "Type at least 2 characters to search this large registry symbol family. Results are capped at $ENCYCLOPEDIA_VISIBLE_RESULT_LIMIT; refine the query for a specific symbol."
                         category == "Extensions" && query.isBlank() -> "Showing the first $ENCYCLOPEDIA_VISIBLE_RESULT_LIMIT registered extensions. Search by exact extension, command, token, dependency or promotion to narrow the local reference."
-                        category == "VkResult" && query.isBlank() -> "${VULKAN_VK_RESULT_REFERENCE.size} canonical VkResult values from the Vulkan 1.4.362 reference are listed below; compatibility aliases are shown with their canonical result."
+                        category == "VkResult" && query.isBlank() -> "${VULKAN_VK_RESULT_REFERENCE.size} canonical VkResult values from the Vulkan 1.4.364 reference are listed below; compatibility aliases are shown with their canonical result."
                         category == "All" && query.isBlank() -> "Core concepts, naming rules and VulkanScope evidence semantics are shown below. Search to resolve registry symbols."
                         entries.size >= ENCYCLOPEDIA_VISIBLE_RESULT_LIMIT -> "Showing the first $ENCYCLOPEDIA_VISIBLE_RESULT_LIMIT matches. Refine the query for a narrower result."
                         else -> "${entries.size} matching reference entr${if (entries.size == 1) "y" else "ies"}."
@@ -5551,6 +6242,14 @@ private fun VulkanPage(report: VulkanReport, device: DeviceReport?, turnipSuppor
             report.instanceExtensions.sortedBy { it.name }.forEach { ext -> CapabilityKeyValue(ext.name, "spec ${ext.specVersion}") }
         } }
         item { CapabilitySectionCard("Operating system") {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            CapabilityKeyValue("Platform", platformRuntimeName(context))
+            CapabilityKeyValue("Host OS version", hostPlatformVersionEvidence(context))
+            CapabilityKeyValue("ChromeOS ARC runtime", if (isChromeOsRuntime(context)) "Detected" else "Not detected")
+            CapabilityKeyValue("Android PC form factor", if (isAndroidPcFormFactor(context)) "Detected" else "Not detected")
+            CapabilityKeyValue("Freeform window management", if (hasFreeformWindowManagement(context)) "Detected" else "Not detected")
+            CapabilityKeyValue("Googlebook environment", googlebookEnvironmentEvidence(context))
+            CapabilityKeyValue("Googlebook OS version", googlebookOsVersionEvidence())
             CapabilityKeyValue("Architecture", Build.SUPPORTED_ABIS.firstOrNull() ?: "Unknown")
             CapabilityKeyValue("Version", Build.VERSION.RELEASE)
             CapabilityKeyValue("Codename", Build.VERSION.CODENAME)
@@ -5708,78 +6407,135 @@ private fun QuickAccessCard(title: String, destination: Page, navigate: (Page) -
 
 
 @Composable
-private fun CompactNavigationRail(selectedPage: Page, onPageSelected: (Page) -> Unit, requestInitialFocus: Boolean) {
-    val firstFocusRequester = remember { FocusRequester() }
-    val expandedTextLayout = preferExpandedTextLayout()
-    LaunchedEffect(requestInitialFocus) { if (requestInitialFocus) firstFocusRequester.requestFocus() }
-    Surface(
-        modifier = Modifier.width(if (expandedTextLayout) 104.dp else 80.dp),
-        color = ComposeColor(0xFF101010)
+private fun CompactBottomNavigationBar(
+    selectedPage: Page,
+    onPageSelected: (Page) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val items = navigationItems()
+    val navigationBarInsets = WindowInsets.navigationBars.asPaddingValues()
+    val bottomSystemInset = navigationBarInsets.calculateBottomPadding()
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val compactMaxWidth = if (landscape) 340.dp else PrimaryNavigationMaxWidth
+    val compactHeight = if (landscape) 46.dp else PrimaryNavigationHeight
+    val compactIndicatorHeight = if (landscape) 35.dp else PrimaryNavigationIndicatorHeight
+    val compactIndicatorInset = if (landscape) 6.dp else PrimaryNavigationIndicatorHorizontalInset
+    val compactIconSize = if (landscape) 18.dp else 20.dp
+    val compactLabelFontSize = if (landscape) 8.sp else 9.sp
+    val compactLabelLineHeight = if (landscape) 9.sp else 10.sp
+    val compactItemTopPadding = if (landscape) 2.dp else 4.dp
+    val compactItemBottomPadding = if (landscape) 2.dp else 3.dp
+    val compactLabelSpacing = if (landscape) 1.dp else 2.dp
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, bottom = PrimaryNavigationBottomGap + bottomSystemInset),
+        contentAlignment = Alignment.BottomCenter
     ) {
-        Column(
+        val targetWidth = maxWidth.coerceAtMost(compactMaxWidth)
+        Surface(
+            color = ComposeColor(0xD61A1A1F),
+            contentColor = VulkanTextPrimary,
+            shape = RoundedCornerShape(999.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, ComposeColor(0x423A3438)),
+            shadowElevation = 10.dp,
             modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .focusGroup()
-                .padding(horizontal = 6.dp, vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+                .width(targetWidth)
+                .height(compactHeight)
         ) {
-            navigationItems().forEachIndexed { index, item ->
-                val selected = selectedPage == item.page
-                var animationTrigger by remember(item.page) { mutableIntStateOf(0) }
-                val bringIntoViewRequester = remember { BringIntoViewRequester() }
-                val scope = rememberCoroutineScope()
-                var focused by remember { mutableStateOf(false) }
-                val shape = RoundedCornerShape(18.dp)
-                Card(
-                    onClick = {
-                        animationTrigger += 1
-                        onPageSelected(item.page)
-                    },
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (selected) VulkanAccentContainer else if (focused) ComposeColor(0xFF2A1517) else ComposeColor.Transparent
-                    ),
-                    shape = shape,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 54.dp)
-                        .then(if (index == 0) Modifier.focusRequester(firstFocusRequester) else Modifier)
-                        .bringIntoViewRequester(bringIntoViewRequester)
-                        .onFocusChanged { state ->
-                            focused = state.isFocused
-                            if (state.isFocused) scope.launch { bringIntoViewRequester.bringIntoView() }
-                        }
-                        .border(if (focused) 2.dp else 0.dp, if (focused) ComposeColor(0xFFE2676A) else ComposeColor.Transparent, shape)
-                ) {
-                    Column(
-                        Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 4.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(1.dp, Alignment.CenterVertically)
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                items.forEach { item ->
+                    val selected = item.page == selectedPage
+                    val interactionSource = remember(item.page) { MutableInteractionSource() }
+                    val indicatorAlpha by animateFloatAsState(
+                        targetValue = if (selected) 1f else 0f,
+                        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+                        label = "navigationIndicatorAlpha"
+                    )
+                    val indicatorScale by animateFloatAsState(
+                        targetValue = if (selected) 1f else 0.86f,
+                        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+                        label = "navigationIndicatorScale"
+                    )
+                    val iconScale by animateFloatAsState(
+                        targetValue = if (selected) 1f else 0.94f,
+                        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+                        label = "navigationIconScale"
+                    )
+                    val iconColor by animateColorAsState(
+                        targetValue = if (selected) VulkanAccentSoft else ComposeColor(0xFFE3DEE0),
+                        animationSpec = tween(durationMillis = 120),
+                        label = "navigationIconTint"
+                    )
+                    val textColor by animateColorAsState(
+                        targetValue = if (selected) VulkanAccentSoft else ComposeColor(0xFFE9E3E6),
+                        animationSpec = tween(durationMillis = 120),
+                        label = "navigationTextTint"
+                    )
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .selectable(
+                                selected = selected,
+                                interactionSource = interactionSource,
+                                indication = null,
+                                role = Role.Tab,
+                                onClick = { onPageSelected(item.page) }
+                            ),
+                        contentAlignment = Alignment.Center
                     ) {
-                        AnimatedNavigationIcon(
-                            page = item.page,
-                            icon = item.icon,
-                            trigger = animationTrigger,
-                            size = 21.dp,
-                            tint = if (selected) VulkanAccentSoft else ComposeColor(0xFFB8B8B8)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = compactIndicatorInset)
+                                .height(compactIndicatorHeight)
+                                .graphicsLayer {
+                                    alpha = indicatorAlpha
+                                    scaleX = indicatorScale
+                                    scaleY = 0.96f + indicatorAlpha * 0.04f
+                                }
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(VulkanAccentContainer.copy(alpha = 0.82f))
                         )
-                        Text(
-                            trademarkVulkanDisplayText(item.label),
-                            color = if (selected) VulkanTextPrimary else ComposeColor(0xFFB8B8B8),
-                            fontSize = if (expandedTextLayout) 11.sp else 9.sp,
-                            lineHeight = if (expandedTextLayout) 13.sp else 10.sp,
-                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                            maxLines = if (expandedTextLayout) 2 else 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Column(
+                            modifier = Modifier.padding(top = compactItemTopPadding, bottom = compactItemBottomPadding),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                painter = painterResource(item.icon),
+                                contentDescription = null,
+                                tint = iconColor,
+                                modifier = Modifier
+                                    .size(compactIconSize)
+                                    .graphicsLayer {
+                                        scaleX = iconScale
+                                        scaleY = iconScale
+                                    }
+                            )
+                            Spacer(Modifier.height(compactLabelSpacing))
+                            Text(
+                                trademarkVulkanDisplayText(item.label),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
+                                fontSize = compactLabelFontSize,
+                                lineHeight = compactLabelLineHeight,
+                                color = textColor,
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
+                            )
+                        }
                     }
                 }
             }
         }
     }
 }
-
 
 @Composable
 private fun ExploreDestinationTile(page: Page, onNavigate: (Page) -> Unit, modifier: Modifier = Modifier) {
@@ -5991,7 +6747,7 @@ private fun HdrTypeCard(type: String) {
 }
 
 @Composable
-private fun SurfacePage(device: DeviceReport?) {
+private fun SurfaceFormatsPage(device: DeviceReport?) {
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf(SupportFilter.ALL) }
     val entries = remember(device) {
@@ -6091,6 +6847,80 @@ private fun SurfacePage(device: DeviceReport?) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SurfaceSectionCards(onSelected: (SurfaceSection) -> Unit) {
+    var cardsVisible by remember { mutableStateOf(false) }
+    val navigationPadding = WindowInsets.navigationBars.asPaddingValues()
+    val layoutDirection = LocalLayoutDirection.current
+    val topOverlayInset = LocalTransientOverlayContentInset.current
+    val bottomNavigationInset = LocalBottomNavigationContentInset.current
+    val startInset = navigationPadding.calculateLeftPadding(layoutDirection)
+    val endInset = navigationPadding.calculateRightPadding(layoutDirection)
+    val scrollState = rememberScrollState()
+    LaunchedEffect(Unit) { cardsVisible = true }
+    Box(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .desktopVerticalPointerScroll(scrollState)
+                .verticalScroll(scrollState)
+                .focusGroup()
+                .padding(
+                    start = 18.dp + startInset,
+                    top = 8.dp + topOverlayInset,
+                    end = 18.dp + endInset,
+                    bottom = bottomNavigationInset
+                ),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            SurfaceSection.entries.forEachIndexed { index, section ->
+                AnimatedVisibility(
+                    visible = cardsVisible,
+                    enter = fadeIn(tween(durationMillis = 260, delayMillis = index * 45)) + slideInHorizontally(tween(durationMillis = 260, delayMillis = index * 45)) { it / 10 },
+                    exit = fadeOut(tween(durationMillis = 120))
+                ) {
+                    ExpressiveDestinationCard(section.label, section.description, section.icon) { onSelected(section) }
+                }
+            }
+        }
+        ExpressiveScrollHints(
+            scrollState,
+            Modifier.fillMaxSize().padding(
+                start = 12.dp + startInset,
+                top = 8.dp + topOverlayInset,
+                end = 12.dp + endInset,
+                bottom = bottomNavigationInset + 4.dp
+            )
+        )
+    }
+}
+
+@Composable
+private fun SurfacePresentationPage(device: DeviceReport?) {
+    VulkanLazyPage(verticalSpacing = 12.dp) {
+        item {
+            CapabilitySectionCard("Presentation overview") {
+                CapabilityKeyValue("Surface query status", device?.surfaceQueryStatus?.replace('_', ' ')?.uppercase() ?: "UNKNOWN")
+                CapabilityKeyValue("Presentation support", when {
+                    device == null -> "Unavailable"
+                    device.surfacePresentationSupported -> "Supported"
+                    device.surfaceQueryStatus == "available" -> "Not supported by this Vulkan device"
+                    device.surfaceQueryStatus == "not_applicable" -> "Not applicable"
+                    device.surfaceQueryStatus == "incomplete" -> "Unknown: Surface query is incomplete"
+                    device.surfaceQueryStatus == "unknown" -> "Unknown"
+                    else -> "Unavailable"
+                })
+                CapabilityKeyValue("Present-mode enumeration complete", when {
+                    device == null -> "Unavailable"
+                    device.surfacePresentModeEnumerationComplete && !device.surfacePresentModeQuerySpecAnomaly -> "YES"
+                    device.surfacePresentModeQuerySpecAnomaly -> "NO · specification anomaly"
+                    else -> "NO"
+                })
+            }
+        }
         item { CapabilitySectionCard("Present modes") {
             if (device?.presentModes.isNullOrEmpty()) EmptyState(when (device?.surfaceDependentWsiQueryStatus) { "not_applicable" -> "Present-mode query not applicable because this physical device cannot present to the Surface"; "unknown" -> "Present-mode query not attempted because Surface support was not proven"; else -> "Present mode data unavailable" })
             device?.presentModes?.forEachIndexed { index, mode -> CapabilityKeyValue("Mode ${index + 1}", mode) }
@@ -6103,6 +6933,35 @@ private fun SurfacePage(device: DeviceReport?) {
                 device?.presentationQueues?.forEach { CapabilityKeyValue("Queue family ${it.first}", if (it.second) "PRESENT" else "NO PRESENT") }
             }
         } }
+    }
+}
+
+@Composable
+private fun SurfaceDestinationPage(
+    display: DisplayReport,
+    device: DeviceReport?,
+    selectedSection: SurfaceSection?,
+    onSectionSelected: (SurfaceSection?) -> Unit
+) {
+    AnimatedContent(
+        targetState = selectedSection,
+        transitionSpec = {
+            if (targetState != null) {
+                slideInHorizontally(tween(240)) { it / 7 } + fadeIn(tween(220)) togetherWith
+                    slideOutHorizontally(tween(180)) { -it / 9 } + fadeOut(tween(160))
+            } else {
+                slideInHorizontally(tween(240)) { -it / 7 } + fadeIn(tween(220)) togetherWith
+                    slideOutHorizontally(tween(180)) { it / 9 } + fadeOut(tween(160))
+            }
+        },
+        label = "surfaceSectionTransition"
+    ) { section ->
+        when (section) {
+            null -> SurfaceSectionCards { onSectionSelected(it) }
+            SurfaceSection.DISPLAY -> DisplayPage(display, device)
+            SurfaceSection.SURFACE_FORMATS -> SurfaceFormatsPage(device)
+            SurfaceSection.PRESENTATION -> SurfacePresentationPage(device)
+        }
     }
 }
 
@@ -7014,6 +7873,7 @@ private data class AnalysisWorkspaceModel(
     val diffRows: List<VulkanAnalysisDiff>,
     val globalResults: List<Pair<String, String>>,
     val diagnostics: List<QueryDiagnosticRow>,
+    val timingsMs: Map<String, Long>,
     val requirementReference: VulkanExtensionReference?,
     val requirementEvaluations: List<RequirementEvaluation>,
     val profileResults: List<ProfileResult>,
@@ -7304,6 +8164,7 @@ private fun rememberAnalysisWorkspaceModel(
         diffRows = diffRows,
         globalResults = globalResults,
         diagnostics = diagnostics,
+        timingsMs = queryTimingMs,
         requirementReference = requirementReference,
         requirementEvaluations = requirementEvaluations,
         profileResults = profileResults,
@@ -7508,7 +8369,20 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
         }
         3 -> {
             item { CapabilitySectionCard("Collection diagnostics") {
-                Text("Shows explicit query/completeness/safety evidence already present in the report. The base collector does not publish elapsed time for every Vulkan® query; dedicated or on-demand probes display measured app-side elapsed time when that timing evidence exists, and VulkanScope does not invent missing timings.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                Text("Shows measured app-side collection phases plus dedicated-process timing evidence. Native-call timing is measured around the JNI collector inside the dedicated probe process; it is not presented as timing for each individual Vulkan® API command. Missing timing evidence remains unknown rather than inferred.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                model.timingsMs["collection/total"]?.let { ExpressiveMetric("Complete collection", "$it ms") }
+                model.timingsMs["collection/base_total"]?.let { ExpressiveMetric("Base collection", "$it ms") }
+                model.timingsMs["collection/enrichment_total"]?.let { ExpressiveMetric("Metadata + Surface", "$it ms") }
+                model.timingsMs["collection/background_total"]?.let { ExpressiveMetric("Background details", "$it ms") }
+                model.timingsMs["collection/background_process_lanes"]?.let { ExpressiveMetric("Parallel isolated lanes", it.toString()) }
+                val probeTotals = model.timingsMs.filterKeys { it.startsWith("probe_total/") }
+                if (probeTotals.isNotEmpty()) {
+                    val slowest = probeTotals.maxByOrNull { it.value }
+                    ExpressiveMetric("Dedicated probes measured", probeTotals.size.toString())
+                    slowest?.let { ExpressiveMetric("Slowest dedicated probe", "${it.key.removePrefix("probe_total/")} · ${it.value} ms") }
+                }
+                val queueWaits = model.timingsMs.filterKeys { it.startsWith("probe_queue_wait/") }
+                queueWaits.maxByOrNull { it.value }?.let { ExpressiveMetric("Longest scheduler wait", "${it.key.removePrefix("probe_queue_wait/")} · ${it.value} ms") }
                 ExpressiveMetric("Diagnostic rows", model.diagnostics.size.toString())
                 ExpressiveMetric("Safety rejections", model.diagnostics.count { it.state == "SAFETY REJECTED" }.toString())
                 ExpressiveMetric("Incomplete", model.diagnostics.count { it.state == "INCOMPLETE" }.toString())
@@ -7760,20 +8634,22 @@ private fun ScrollableDetailDialog(title: String, onDismiss: () -> Unit, content
 private fun ExpressiveDetailDialog(title: String, onDismiss: () -> Unit, content: @Composable () -> Unit) {
     val scrollState = rememberScrollState()
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val horizontalMargin = if (configuration.screenWidthDp < 360) 10.dp else 18.dp
-    val verticalMargin = if (configuration.screenHeightDp < 520) 8.dp else 16.dp
-    val dialogMaxHeight = maxOf(300.dp, configuration.screenHeightDp.dp - verticalMargin * 2)
-    val bodyMaxHeight = minOf(540.dp, maxOf(96.dp, dialogMaxHeight - 170.dp))
+    val verticalMargin = if (configuration.screenHeightDp < 520 || landscape) 8.dp else 16.dp
+    val availableHeight = maxOf(280.dp, configuration.screenHeightDp.dp - verticalMargin * 2)
+    val dialogHeight = if (landscape) availableHeight else minOf(720.dp, availableHeight)
+    val dialogWidth = if (landscape) 720.dp else 640.dp
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxSize().padding(horizontal = horizontalMargin, vertical = verticalMargin), contentAlignment = Alignment.Center) {
             Surface(
-                modifier = Modifier.fillMaxWidth().widthIn(max = 560.dp).heightIn(max = dialogMaxHeight),
+                modifier = Modifier.fillMaxWidth().widthIn(max = dialogWidth).height(dialogHeight),
                 shape = MaterialTheme.shapes.extraLarge,
                 color = VulkanSurfaceRaised,
                 tonalElevation = 4.dp,
                 shadowElevation = 8.dp
             ) {
-                Column(Modifier.fillMaxWidth().heightIn(max = dialogMaxHeight)) {
+                Column(Modifier.fillMaxSize()) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Surface(shape = RoundedCornerShape(18.dp), color = VulkanAccentContainer) {
                             Icon(painterResource(R.drawable.ic_info), contentDescription = null, tint = VulkanAccentSoft, modifier = Modifier.padding(10.dp).size(21.dp))
@@ -7784,9 +8660,9 @@ private fun ExpressiveDetailDialog(title: String, onDismiss: () -> Unit, content
                         }
                     }
                     HorizontalDivider(color = VulkanOutlineVariant)
-                    Box(Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(min = 96.dp, max = bodyMaxHeight).padding(horizontal = 14.dp, vertical = 12.dp)) {
+                    Box(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 14.dp, vertical = 12.dp)) {
                         Column(
-                            Modifier.fillMaxWidth().verticalScroll(scrollState).focusGroup(),
+                            Modifier.fillMaxWidth().desktopVerticalPointerScroll(scrollState).verticalScroll(scrollState).focusGroup(),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             CompositionLocalProvider(LocalDetailKeyValuePresentation provides true) { content() }
@@ -8145,6 +9021,45 @@ private fun formatFeatureFlags(bits: Long): String = canonicalFlagNames(bits, li
     0x800000000000000L to "VK_FORMAT_FEATURE_2_COPY_IMAGE_INDIRECT_DST_BIT_KHR"
 ))
 
+private data class ProfileCheckCounts(
+    val total: Int = 0,
+    val met: Int = 0,
+    val failed: Int = 0,
+    val unknown: Int = 0
+)
+
+private class MutableProfileCheckCounts {
+    var total: Int = 0
+    var met: Int = 0
+    var failed: Int = 0
+    var unknown: Int = 0
+
+    fun record(state: String) {
+        total += 1
+        when (state) {
+            "PASS" -> met += 1
+            "FAIL" -> failed += 1
+            else -> unknown += 1
+        }
+    }
+
+    fun add(other: MutableProfileCheckCounts) {
+        total += other.total
+        met += other.met
+        failed += other.failed
+        unknown += other.unknown
+    }
+
+    fun add(other: ProfileCheckCounts) {
+        total += other.total
+        met += other.met
+        failed += other.failed
+        unknown += other.unknown
+    }
+
+    fun snapshot(): ProfileCheckCounts = ProfileCheckCounts(total, met, failed, unknown)
+}
+
 private data class ProfileResult(
     val name: String,
     val revision: String,
@@ -8163,7 +9078,15 @@ private data class ProfileResult(
     val unknownFormats: List<String> = emptyList(),
     val failingRequirementGroups: List<String> = emptyList(),
     val unknownRequirementGroups: List<String> = emptyList(),
-    val checkedRequirementCount: Int = 0
+    val checkedRequirementCount: Int = 0,
+    val metRequirementCount: Int = 0,
+    val failedRequirementCount: Int = 0,
+    val unknownRequirementCount: Int = 0,
+    val extensionChecks: ProfileCheckCounts = ProfileCheckCounts(),
+    val featureChecks: ProfileCheckCounts = ProfileCheckCounts(),
+    val propertyChecks: ProfileCheckCounts = ProfileCheckCounts(),
+    val formatChecks: ProfileCheckCounts = ProfileCheckCounts(),
+    val groupChecks: ProfileCheckCounts = ProfileCheckCounts()
 )
 
 private enum class ProfilePropertyComparison { MINIMUM, MAXIMUM, EQUAL_BOOL, BITMASK_CONTAINS, VECTOR_MINIMUM }
@@ -8198,8 +9121,36 @@ private data class ProfileEvidenceResult(
     val unknownProperties: MutableList<String> = mutableListOf(),
     val failingFormats: MutableList<String> = mutableListOf(),
     val unknownFormats: MutableList<String> = mutableListOf(),
-    var checked: Int = 0
+    val totalChecks: MutableProfileCheckCounts = MutableProfileCheckCounts(),
+    val extensionChecks: MutableProfileCheckCounts = MutableProfileCheckCounts(),
+    val featureChecks: MutableProfileCheckCounts = MutableProfileCheckCounts(),
+    val propertyChecks: MutableProfileCheckCounts = MutableProfileCheckCounts(),
+    val formatChecks: MutableProfileCheckCounts = MutableProfileCheckCounts(),
+    val groupChecks: MutableProfileCheckCounts = MutableProfileCheckCounts()
 )
+
+private fun ProfileEvidenceResult.recordCheck(category: MutableProfileCheckCounts, state: String) {
+    totalChecks.record(state)
+    category.record(state)
+}
+
+private fun ProfileEvidenceResult.addChecks(other: ProfileEvidenceResult) {
+    totalChecks.add(other.totalChecks)
+    extensionChecks.add(other.extensionChecks)
+    featureChecks.add(other.featureChecks)
+    propertyChecks.add(other.propertyChecks)
+    formatChecks.add(other.formatChecks)
+    groupChecks.add(other.groupChecks)
+}
+
+private fun ProfileEvidenceResult.addChecks(other: ProfileResult) {
+    totalChecks.add(ProfileCheckCounts(other.checkedRequirementCount, other.metRequirementCount, other.failedRequirementCount, other.unknownRequirementCount))
+    extensionChecks.add(other.extensionChecks)
+    featureChecks.add(other.featureChecks)
+    propertyChecks.add(other.propertyChecks)
+    formatChecks.add(other.formatChecks)
+    groupChecks.add(other.groupChecks)
+}
 
 private val PROFILE_INSTANCE_EXTENSIONS = setOf(
     "VK_KHR_surface", "VK_KHR_android_surface", "VK_KHR_get_physical_device_properties2", "VK_KHR_get_surface_capabilities2",
@@ -8563,39 +9514,52 @@ private fun evaluateProfileCapability(report: VulkanReport?, device: DeviceRepor
     val instanceExtensions = report?.instanceExtensions?.map { it.name }?.toSet().orEmpty()
     val deviceExtensions = device.extensions.map { it.name }.toSet()
     capability.extensions.forEach { extension ->
-        evidence.checked += 1
-        if (extension in instanceExtensions || extension in deviceExtensions || extensionPromotedToSatisfied(extension, device.apiVersion)) return@forEach
+        if (extension in instanceExtensions || extension in deviceExtensions || extensionPromotedToSatisfied(extension, device.apiVersion)) {
+            evidence.recordCheck(evidence.extensionChecks, "PASS")
+            return@forEach
+        }
         val complete = if (extension in PROFILE_INSTANCE_EXTENSIONS) report?.instanceExtensionStatus == "available" else device.deviceExtensionStatus == "available"
         if (complete) evidence.missingExtensions += extension else evidence.unknownExtensions += extension
+        evidence.recordCheck(evidence.extensionChecks, if (complete) "FAIL" else "UNKNOWN")
     }
     val featureMap = device.features.associateBy { it.name.trim() }
     capability.features.forEach { requirement ->
-        evidence.checked += 1
         val entries = profileFeatureEvidenceKeys(requirement).mapNotNull { featureMap[it] }
         when {
-            entries.any { it.supported } -> Unit
-            entries.isNotEmpty() -> evidence.missingFeatures += "${requirement.structure}.${requirement.member}"
-            else -> evidence.unknownFeatures += "${requirement.structure}.${requirement.member}"
+            entries.any { it.supported } -> evidence.recordCheck(evidence.featureChecks, "PASS")
+            entries.isNotEmpty() -> {
+                evidence.missingFeatures += "${requirement.structure}.${requirement.member}"
+                evidence.recordCheck(evidence.featureChecks, "FAIL")
+            }
+            else -> {
+                evidence.unknownFeatures += "${requirement.structure}.${requirement.member}"
+                evidence.recordCheck(evidence.featureChecks, "UNKNOWN")
+            }
         }
     }
     capability.properties.forEach { requirement ->
-        evidence.checked += 1
         val state = profilePropertyState(device, requirement)
+        evidence.recordCheck(evidence.propertyChecks, state.first)
         if (state.first == "FAIL") evidence.failingProperties += state.second
         if (state.first == "UNKNOWN") evidence.unknownProperties += state.second
     }
     val formats = device.formats.associateBy { profileCanonicalFormatName(it.name) }
     capability.formats.forEach { requirement ->
-        evidence.checked += 1
         val canonical = profileCanonicalFormatName(requirement.format)
         val actual = formats[canonical]
         if (actual == null) {
             evidence.unknownFormats += requirement.format
+            evidence.recordCheck(evidence.formatChecks, "UNKNOWN")
         } else {
             val missingLinear = (actual.linear and requirement.linearMask) != requirement.linearMask
             val missingOptimal = (actual.optimal and requirement.optimalMask) != requirement.optimalMask
             val missingBuffer = (actual.buffer and requirement.bufferMask) != requirement.bufferMask
-            if (missingLinear || missingOptimal || missingBuffer) evidence.failingFormats += requirement.format
+            if (missingLinear || missingOptimal || missingBuffer) {
+                evidence.failingFormats += requirement.format
+                evidence.recordCheck(evidence.formatChecks, "FAIL")
+            } else {
+                evidence.recordCheck(evidence.formatChecks, "PASS")
+            }
         }
     }
     return evidence
@@ -8608,34 +9572,71 @@ private fun profileEvidenceState(evidence: ProfileEvidenceResult): String = when
 }
 
 private fun evaluateProfile(report: VulkanReport?, device: DeviceReport?, requirements: ProfileRequirements, allRequirements: Map<String, ProfileRequirements>, stack: Set<String> = emptySet()): ProfileResult {
-    if (device == null) return ProfileResult(requirements.name, requirements.revision, "UNKNOWN", emptyList(), requirements.capability.extensions, emptyList(), requirements.capability.features.map { "${it.structure}.${it.member}" }, emptyList(), requirements.capability.properties.map { "${it.structure}.${it.member}" }, coverageNote = requirements.coverageNote, minimumApiVersion = requirements.minApiVersion)
-    if (requirements.name in stack) return ProfileResult(requirements.name, requirements.revision, "UNKNOWN", emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), coverageNote = "Required-profile cycle rejected", minimumApiVersion = requirements.minApiVersion, unknownRequirementGroups = listOf("required-profile cycle"))
+    if (device == null) {
+        val extensionCount = requirements.capability.extensions.size
+        val featureCount = requirements.capability.features.size
+        val propertyCount = requirements.capability.properties.size
+        val formatCount = requirements.capability.formats.size
+        val groupCount = requirements.requiredProfiles.size + requirements.alternativeGroups.size
+        val total = extensionCount + featureCount + propertyCount + formatCount + groupCount
+        return ProfileResult(
+            requirements.name, requirements.revision, "UNKNOWN",
+            emptyList(), requirements.capability.extensions, emptyList(), requirements.capability.features.map { "${it.structure}.${it.member}" },
+            emptyList(), requirements.capability.properties.map { "${it.structure}.${it.member}" }, coverageNote = requirements.coverageNote, minimumApiVersion = requirements.minApiVersion,
+            unknownFormats = requirements.capability.formats.map { it.format },
+            unknownRequirementGroups = requirements.requiredProfiles.map { "Required profile $it is unavailable without device evidence" } + requirements.alternativeGroups.map { it.label },
+            checkedRequirementCount = total,
+            unknownRequirementCount = total,
+            extensionChecks = ProfileCheckCounts(extensionCount, unknown = extensionCount),
+            featureChecks = ProfileCheckCounts(featureCount, unknown = featureCount),
+            propertyChecks = ProfileCheckCounts(propertyCount, unknown = propertyCount),
+            formatChecks = ProfileCheckCounts(formatCount, unknown = formatCount),
+            groupChecks = ProfileCheckCounts(groupCount, unknown = groupCount)
+        )
+    }
+    if (requirements.name in stack) return ProfileResult(requirements.name, requirements.revision, "UNKNOWN", emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), coverageNote = "Required-profile cycle rejected", minimumApiVersion = requirements.minApiVersion, unknownRequirementGroups = listOf("required-profile cycle"), checkedRequirementCount = 1, unknownRequirementCount = 1, groupChecks = ProfileCheckCounts(1, unknown = 1))
     val evidence = evaluateProfileCapability(report, device, requirements.capability)
     val failingGroups = mutableListOf<String>()
     val unknownGroups = mutableListOf<String>()
     requirements.requiredProfiles.forEach { requiredName ->
-        evidence.checked += 1
         val required = allRequirements[requiredName]
         if (required == null) {
             unknownGroups += "Required profile $requiredName is cataloged but not mapped"
+            evidence.recordCheck(evidence.groupChecks, "UNKNOWN")
         } else {
             val result = evaluateProfile(report, device, required, allRequirements, stack + requirements.name)
-            evidence.checked += result.checkedRequirementCount
+            evidence.addChecks(result)
             when (result.status) {
-                "FAIL" -> failingGroups += "Required profile $requiredName failed"
-                "PASS" -> Unit
-                else -> unknownGroups += "Required profile $requiredName is unresolved"
+                "FAIL" -> {
+                    failingGroups += "Required profile $requiredName failed"
+                    evidence.recordCheck(evidence.groupChecks, "FAIL")
+                }
+                "PASS" -> evidence.recordCheck(evidence.groupChecks, "PASS")
+                else -> {
+                    unknownGroups += "Required profile $requiredName is unresolved"
+                    evidence.recordCheck(evidence.groupChecks, "UNKNOWN")
+                }
             }
         }
     }
     requirements.alternativeGroups.forEach { group ->
         val alternativeEvidence = group.alternatives.map { evaluateProfileCapability(report, device, it) }
-        evidence.checked += alternativeEvidence.sumOf { it.checked }
         val states = alternativeEvidence.map { profileEvidenceState(it) }
-        when {
-            states.any { it == "PASS" } -> Unit
-            states.all { it == "FAIL" } -> failingGroups += group.label
-            else -> unknownGroups += group.label
+        val groupState = when {
+            states.any { it == "PASS" } -> "PASS"
+            states.all { it == "FAIL" } -> "FAIL"
+            else -> "UNKNOWN"
+        }
+        val selectedAlternativeIndex = when (groupState) {
+            "PASS" -> states.indexOf("PASS")
+            "FAIL" -> alternativeEvidence.indices.minByOrNull { index -> alternativeEvidence[index].totalChecks.failed } ?: 0
+            else -> alternativeEvidence.indices.minByOrNull { index -> alternativeEvidence[index].totalChecks.unknown * 1000 + alternativeEvidence[index].totalChecks.failed } ?: 0
+        }
+        alternativeEvidence.getOrNull(selectedAlternativeIndex)?.let { evidence.addChecks(it) }
+        evidence.recordCheck(evidence.groupChecks, groupState)
+        when (groupState) {
+            "FAIL" -> failingGroups += group.label
+            "UNKNOWN" -> unknownGroups += group.label
         }
     }
     val apiOk = apiVersionAtLeast(device.apiVersion, requirements.minApiVersion)
@@ -8651,7 +9652,16 @@ private fun evaluateProfile(report: VulkanReport?, device: DeviceReport?, requir
         requirements.name, requirements.revision, status,
         evidence.missingExtensions.distinct(), evidence.unknownExtensions.distinct(), evidence.missingFeatures.distinct(), evidence.unknownFeatures.distinct(),
         evidence.failingProperties.distinct(), evidence.unknownProperties.distinct(), coverageNote = requirements.coverageNote, minimumApiVersion = requirements.minApiVersion,
-        failingFormats = evidence.failingFormats.distinct(), unknownFormats = evidence.unknownFormats.distinct(), failingRequirementGroups = failingGroups.distinct(), unknownRequirementGroups = unknownGroups.distinct(), checkedRequirementCount = evidence.checked
+        failingFormats = evidence.failingFormats.distinct(), unknownFormats = evidence.unknownFormats.distinct(), failingRequirementGroups = failingGroups.distinct(), unknownRequirementGroups = unknownGroups.distinct(),
+        checkedRequirementCount = evidence.totalChecks.total,
+        metRequirementCount = evidence.totalChecks.met,
+        failedRequirementCount = evidence.totalChecks.failed,
+        unknownRequirementCount = evidence.totalChecks.unknown,
+        extensionChecks = evidence.extensionChecks.snapshot(),
+        featureChecks = evidence.featureChecks.snapshot(),
+        propertyChecks = evidence.propertyChecks.snapshot(),
+        formatChecks = evidence.formatChecks.snapshot(),
+        groupChecks = evidence.groupChecks.snapshot()
     )
 }
 
@@ -8666,9 +9676,11 @@ private fun vulkanProfileEvaluations(report: VulkanReport?, device: DeviceReport
     return vulkanProfileCatalog().mapNotNull { catalog -> (evaluated + catalogOnly).firstOrNull { it.name == catalog.name } }
 }
 
+private fun profileCheckSummary(counts: ProfileCheckCounts): String = "${counts.met}/${counts.total} met · ${counts.failed} unmet · ${counts.unknown} unknown"
+
 private fun profileSummary(result: ProfileResult): String = buildString {
     append(result.status)
-    if (result.checkedRequirementCount > 0) append(" · ${result.checkedRequirementCount} mapped requirement check(s)")
+    if (result.checkedRequirementCount > 0) append(" · ${result.checkedRequirementCount} mapped checks · ${result.metRequirementCount} met · ${result.failedRequirementCount} unmet · ${result.unknownRequirementCount} unknown")
     if (result.missingExtensions.isNotEmpty()) append(" · ${result.missingExtensions.size} verified missing extension(s)")
     if (result.unknownExtensions.isNotEmpty()) append(" · ${result.unknownExtensions.size} extension requirement(s) unknown")
     if (result.missingFeatures.isNotEmpty()) append(" · ${result.missingFeatures.size} unsupported feature(s)")
@@ -8682,16 +9694,165 @@ private fun profileSummary(result: ProfileResult): String = buildString {
     if (result.coverageNote.isNotBlank()) append(" · coverage-limited")
 }
 
+private fun profileDetailPairs(result: ProfileResult): List<Pair<String, String>> = buildList {
+    add("Mapped requirement checks" to result.checkedRequirementCount.toString())
+    add("Mapped checks met" to result.metRequirementCount.toString())
+    add("Mapped checks unmet" to result.failedRequirementCount.toString())
+    add("Mapped checks unknown" to result.unknownRequirementCount.toString())
+    if (result.extensionChecks.total > 0) add("Extension checks" to profileCheckSummary(result.extensionChecks))
+    if (result.featureChecks.total > 0) add("Feature checks" to profileCheckSummary(result.featureChecks))
+    if (result.propertyChecks.total > 0) add("Property / limit checks" to profileCheckSummary(result.propertyChecks))
+    if (result.formatChecks.total > 0) add("Format checks" to profileCheckSummary(result.formatChecks))
+    if (result.groupChecks.total > 0) add("Inherited profile checks" to profileCheckSummary(result.groupChecks))
+    if (result.minimumApiVersion.isNotBlank()) add("Minimum Vulkan API" to result.minimumApiVersion)
+    if (result.missingExtensions.isNotEmpty()) add("Verified missing extensions" to result.missingExtensions.joinToString(", "))
+    if (result.unknownExtensions.isNotEmpty()) add("Unknown extension requirements" to result.unknownExtensions.joinToString(", "))
+    if (result.missingFeatures.isNotEmpty()) add("Unsupported features" to result.missingFeatures.joinToString(", "))
+    if (result.unknownFeatures.isNotEmpty()) add("Unavailable feature queries" to result.unknownFeatures.joinToString(", "))
+    if (result.failingLimits.isNotEmpty()) add("Failing properties / limits" to result.failingLimits.joinToString("; "))
+    if (result.unknownLimits.isNotEmpty()) add("Unavailable properties / limits" to result.unknownLimits.joinToString("; "))
+    if (result.failingFormats.isNotEmpty()) add("Failing formats" to result.failingFormats.joinToString(", "))
+    if (result.unknownFormats.isNotEmpty()) add("Unavailable formats" to result.unknownFormats.joinToString(", "))
+    if (result.failingRequirementGroups.isNotEmpty()) add("Failed inherited / OR requirements" to result.failingRequirementGroups.joinToString("; "))
+    if (result.unknownRequirementGroups.isNotEmpty()) add("Unresolved inherited / OR requirements" to result.unknownRequirementGroups.joinToString("; "))
+    if (result.coverageNote.isNotBlank()) add("Evaluator coverage" to result.coverageNote)
+}
+
+private fun profileEvaluationJson(profile: ProfileResult): JSONObject = JSONObject().apply {
+    put("name", profile.name)
+    put("revision", profile.revision)
+    put("status", profile.status)
+    put("summary", profileSummary(profile))
+    put("checkedRequirementCount", profile.checkedRequirementCount)
+    put("metRequirementCount", profile.metRequirementCount)
+    put("failedRequirementCount", profile.failedRequirementCount)
+    put("unknownRequirementCount", profile.unknownRequirementCount)
+    put("checkBreakdown", JSONObject().apply {
+        fun putCounts(name: String, counts: ProfileCheckCounts) {
+            put(name, JSONObject().apply {
+                put("total", counts.total)
+                put("met", counts.met)
+                put("failed", counts.failed)
+                put("unknown", counts.unknown)
+            })
+        }
+        putCounts("extensions", profile.extensionChecks)
+        putCounts("features", profile.featureChecks)
+        putCounts("properties", profile.propertyChecks)
+        putCounts("formats", profile.formatChecks)
+        putCounts("inheritedProfiles", profile.groupChecks)
+    })
+    put("minimumApiVersion", if (profile.minimumApiVersion.isBlank()) JSONObject.NULL else profile.minimumApiVersion)
+    put("coverageNote", if (profile.coverageNote.isBlank()) JSONObject.NULL else profile.coverageNote)
+    put("missingExtensions", JSONArray(profile.missingExtensions))
+    put("unknownExtensions", JSONArray(profile.unknownExtensions))
+    put("missingFeatures", JSONArray(profile.missingFeatures))
+    put("unknownFeatures", JSONArray(profile.unknownFeatures))
+    put("failingLimits", JSONArray(profile.failingLimits))
+    put("unknownLimits", JSONArray(profile.unknownLimits))
+    put("failingFormats", JSONArray(profile.failingFormats))
+    put("unknownFormats", JSONArray(profile.unknownFormats))
+    put("failingRequirementGroups", JSONArray(profile.failingRequirementGroups))
+    put("unknownRequirementGroups", JSONArray(profile.unknownRequirementGroups))
+}
+
+private fun profileHtmlDetails(profile: ProfileResult): String = buildString {
+    append(htmlEscape("${profile.revision}; ${profileSummary(profile)}"))
+    profileDetailPairs(profile).forEach { (label, value) ->
+        append("<br><span class=\"muted\">")
+        append(htmlEscape(label))
+        append(": </span>")
+        append(htmlEscape(value))
+    }
+}
+
+@Composable
+private fun ProfileCheckMetricGrid(total: Int, met: Int, failed: Int, unknown: Int, modifier: Modifier = Modifier) {
+    val metrics = listOf(
+        Triple("Mapped", total.toString(), VulkanTextPrimary),
+        Triple("Met", met.toString(), ComposeColor(0xFF73C991)),
+        Triple("Unmet", failed.toString(), ComposeColor(0xFFFF8A8A)),
+        Triple("Unknown", unknown.toString(), ComposeColor(0xFFA8A8A8))
+    )
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        val columns = if (maxWidth < 320.dp) 2 else 4
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            metrics.chunked(columns).forEach { rowMetrics ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    rowMetrics.forEach { (label, value, color) ->
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = VulkanSurfaceTonal,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(
+                                Modifier.fillMaxWidth().padding(horizontal = 9.dp, vertical = 8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(1.dp)
+                            ) {
+                                Text(value, color = color, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                Text(label, color = VulkanTextSecondary, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                            }
+                        }
+                    }
+                    repeat(columns - rowMetrics.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileCheckBreakdown(result: ProfileResult) {
+    if (result.checkedRequirementCount == 0) {
+        Text("No normalized requirement checks are mapped for this catalog entry in this release.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+        return
+    }
+    ProfileCheckMetricGrid(
+        total = result.checkedRequirementCount,
+        met = result.metRequirementCount,
+        failed = result.failedRequirementCount,
+        unknown = result.unknownRequirementCount,
+        modifier = Modifier.padding(top = 3.dp, bottom = 2.dp)
+    )
+    if (result.extensionChecks.total > 0) CapabilityKeyValue("Extensions", profileCheckSummary(result.extensionChecks))
+    if (result.featureChecks.total > 0) CapabilityKeyValue("Features", profileCheckSummary(result.featureChecks))
+    if (result.propertyChecks.total > 0) CapabilityKeyValue("Properties / limits", profileCheckSummary(result.propertyChecks))
+    if (result.formatChecks.total > 0) CapabilityKeyValue("Formats", profileCheckSummary(result.formatChecks))
+    if (result.groupChecks.total > 0) CapabilityKeyValue("Inherited profiles", profileCheckSummary(result.groupChecks))
+}
+
 @Composable
 private fun ProfilesPage(report: VulkanReport, device: DeviceReport?) {
     var query by remember { mutableStateOf("") }
     val results = remember(report, device) { vulkanProfileEvaluations(report, device) }
     val filtered = results.filter { it.name.contains(query, true) }
+    val visibleMappedChecks = filtered.sumOf { it.checkedRequirementCount }
+    val visibleMetChecks = filtered.sumOf { it.metRequirementCount }
+    val visibleFailedChecks = filtered.sumOf { it.failedRequirementCount }
+    val visibleUnknownChecks = filtered.sumOf { it.unknownRequirementCount }
     VulkanLazyPage(verticalSpacing = 8.dp) {
         item {
             CapabilitySectionCard("Profile explorer") {
                 Text("Profile requirements are checked from struct-qualified runtime evidence and audited normalized official definitions. Missing evidence remains UNKNOWN; catalog-only definitions and coverage-limited mappings never become API-only PASS claims.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
                 ExpressiveSearchField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), placeholderText = "Search profiles…")
+                ExpressiveMetricGrid(
+                    listOf(
+                        "Visible" to filtered.size.toString(),
+                        "Pass" to filtered.count { it.status == "PASS" }.toString(),
+                        "Fail" to filtered.count { it.status == "FAIL" }.toString(),
+                        "Unknown" to filtered.count { it.status == "UNKNOWN" }.toString()
+                    ),
+                    Modifier.padding(top = 4.dp)
+                )
+                Text("Mapped requirement checks across visible profiles", color = VulkanTextSecondary, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
+                ProfileCheckMetricGrid(
+                    total = visibleMappedChecks,
+                    met = visibleMetChecks,
+                    failed = visibleFailedChecks,
+                    unknown = visibleUnknownChecks
+                )
+                Text("Each profile separates mapped checks that are met, verified unmet, or unknown. Category rows show the same split for extensions, features, properties/limits, formats and inherited-profile checks without turning missing evidence into an unsupported claim.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
             }
         }
         items(filtered) { result ->
@@ -8704,6 +9865,7 @@ private fun ProfilesPage(report: VulkanReport, device: DeviceReport?) {
                     val apiText = if (result.minimumApiVersion.isBlank()) result.revision else "${result.revision} · Vulkan® ${result.minimumApiVersion} minimum"
                     Text(apiText, color = ComposeColor(0xFF9E9E9E), style = MaterialTheme.typography.labelMedium)
                     Text(profileSummary(result), style = MaterialTheme.typography.bodySmall)
+                    ProfileCheckBreakdown(result)
                     if (result.missingExtensions.isNotEmpty()) CapabilityKeyValue("Verified missing extensions", result.missingExtensions.joinToString(", "))
                     if (result.unknownExtensions.isNotEmpty()) CapabilityKeyValue("Unknown extension requirements", result.unknownExtensions.joinToString(", "))
                     if (result.missingFeatures.isNotEmpty()) CapabilityKeyValue("Unsupported features", result.missingFeatures.joinToString(", "))
@@ -8733,7 +9895,7 @@ private val VULKANSCOPE_LIBRARY_VERSIONS = listOf(
     LibraryVersionInfo("Lifecycle Runtime Compose", "2.11.0", "Lifecycle-aware Compose state", "Apache License 2.0", "licenses/apache_2_0.md"),
     LibraryVersionInfo("OkHttp", "5.5.0", "Explicit network requests", "Apache License 2.0", "licenses/apache_2_0.md"),
     LibraryVersionInfo("ZXing Core", "3.5.4", "Local QR code generation", "Apache License 2.0", "licenses/apache_2_0.md"),
-    LibraryVersionInfo("Vulkan® Headers", "1.4.362", "Pinned commit ee2ec5fd83dafce291024683b50dc89219333076", "Apache-2.0 OR MIT", "licenses/vulkan_headers.md"),
+    LibraryVersionInfo("Vulkan® Headers", "1.4.364", "Pinned commit b0c3dd6851e22621f194306d511b9253e4c1577f", "Apache-2.0 OR MIT", "licenses/vulkan_headers.md"),
     LibraryVersionInfo("libadrenotools", "8fae8ce254dfc1344527e05301e43f37dea2df80", "arm64-v8a driver-loading integration · pinned commit", "BSD 2-Clause License", "licenses/libadrenotools_bsd_2_clause.md")
 )
 
@@ -8955,6 +10117,13 @@ private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverM
         }
         if (showInfo) item {
             CapabilitySectionCard("Android") {
+                CapabilityKeyValue("Platform", platformRuntimeName(context))
+                CapabilityKeyValue("Host OS version", hostPlatformVersionEvidence(context))
+                CapabilityKeyValue("ChromeOS ARC runtime", if (isChromeOsRuntime(context)) "Detected" else "Not detected")
+                CapabilityKeyValue("Android PC form factor", if (isAndroidPcFormFactor(context)) "Detected" else "Not detected")
+                CapabilityKeyValue("Freeform window management", if (hasFreeformWindowManagement(context)) "Detected" else "Not detected")
+                CapabilityKeyValue("Googlebook environment", googlebookEnvironmentEvidence(context))
+                CapabilityKeyValue("Googlebook OS version", googlebookOsVersionEvidence())
                 CapabilityKeyValue("Manufacturer", Build.MANUFACTURER)
                 CapabilityKeyValue("Brand", Build.BRAND)
                 CapabilityKeyValue("Model", Build.MODEL)
@@ -8973,7 +10142,8 @@ private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverM
         }
         if (showInfo) item {
             CapabilitySectionCard("Vulkan registry / query engine") {
-                CapabilityKeyValue("Baseline", registryCoverage.baseline)
+                CapabilityKeyValue("Current published specification", "Vulkan® 1.4.364 · 2026-09-25")
+                CapabilityKeyValue("Collection baseline", registryCoverage.baseline)
                 CapabilityKeyValue("Engine", registryCoverage.mode)
                 CapabilityKeyValue("Physical-device structs", registryCoverage.implementedPhysicalDeviceStructCount.toString())
                 CapabilityKeyValue("Validated query groups", registryCoverage.validatedRuntimeQueryGroupCount.toString())
@@ -9121,7 +10291,7 @@ private fun DatabaseSubmissionFailureDialog(log: String, onDismiss: () -> Unit) 
                 Surface(shape = MaterialTheme.shapes.medium, color = ComposeColor(0xFF0D0D0D), border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant)) {
                     Text(
                         log,
-                        modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp).verticalScroll(scrollState).padding(14.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp).desktopVerticalPointerScroll(scrollState).verticalScroll(scrollState).padding(14.dp),
                         color = VulkanTextPrimary,
                         style = MaterialTheme.typography.bodySmall,
                         fontFamily = FontFamily.Monospace
@@ -9225,6 +10395,8 @@ private fun SettingsPage(
     collectionStatus: CollectionStatus,
     directUpdatesEnabled: Boolean,
     onDirectUpdatesChanged: (Boolean) -> Unit,
+    openingAnimationEnabled: Boolean,
+    onOpeningAnimationChanged: (Boolean) -> Unit,
     onCheckForUpdates: () -> Unit,
     updateCheckInFlight: Boolean,
     selectedSection: SettingsSection?,
@@ -9284,7 +10456,9 @@ private fun SettingsPage(
                 onRemoveTurnipDriver = onRemoveTurnipDriver,
                 collectionStatus = collectionStatus,
                 directUpdatesEnabled = directUpdatesEnabled,
-                onDirectUpdatesChanged = onDirectUpdatesChanged
+                onDirectUpdatesChanged = onDirectUpdatesChanged,
+                openingAnimationEnabled = openingAnimationEnabled,
+                onOpeningAnimationChanged = onOpeningAnimationChanged
             )
         }
     }
@@ -9304,7 +10478,9 @@ private fun DriverUpdatePreferencesPage(
     onRemoveTurnipDriver: (Int) -> Unit,
     collectionStatus: CollectionStatus,
     directUpdatesEnabled: Boolean,
-    onDirectUpdatesChanged: (Boolean) -> Unit
+    onDirectUpdatesChanged: (Boolean) -> Unit,
+    openingAnimationEnabled: Boolean,
+    onOpeningAnimationChanged: (Boolean) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val completeReportReady = isCompleteReportReady(report, collectionStatus)
@@ -9355,6 +10531,22 @@ private fun DriverUpdatePreferencesPage(
                     ExpressiveSwitch(checked = directUpdatesEnabled, onCheckedChange = onDirectUpdatesChanged)
                 }
                 Text("Direct GitHub updates are enabled by default so new installations receive update checks. When disabled, VulkanScope performs no startup update check and will not download update APKs. Obtainium can track the universal APK from the official GitHub Releases channel without enabling the built-in updater.", color = VulkanTextMuted, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        item {
+            CapabilitySectionCard("Opening animation") {
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("VulkanScope opening animation", color = VulkanTextPrimary, fontWeight = FontWeight.SemiBold)
+                        Text(if (openingAnimationEnabled) "Enabled · VulkanScope logo animation plays before startup collection" else "Disabled · app content can start immediately", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                    }
+                    ExpressiveSwitch(checked = openingAnimationEnabled, onCheckedChange = onOpeningAnimationChanged)
+                }
+                Text("Applies on the next cold launch. When enabled, Vulkan collection, display inspection, network observation and the automatic update check stay deferred until the opening animation completes.", color = VulkanTextMuted, style = MaterialTheme.typography.bodySmall)
             }
         }
         item {
@@ -9553,7 +10745,7 @@ private fun TurnipFileManagerDialog(
                         LazyVerticalGrid(
                             columns = GridCells.Adaptive(156.dp),
                             state = gridState,
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier.fillMaxSize().desktopVerticalPointerScroll(gridState),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             contentPadding = PaddingValues(bottom = 8.dp)
@@ -9585,7 +10777,7 @@ private fun TurnipFileManagerDialog(
                         val details = state.viewMode == TurnipFileManagerViewMode.DETAILS
                         LazyColumn(
                             state = listState,
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier.fillMaxSize().desktopVerticalPointerScroll(listState),
                             verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 9.dp),
                             contentPadding = PaddingValues(bottom = 8.dp)
                         ) {
@@ -9821,7 +11013,7 @@ private fun TurnipArchiveCandidateDetailsDialog(candidate: TurnipArchiveCandidat
         text = {
             Box(Modifier.fillMaxWidth().heightIn(max = 480.dp)) {
                 val detailsScroll = rememberScrollState()
-                Column(Modifier.fillMaxWidth().verticalScroll(detailsScroll).padding(end = 2.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.fillMaxWidth().desktopVerticalPointerScroll(detailsScroll).verticalScroll(detailsScroll).padding(end = 2.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     CapabilityKeyValue("Validation", "Passed pre-import package checks")
                     CapabilityKeyValue("Schema", candidate.schemaVersion.toString())
                     CapabilityKeyValue("Driver name", candidate.driverName ?: "Not exposed")
@@ -10046,7 +11238,7 @@ private fun SharedStorageBrowserDialog(
                         }
                     } else {
                         val listState = rememberLazyListState()
-                        LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 8.dp)) {
+                        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().desktopVerticalPointerScroll(listState), verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 8.dp)) {
                             items(filteredFolders, key = { "shared-folder:$it" }) { path -> SharedStorageFolderRow(path = path, enabled = !busy) { directoryPath = path } }
                             if (request.mode == SharedStorageBrowserMode.IMPORT) {
                                 items(filteredFiles, key = { "shared-file:${it.path}" }) { entry ->
@@ -10519,7 +11711,7 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
                 CapabilityKeyValue("Scope", extension.scope)
                 CapabilityKeyValue("Runtime specVersion", extension.specVersion.toString())
                 CapabilityKeyValue("Registry author tag", ref.author)
-                CapabilityKeyValue("Registry baseline", "Vulkan® 1.4.362")
+                CapabilityKeyValue("Registry baseline", "Vulkan® 1.4.364")
                 CapabilityKeyValue("Embedded registry revision", ref.specVersion.ifBlank { "Unavailable in checked-in reference asset" })
                 CapabilityKeyValue("Registry status", if (ref.provisional) "Provisional / beta" else "Registered")
                 CapabilityKeyValue("Extension type", ref.type.ifBlank { "Unavailable in checked-in reference asset" })
@@ -10533,7 +11725,7 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
                 CapabilityKeyValue("Related commands", ref.commands.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "See authoritative Khronos extension page")
                 CapabilityKeyValue("Related enums/tokens", ref.enums.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "See authoritative Khronos extension page")
                 ExpressiveContainedIconTextButton("Open Khronos specification", R.drawable.ic_open_external, enabled = networkAvailable) { uriHandler.openUri(ref.specUrl) }
-                Text("Runtime enumeration, registry metadata and dedicated feature/property query evidence remain separate. The checked-in metadata is generated from the locked Vulkan® 1.4.362 registry; the Khronos link remains authoritative for the complete interface definition.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                Text("Runtime enumeration, registry metadata and dedicated feature/property query evidence remain separate. The checked-in metadata is generated from the locked Vulkan® 1.4.364 registry; the Khronos link remains authoritative for the complete interface definition.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
         }
     }
     selectedCatalog?.let { name ->
@@ -10544,7 +11736,7 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
                 val ref = vulkanExtensionReference(name)
                 CapabilityKeyValue("Runtime evidence", "Not enumerated in the completed runtime extension set")
                 CapabilityKeyValue("Registry author tag", ref.author)
-                CapabilityKeyValue("Registry baseline", "Vulkan® 1.4.362")
+                CapabilityKeyValue("Registry baseline", "Vulkan® 1.4.364")
                 CapabilityKeyValue("Embedded registry revision", ref.specVersion.ifBlank { "Unavailable in checked-in reference asset" })
                 CapabilityKeyValue("Registry status", if (ref.provisional) "Provisional / beta" else "Registered")
                 CapabilityKeyValue("Extension type", ref.type.ifBlank { "Unavailable in checked-in reference asset" })
@@ -10558,7 +11750,7 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
                 CapabilityKeyValue("Related commands", ref.commands.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "See authoritative Khronos extension page")
                 CapabilityKeyValue("Related enums/tokens", ref.enums.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "See authoritative Khronos extension page")
                 ExpressiveContainedIconTextButton("Open Khronos specification", R.drawable.ic_open_external, enabled = networkAvailable) { uriHandler.openUri(ref.specUrl) }
-                Text("This entry comes from the checked-in Vulkan® 1.4.362 registry census. Runtime absence is not an Unsupported claim; runtime enumeration and registry registration remain separate evidence.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                Text("This entry comes from the checked-in Vulkan® 1.4.364 registry census. Runtime absence is not an Unsupported claim; runtime enumeration and registry registration remain separate evidence.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -10685,7 +11877,7 @@ private fun technicalReportJson(context: Context, report: VulkanReport, display:
                     }
                 })
             })
-            put("profileEvaluation", JSONArray().apply { vulkanProfileEvaluations(report, d).forEach { profile -> put(JSONObject().apply { put("name", profile.name); put("revision", profile.revision); put("status", profile.status); put("summary", profileSummary(profile)) }) } })
+            put("profileEvaluation", JSONArray().apply { vulkanProfileEvaluations(report, d).forEach { profile -> put(profileEvaluationJson(profile)) } })
         }) }
     })
     put("profileCatalog", JSONArray().apply { vulkanProfileCatalog().forEach { value -> put(JSONObject().apply { put("name", value.name); put("revision", value.revision) }) } })
@@ -10711,6 +11903,13 @@ private fun databaseSubmissionJson(context: Context, report: VulkanReport, displ
             put("supportedDeviceAbis", JSONArray(Build.SUPPORTED_ABIS.toList()))
         })
         put("device", JSONObject().apply {
+            put("platform", platformRuntimeName(context))
+            put("chromeOsArcRuntime", isChromeOsRuntime(context))
+            put("androidPcFormFactor", isAndroidPcFormFactor(context))
+            put("freeformWindowManagement", hasFreeformWindowManagement(context))
+            put("googlebookEnvironmentEvidence", googlebookEnvironmentEvidence(context))
+            put("googlebookOsVersion", googlebookOsVersionEvidence())
+            put("hostOsVersion", hostPlatformVersionEvidence(context))
             put("manufacturer", Build.MANUFACTURER)
             put("brand", Build.BRAND)
             put("model", Build.MODEL)
@@ -10941,6 +12140,13 @@ private fun reportToText(context: Context, report: VulkanReport, display: Displa
     appendLine("HDR types: ${hdrTypesText(display)}")
     appendLine("HDR luminance: min=${display.minLuminance}, max=${display.maxLuminance}, average=${display.averageLuminance}")
     appendLine("Display modes: ${display.modes.joinToString(" | ").ifBlank { "Not exposed" }}")
+    appendLine("Platform: ${platformRuntimeName(context)}")
+    appendLine("ChromeOS ARC runtime: ${if (isChromeOsRuntime(context)) "Detected" else "Not detected"}")
+    appendLine("Android PC form factor: ${if (isAndroidPcFormFactor(context)) "Detected" else "Not detected"}")
+    appendLine("Freeform window management: ${if (hasFreeformWindowManagement(context)) "Detected" else "Not detected"}")
+    appendLine("Googlebook environment: ${googlebookEnvironmentEvidence(context)}")
+    appendLine("Googlebook OS version: ${googlebookOsVersionEvidence()}")
+    appendLine("Host OS version: ${hostPlatformVersionEvidence(context)}")
     appendLine("Android: ${Build.MANUFACTURER} ${Build.MODEL}, ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
     appendLine("Codename=${Build.VERSION.CODENAME}, Security patch=${Build.VERSION.SECURITY_PATCH}")
     appendLine("Brand=${Build.BRAND}, Product=${Build.PRODUCT}, Device=${Build.DEVICE}, Board=${Build.BOARD}, Hardware=${Build.HARDWARE}")
@@ -10990,7 +12196,10 @@ private fun reportToText(context: Context, report: VulkanReport, display: Displa
     appendLine(); appendLine("VULKAN PROFILE EVALUATION")
     report.devices.forEachIndexed { index, d ->
         appendLine("Device #${index + 1}: ${d.name}")
-        vulkanProfileEvaluations(report, d).forEach { p -> appendLine("${p.name} | ${p.revision} | ${p.status} | ${profileSummary(p)}") }
+        vulkanProfileEvaluations(report, d).forEach { p ->
+            appendLine("${p.name} | ${p.revision} | ${p.status} | ${profileSummary(p)}")
+            profileDetailPairs(p).forEach { (label, value) -> appendLine("  - $label: $value") }
+        }
     }
         appendLine(); appendLine("VULKAN PROFILES CATALOG")
     vulkanProfileCatalog().forEach { appendLine("${it.name} | ${it.revision}") }
@@ -11101,6 +12310,8 @@ private fun reportToHtml(context: Context, report: VulkanReport, display: Displa
     ))
 
     table("Android / display", "<th>Property</th><th>Value</th>", listOf(
+        "Platform" to htmlEscape(platformRuntimeName(context)), "ChromeOS ARC runtime" to if (isChromeOsRuntime(context)) "Detected" else "Not detected", "Android PC form factor" to if (isAndroidPcFormFactor(context)) "Detected" else "Not detected",
+        "Freeform window management" to if (hasFreeformWindowManagement(context)) "Detected" else "Not detected", "Googlebook environment" to htmlEscape(googlebookEnvironmentEvidence(context)), "Googlebook OS version" to htmlEscape(googlebookOsVersionEvidence()), "Host OS version" to htmlEscape(hostPlatformVersionEvidence(context)),
         "Manufacturer" to htmlEscape(Build.MANUFACTURER), "Brand" to htmlEscape(Build.BRAND), "Model" to htmlEscape(Build.MODEL), "Android" to htmlEscape(Build.VERSION.RELEASE),
         "SDK" to Build.VERSION.SDK_INT.toString(), "Security patch" to htmlEscape(Build.VERSION.SECURITY_PATCH.ifBlank { "Unavailable" }), "Codename" to htmlEscape(Build.VERSION.CODENAME),
         "Product" to htmlEscape(Build.PRODUCT), "Device" to htmlEscape(Build.DEVICE), "Board" to htmlEscape(Build.BOARD), "Hardware" to htmlEscape(Build.HARDWARE),
@@ -11157,7 +12368,7 @@ private fun reportToHtml(context: Context, report: VulkanReport, display: Displa
     })
 
     val profileRows = report.devices.flatMap { device -> vulkanProfileEvaluations(report, device).map { evaluation ->
-        "${device.name} / ${evaluation.name}" to "${statusBadge(evaluation.status)} ${htmlEscape("${evaluation.revision}; ${profileSummary(evaluation)}")}" 
+        "${device.name} / ${evaluation.name}" to "${statusBadge(evaluation.status)} ${profileHtmlDetails(evaluation)}"
     } }
     table("Vulkan® Profile evaluation", "<th>Device / profile</th><th>Status / details</th>", profileRows)
     table("Vulkan® Profiles catalog", "<th>Profile</th><th>Revision</th>", vulkanProfileCatalog().map { it.name to htmlEscape(it.revision) })
@@ -11244,72 +12455,15 @@ private fun List<String>.distinctScopes(): String = distinct().joinToString(" / 
 private data class NavigationItem(val page: Page, val label: String, val icon: Int)
 
 private fun selectedNavigationPage(page: Page): Page = when (page) {
-    Page.Features, Page.Memory, Page.Queues, Page.Video, Page.Formats, Page.Properties, Page.Encyclopedia, Page.Analysis, Page.Settings, Page.Info -> Page.Overview
+    Page.Display -> Page.Surface
+    Page.Features, Page.Memory, Page.Queues, Page.Video, Page.Formats, Page.Properties, Page.Profiles, Page.Encyclopedia, Page.Analysis, Page.Settings, Page.Info -> Page.Overview
     else -> page
-}
-
-@Composable
-private fun AnimatedNavigationIcon(
-    page: Page,
-    icon: Int,
-    trigger: Int,
-    size: Dp,
-    tint: ComposeColor? = null
-) {
-    val motion = remember(page) { androidx.compose.animation.core.Animatable(0f) }
-    LaunchedEffect(trigger) {
-        if (trigger > 0) {
-            motion.snapTo(0f)
-            motion.animateTo(1f, animationSpec = tween(durationMillis = 320))
-            motion.snapTo(0f)
-        }
-    }
-    val wave = kotlin.math.sin(motion.value * kotlin.math.PI).toFloat()
-    val iconModifier = Modifier
-        .size(size)
-        .graphicsLayer {
-            when (page) {
-                Page.Overview -> {
-                    scaleX = 1f + 0.16f * wave
-                    scaleY = 1f + 0.16f * wave
-                }
-                Page.Vulkan -> {
-                    rotationZ = -11f * wave
-                    scaleX = 1f + 0.08f * wave
-                    scaleY = 1f + 0.08f * wave
-                }
-                Page.Surface -> {
-                    translationY = -5f * wave
-                    rotationZ = 4f * wave
-                }
-                Page.Display -> {
-                    scaleX = 1f + 0.12f * wave
-                    scaleY = 1f - 0.10f * wave
-                    alpha = 1f - 0.12f * wave
-                }
-                Page.Extensions -> {
-                    rotationZ = 10f * wave
-                    scaleX = 1f + 0.09f * wave
-                    scaleY = 1f + 0.09f * wave
-                }
-                else -> {
-                    scaleX = 1f + 0.08f * wave
-                    scaleY = 1f + 0.08f * wave
-                }
-            }
-        }
-    if (tint == null) {
-        Icon(painterResource(icon), contentDescription = null, modifier = iconModifier)
-    } else {
-        Icon(painterResource(icon), contentDescription = null, modifier = iconModifier, tint = tint)
-    }
 }
 
 private fun navigationItems(): List<NavigationItem> = listOf(
     NavigationItem(Page.Overview, "Overview", R.drawable.ic_home),
     NavigationItem(Page.Vulkan, "Vulkan", R.drawable.ic_vulkan),
     NavigationItem(Page.Surface, "Surface", R.drawable.ic_surface),
-    NavigationItem(Page.Display, "Display", R.drawable.ic_tablet),
     NavigationItem(Page.Extensions, "Extensions", R.drawable.ic_extensions)
 )
 
@@ -11427,6 +12581,51 @@ private fun UpdateStatusBadge(label: String) {
 }
 
 @Composable
+private fun FloatingStatusSurface(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth().widthIn(max = 520.dp),
+        color = ComposeColor(0xD61A1A1F),
+        contentColor = VulkanTextPrimary,
+        shape = RoundedCornerShape(22.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, ComposeColor(0x423A3438)),
+        tonalElevation = 0.dp,
+        shadowElevation = 8.dp
+    ) {
+        content()
+    }
+}
+
+@Composable
+private fun TransientStatusOverlayHost(
+    collectionStatus: CollectionStatus,
+    networkStateKnown: Boolean,
+    networkAvailable: Boolean,
+    networkBannerState: NetworkBannerState,
+    updateStatus: UpdateStatus,
+    onInstallUpdate: (AppUpdate) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val overlayVisible = collectionStatus != CollectionStatus.IDLE ||
+        updateStatus !is UpdateStatus.Hidden ||
+        networkBannerState != NetworkBannerState.HIDDEN ||
+        (networkStateKnown && !networkAvailable)
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = if (overlayVisible) 8.dp else 0.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        CollectionStatusBanner(collectionStatus)
+        ConnectivityStatusHost(collectionStatus, networkStateKnown, networkAvailable, networkBannerState)
+        UpdateStatusBanner(updateStatus, onInstallUpdate)
+    }
+}
+
+@Composable
 private fun ConnectivityStatusHost(collectionStatus: CollectionStatus, networkStateKnown: Boolean, networkAvailable: Boolean, transitionState: NetworkBannerState) {
     var showPersistentOffline by remember { mutableStateOf(false) }
     LaunchedEffect(networkStateKnown, networkAvailable, transitionState) {
@@ -11448,16 +12647,13 @@ private fun ConnectivityStatusHost(collectionStatus: CollectionStatus, networkSt
 
 @Composable
 private fun OfflineFeatureAvailabilityBanner(collectionInProgress: Boolean) {
-    Surface(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
-        color = VulkanSurfaceRaised,
-        shape = MaterialTheme.shapes.large,
-        tonalElevation = 0.dp
+    FloatingStatusSurface(
+        modifier = Modifier.semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }
     ) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Surface(shape = RoundedCornerShape(50), color = ComposeColor(0xFF16344F), modifier = Modifier.size(34.dp)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Surface(shape = RoundedCornerShape(50), color = ComposeColor(0xFF16344F), modifier = Modifier.size(30.dp)) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(painter = painterResource(R.drawable.ic_info), contentDescription = null, tint = ComposeColor(0xFF5CA9FF), modifier = Modifier.size(19.dp))
+                    Icon(painter = painterResource(R.drawable.ic_info), contentDescription = null, tint = ComposeColor(0xFF5CA9FF), modifier = Modifier.size(17.dp))
                 }
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -11482,20 +12678,17 @@ private fun NetworkStatusBanner(state: NetworkBannerState) {
         val connected = renderedState == NetworkBannerState.CONNECTED
         val stateColor = if (connected) ComposeColor(0xFF55D98A) else ComposeColor(0xFFFF7676)
         val stateContainer = if (connected) ComposeColor(0xFF163D24) else ComposeColor(0xFF431C20)
-        Surface(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
-            color = VulkanSurfaceRaised,
-            shape = MaterialTheme.shapes.large,
-            tonalElevation = 0.dp
+        FloatingStatusSurface(
+            modifier = Modifier.semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }
         ) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Surface(shape = RoundedCornerShape(50), color = stateContainer, modifier = Modifier.size(34.dp)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(shape = RoundedCornerShape(50), color = stateContainer, modifier = Modifier.size(30.dp)) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             painter = painterResource(if (connected) R.drawable.ic_network_connected else R.drawable.ic_network_disconnected),
                             contentDescription = null,
                             tint = stateColor,
-                            modifier = Modifier.size(19.dp)
+                            modifier = Modifier.size(17.dp)
                         )
                     }
                 }
@@ -11515,14 +12708,10 @@ private fun UpdateStatusBanner(status: UpdateStatus, onInstallUpdate: (AppUpdate
         enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(220)) + expandVertically(animationSpec = androidx.compose.animation.core.tween(220)),
         exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(360)) + shrinkVertically(animationSpec = androidx.compose.animation.core.tween(360))
     ) {
-        Surface(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).semantics { liveRegion = LiveRegionMode.Polite },
-            color = VulkanSurfaceRaised,
-            contentColor = VulkanTextPrimary,
-            shape = MaterialTheme.shapes.large,
-            tonalElevation = 0.dp
+        FloatingStatusSurface(
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
         ) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 when (status) {
                     UpdateStatus.Checking -> { ExpressiveLinearProgressIndicator(Modifier.width(72.dp)); Text("Checking for updates…", color = VulkanTextSecondary, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)) }
                     UpdateStatus.UpToDate -> { UpdateStatusBadge("UP TO DATE"); Text("VulkanScope is up to date.", color = VulkanTextSecondary, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)) }
@@ -11707,7 +12896,7 @@ private fun UpdateTransferDialog(
                     Box(Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 220.dp).padding(12.dp)) {
                         LazyColumn(
                             state = logState,
-                            modifier = Modifier.fillMaxWidth().focusGroup(),
+                            modifier = Modifier.fillMaxWidth().desktopVerticalPointerScroll(logState).focusGroup(),
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                             userScrollEnabled = true
                         ) {
@@ -11768,7 +12957,7 @@ private fun ReleaseNotesContent(markdown: String, modifier: Modifier = Modifier)
     Box(modifier.padding(14.dp)) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxWidth().focusGroup(),
+            modifier = Modifier.fillMaxWidth().desktopVerticalPointerScroll(listState).focusGroup(),
             verticalArrangement = Arrangement.spacedBy(5.dp),
             userScrollEnabled = true
         ) {
@@ -11840,11 +13029,8 @@ private fun CollectionStatusBanner(status: CollectionStatus) {
     ) {
         val collecting = status == CollectionStatus.COLLECTING
         val failed = status == CollectionStatus.FAILED
-        Surface(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
-            color = VulkanSurfaceRaised,
-            shape = MaterialTheme.shapes.large,
-            tonalElevation = 0.dp
+        FloatingStatusSurface(
+            modifier = Modifier.semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }
         ) {
             Column(Modifier.fillMaxWidth()) {
                 Row(
@@ -11904,7 +13090,7 @@ private fun CollectionStatusBanner(status: CollectionStatus) {
                         )
                     }
                 }
-                if (collecting) ExpressiveLinearProgressIndicator(Modifier.fillMaxWidth())
+                if (collecting) ExpressiveLinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp))
             }
         }
     }
@@ -11972,6 +13158,7 @@ private fun capabilitySectionIcon(title: String): Int = when {
     title.equals("Capability dependency graph", true) || title.equals("Visual registry-reference graph", true) -> R.drawable.ic_graph
     title.equals("Optional active tests", true) || title.equals("Self-test result", true) -> R.drawable.ic_test
     title.equals("Vulkan registry / query engine", true) || title.equals("Raw structured technical Report", true) -> R.drawable.ic_registry
+    title.equals("Opening animation", true) -> R.drawable.ic_opening_animation_toggle
     title.equals("Export complete report", true) -> R.drawable.ic_surface
     title.equals("Compare with VulkanScope Database", true) -> R.drawable.ic_action_database
     title.equals("Database comparison summary", true) -> R.drawable.ic_compare
@@ -12339,6 +13526,16 @@ private fun ExpressiveLinearProgressIndicator(modifier: Modifier = Modifier) {
 @Composable
 private fun SectionHeaderIcon(title: String, sectionIcon: Int) {
     when {
+        title.equals("Opening animation", true) -> {
+            Box(Modifier.padding(8.dp).size(27.dp), contentAlignment = Alignment.Center) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_opening_animation_toggle),
+                    contentDescription = null,
+                    tint = VulkanAccentSoft,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
         title.equals("Vulkan registry / query engine", true) -> SectionVectorBadgeIcon(R.drawable.ic_registry, "REG")
         title.equals("About", true) -> AboutSectionIcon()
         title.equals("Android runtime", true) -> AndroidRuntimeSectionIcon()
@@ -12819,7 +14016,7 @@ private fun ExpressiveSingleFilterSelector(
                                     Box(Modifier.fillMaxSize().nestedScroll(boundaryScrollConnection)) {
                                         LazyColumn(
                                             state = targetListState,
-                                            modifier = Modifier.fillMaxSize(),
+                                            modifier = Modifier.fillMaxSize().desktopVerticalPointerScroll(targetListState),
                                             verticalArrangement = Arrangement.spacedBy(5.dp),
                                             contentPadding = PaddingValues(vertical = 2.dp)
                                         ) {
@@ -13064,7 +14261,7 @@ private fun ExpressiveMultiFilterBar(labels: List<String>, selectedLabels: Set<S
                         Box(Modifier.fillMaxWidth().heightIn(min = 56.dp, max = 420.dp).nestedScroll(boundaryScrollConnection)) {
                             LazyColumn(
                                 state = listState,
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().desktopVerticalPointerScroll(listState),
                                 verticalArrangement = Arrangement.spacedBy(5.dp),
                                 contentPadding = PaddingValues(vertical = 2.dp)
                             ) {
@@ -13249,32 +14446,135 @@ private fun ExpressiveEvidenceRow(key: String, value: String) {
 
 @Composable
 private fun CapabilityKeyValue(key: String, value: String) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val environment = LocalEvidenceActionEnvironment.current
+    val referenceToken = remember(key, value) { evidenceTokenForReference(key, value) }
     var showEvidenceActions by remember(key, value) { mutableStateOf(false) }
+    var showQuickMenu by remember(key, value) { mutableStateOf(false) }
+    var tvLongPressConsumed by remember(key, value) { mutableStateOf(false) }
+    var tvLongPressJob by remember(key, value) { mutableStateOf<Job?>(null) }
+    val tvLongPressScope = rememberCoroutineScope()
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val isTelevision = configuration.uiMode and Configuration.UI_MODE_TYPE_MASK == Configuration.UI_MODE_TYPE_TELEVISION
+    val suppressDesktopQuickMenu = remember(context) {
+        isChromeOsRuntime(context) || isAndroidPcFormFactor(context) || hasFreeformWindowManagement(context)
+    }
     var pressed by remember(key, value) { mutableStateOf(false) }
     val pressScale by animateFloatAsState(if (pressed) 0.985f else 1f, tween(110), label = "evidenceHoldScale")
     val pressHighlightAlpha by animateFloatAsState(if (pressed) 0.58f else 0f, tween(110), label = "evidenceHoldHighlight")
-    Box(
-        Modifier.fillMaxWidth()
-            .graphicsLayer(scaleX = pressScale, scaleY = pressScale)
-            .background(VulkanAccentContainer.copy(alpha = pressHighlightAlpha), RoundedCornerShape(14.dp))
-            .pointerInput(key, value) {
-                detectTapGestures(
-                    onPress = {
-                        pressed = true
-                        try {
-                            tryAwaitRelease()
-                        } finally {
-                            pressed = false
+    Box {
+        Box(
+            Modifier.fillMaxWidth()
+                .graphicsLayer(scaleX = pressScale, scaleY = pressScale)
+                .background(VulkanAccentContainer.copy(alpha = pressHighlightAlpha), RoundedCornerShape(14.dp))
+                .onPreviewKeyEvent { event ->
+                    if (!isTelevision) return@onPreviewKeyEvent false
+                    val nativeKeyCode = event.key.nativeKeyCode
+                    val activationKey = event.key == Key.DirectionCenter ||
+                        event.key == Key.Enter ||
+                        event.key == Key.NumPadEnter ||
+                        nativeKeyCode == AndroidKeyEvent.KEYCODE_BUTTON_SELECT ||
+                        nativeKeyCode == AndroidKeyEvent.KEYCODE_BUTTON_A
+                    if (!activationKey) return@onPreviewKeyEvent false
+                    when (event.type) {
+                        KeyEventType.KeyDown -> {
+                            if (tvLongPressConsumed) {
+                                true
+                            } else {
+                                val existingJob = tvLongPressJob
+                                if (existingJob == null || !existingJob.isActive) {
+                                    tvLongPressJob = tvLongPressScope.launch {
+                                        delay(550L)
+                                        showEvidenceActions = true
+                                        tvLongPressConsumed = true
+                                    }
+                                    false
+                                } else {
+                                    false
+                                }
+                            }
                         }
-                    },
-                    onLongPress = { showEvidenceActions = true }
+                        KeyEventType.KeyUp -> {
+                            val consumed = tvLongPressConsumed
+                            tvLongPressJob?.cancel()
+                            tvLongPressJob = null
+                            tvLongPressConsumed = false
+                            consumed
+                        }
+                        else -> false
+                    }
+                }
+                .pointerInput(key, value) {
+                    detectTapGestures(
+                        onPress = {
+                            pressed = true
+                            try {
+                                tryAwaitRelease()
+                            } finally {
+                                pressed = false
+                            }
+                        },
+                        onLongPress = { showEvidenceActions = true }
+                    )
+                }
+                .pointerInput(key, value, suppressDesktopQuickMenu) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Main)
+                            if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
+                                if (!suppressDesktopQuickMenu) showQuickMenu = true
+                                event.changes.forEach { change -> if (!change.isConsumed) change.consume() }
+                            }
+                        }
+                    }
+                }
+                .semantics {
+                    customActions = listOf(CustomAccessibilityAction("Evidence actions") { showEvidenceActions = true; true })
+                }
+        ) {
+            ExpressiveEvidenceRow(key, value)
+        }
+        if (!suppressDesktopQuickMenu) {
+            DropdownMenu(expanded = showQuickMenu, onDismissRequest = { showQuickMenu = false }) {
+                DropdownMenuItem(
+                    text = { Text("Copy name + value") },
+                    onClick = {
+                        showQuickMenu = false
+                        runCatching { copyEvidenceText(context, "VulkanScope evidence", "$key = $value") }
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Share evidence") },
+                    onClick = {
+                        showQuickMenu = false
+                        shareEvidenceText(context, "$key = $value")
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Add to watched evidence") },
+                    enabled = referenceToken.isNotBlank() && environment?.addWatch != null,
+                    onClick = {
+                        showQuickMenu = false
+                        environment?.addWatch?.invoke(referenceToken)
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Open in Encyclopedia") },
+                    enabled = referenceToken.isNotBlank() && environment?.openEncyclopedia != null,
+                    onClick = {
+                        showQuickMenu = false
+                        environment?.openEncyclopedia?.invoke(referenceToken)
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("More details") },
+                    onClick = {
+                        showQuickMenu = false
+                        showEvidenceActions = true
+                    }
                 )
             }
-            .semantics {
-                customActions = listOf(CustomAccessibilityAction("Evidence actions") { showEvidenceActions = true; true })
-            }
-    ) {
-        ExpressiveEvidenceRow(key, value)
+        }
     }
     if (showEvidenceActions) EvidenceInspectorDialog(key, value, onDismiss = { showEvidenceActions = false })
 }

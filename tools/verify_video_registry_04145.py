@@ -9,22 +9,22 @@ def need(cond,msg):
     if not cond: errors.append(msg)
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
-gradle=root/'app/build.gradle.kts'; source=root/'app/src/main/cpp/vulkanscope.cpp'; header=root/'app/src/main/cpp/video_registry_generated.h'; lockp=root/'registry/video_registry_lock.json'; videop=root/'registry/upstream/video.xml'; vkp=root/'registry/upstream/vk.xml'; gen=root/'tools/generate_video_registry.py'
-for p in [gradle,source,header,lockp,videop,vkp,gen]: need(p.is_file(),f'missing {p.relative_to(root) if p.is_relative_to(root) else p}')
-if not all(p.is_file() for p in [gradle,source,header,lockp,videop,vkp,gen]):
+gradle=root/'app/build.gradle.kts'; source=root/'app/src/main/cpp/vulkanscope.cpp'; header=root/'app/src/main/cpp/video_registry_generated.h'; lockp=root/'registry/video_registry_lock.json'; registry_lockp=root/'registry/registry_lock.json'; videop=root/'registry/upstream/video.xml'; vkp=root/'registry/upstream/vk.xml'; gen=root/'tools/generate_video_registry.py'
+for p in [gradle,source,header,lockp,registry_lockp,videop,vkp,gen]: need(p.is_file(),f'missing {p.relative_to(root) if p.is_relative_to(root) else p}')
+if not all(p.is_file() for p in [gradle,source,header,lockp,registry_lockp,videop,vkp,gen]):
     for e in errors: print('FAIL:',e)
     raise SystemExit(1)
-g=gradle.read_text(encoding='utf-8'); cpp=source.read_text(encoding='utf-8'); h=header.read_text(encoding='utf-8'); lock=json.loads(lockp.read_text(encoding='utf-8'))
+g=gradle.read_text(encoding='utf-8'); cpp=source.read_text(encoding='utf-8'); h=header.read_text(encoding='utf-8'); lock=json.loads(lockp.read_text(encoding='utf-8')); registry_lock=json.loads(registry_lockp.read_text(encoding='utf-8'))
 vm=__import__('re').search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"',g); vcod=__import__('re').search(r'versionCode\s*=\s*(\d+)',g)
 need(bool(vm and vcod and (tuple(map(int, vm.groups())) >= (0, 80, 0) or tuple(map(int, vm.groups())) >= (0, 41, 45)) and int(vcod.group(1)) >= 455),'0.41.45+ compatible version metadata missing')
 need(lock.get('schemaVersion')==1,'video registry lock schema mismatch')
 need(lock.get('sourceRepository')=='KhronosGroup/Vulkan-Docs','video registry source repository mismatch')
 need(lock.get('sourcePath')=='xml/video.xml','video registry source path mismatch')
 need(lock.get('sourceRef')=='content-sha256:d018b914014c06605e367a3b929670511e6f6de2f225c405a8b5e2d912408b76','video registry source ref is not an exact content pin')
-need(lock.get('vulkanBaseline')=='Vulkan 1.4.362','video registry Vulkan baseline mismatch')
+need(lock.get('vulkanBaseline')==registry_lock.get('apiBaseline'),'video registry Vulkan baseline mismatch')
 need(lock.get('sha256')==sha(videop),'bundled video.xml SHA does not match lock')
 need(lock.get('vulkanRegistrySha256')==sha(vkp),'bundled vk.xml SHA does not match video lock')
-need(lock.get('vulkanRegistrySha256')=='cf31c965cf6e788697139601da0c7e02a75a9b6c7ac764e7641f5521ffd9da06','video lock drifted from canonical Vulkan 1.4.362 registry')
+need(lock.get('vulkanRegistrySha256')==registry_lock.get('registrySha256'),'video lock drifted from canonical locked Vulkan registry')
 need('This file, video.xml, provides the machine readable definition of data' in videop.read_text(encoding='utf-8'),'bundled video.xml is not recognizable Khronos video registry data')
 
 video_root=ET.parse(videop).getroot(); vk_root=ET.parse(vkp).getroot()
