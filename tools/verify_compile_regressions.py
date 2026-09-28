@@ -40,6 +40,20 @@ extension_group_match = re.search(r'std::string collectVulkanExtensionGroup\(.*?
 if extension_group_match and re.search(r'auto\s+hasExt\s*=\s*\[&\]', extension_group_match.group(0)):
     errors.append('dead hasExt lambda remains in extension-group collector and fails -Werror')
 
+
+wrong_remember_graphics_layer_import = 'import androidx.compose.ui.graphics.layer.rememberGraphicsLayer'
+wrong_draw_layer_import = 'import androidx.compose.ui.graphics.drawscope.drawLayer'
+correct_remember_graphics_layer_import = 'import androidx.compose.ui.graphics.rememberGraphicsLayer'
+correct_draw_layer_import = 'import androidx.compose.ui.graphics.layer.drawLayer'
+if wrong_remember_graphics_layer_import in kt:
+    errors.append('compile-breaking rememberGraphicsLayer package import remains')
+if wrong_draw_layer_import in kt:
+    errors.append('compile-breaking drawLayer package import remains')
+if 'rememberGraphicsLayer()' in kt and correct_remember_graphics_layer_import not in kt:
+    errors.append('rememberGraphicsLayer usage requires androidx.compose.ui.graphics import')
+if 'drawLayer(' in kt and correct_draw_layer_import not in kt:
+    errors.append('drawLayer usage requires androidx.compose.ui.graphics.layer import')
+
 bad_kv = 'kv("Device layer enumeration"'
 if bad_kv in kt:
     errors.append('unresolved Kotlin kv helper call remains in HTML export')
@@ -47,6 +61,16 @@ expected_table = 'table("Device layer enumeration", "<th>Property</th><th>Value<
 if expected_table not in kt:
     errors.append('Device layer enumeration HTML export is not routed through the existing table helper')
 
+
+sticky_reporter_match = re.search(r'val stickyPagerStateReporter = remember\(pinnedPagerHeights\) \{\s*\{ key: String, pinned: Boolean, heightPx: Int ->(.*?)\n\s*\}\n\s*\}', kt, re.S)
+if not sticky_reporter_match:
+    errors.append('sticky pager state reporter callback could not be isolated')
+else:
+    reporter_body = sticky_reporter_match.group(1)
+    if 'if (pinned && heightPx > 0) pinnedPagerHeights[key] = heightPx else pinnedPagerHeights.remove(key)' not in reporter_body:
+        errors.append('sticky pager state reporter keyed insert/remove contract missing')
+    if not re.search(r'\n\s*Unit\s*$', reporter_body):
+        errors.append('sticky pager state reporter must terminate explicitly with Unit to satisfy its callback type')
 
 if 'ExpressiveFilterBar(devices.mapIndexed { index, device -> "GPU ${index + 1} · ${device.name.ifBlank { "Unknown" }.take(48)}" }, selectedIndex, onSelected)' in kt:
     errors.append('compile-breaking positional PhysicalDeviceSelector callback remains after arrowTint parameter insertion')
@@ -66,4 +90,4 @@ if errors:
     for error in errors:
         print('FAIL:', error)
     raise SystemExit(1)
-print('PASS compile regressions: native undeclared/dead-symbol guards and Kotlin HTML helper resolution')
+print('PASS compile regressions: native/Kotlin symbol guards, GraphicsLayer imports and HTML helper resolution')

@@ -1,7 +1,11 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package com.efishell.vulkanscope
 
 import android.app.ActivityManager
 import android.graphics.Color
+import android.graphics.RenderEffect as AndroidRenderEffect
+import android.graphics.Shader
 import android.os.Bundle
 import android.content.res.Configuration
 import android.os.Build
@@ -46,6 +50,7 @@ import okhttp3.ResponseBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
@@ -55,11 +60,14 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -80,7 +88,9 @@ import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -103,6 +113,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -123,6 +134,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.AssistChip
@@ -169,10 +181,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -180,8 +196,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -204,7 +228,9 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -226,6 +252,7 @@ import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -271,18 +298,56 @@ private val VulkanTextSecondary = ComposeColor(0xFFB6ACAE)
 private val VulkanTextMuted = ComposeColor(0xFF968D8F)
 private val VulkanOutline = ComposeColor(0xFF494244)
 private val VulkanOutlineVariant = ComposeColor(0xFF2A2527)
+private val VulkanGlassTint = ComposeColor(0xA823171D)
+private val VulkanGlassBorder = ComposeColor(0x3D6A565D)
+private val VulkanPagerSurface = ComposeColor(0xFF1B1719)
 private val PrimaryNavigationMaxWidth = 310.dp
 private val PrimaryNavigationHeight = 54.dp
 private val PrimaryNavigationIndicatorHeight = 42.dp
 private val PrimaryNavigationIndicatorHorizontalInset = 8.dp
 private val PrimaryNavigationBottomGap = 4.dp
 private val PrimaryNavigationContentGap = 10.dp
+private val PageChromeSeparation = 12.dp
+private val OverlayCoordinationLead = 96.dp
+private const val OverlayCoordinationMotionMillis = 120
 private val LocalDetailKeyValuePresentation = staticCompositionLocalOf { false }
 private data class EvidenceActionEnvironment(val openEncyclopedia: (String) -> Unit, val addWatch: (String) -> Unit)
 private val LocalEvidenceActionEnvironment = staticCompositionLocalOf<EvidenceActionEnvironment?> { null }
 private typealias SharedStorageAccessRequest = ((() -> Unit), (() -> Unit)) -> Unit
 private val LocalSharedStorageAccessRequest = staticCompositionLocalOf<SharedStorageAccessRequest> { { granted, _ -> granted() } }
 private val LocalTransientOverlayContentInset = staticCompositionLocalOf { 0.dp }
+private val LocalPinnedPagerContentInset = staticCompositionLocalOf { 0.dp }
+private typealias StickyPagerStateReporter = (String, Boolean, Int) -> Unit
+private val LocalStickyPagerStateReporter = staticCompositionLocalOf<StickyPagerStateReporter> { { _, _, _ -> } }
+private data class CollectionPagerRegistration(
+    val key: String,
+    val itemIndex: Int,
+    val heightPx: Int,
+    val layoutItemCount: Int,
+    val totalItems: Int,
+    val currentPage: Int,
+    val pageSize: Int,
+    val onPageChange: (Int) -> Unit,
+    val onMeasuredHeight: (Int) -> Unit
+)
+private data class CollectionPagerVisualState(
+    val registration: CollectionPagerRegistration,
+    val progress: Float,
+    val overlayOffsetPx: Float,
+    val laneExtentPx: Int,
+    val glassHeightPx: Int
+)
+private data class ChromeBackdropSource(val layer: GraphicsLayer, val rootOffset: Offset)
+private typealias ChromeBackdropReporter = (GraphicsLayer, Offset?) -> Unit
+private val LocalChromeBackdropReporter = staticCompositionLocalOf<ChromeBackdropReporter> { { _, _ -> } }
+private typealias CollectionPagerRegistrationReporter = (String, CollectionPagerRegistration?) -> Unit
+private val LocalCollectionPagerRegistrationReporter = staticCompositionLocalOf<CollectionPagerRegistrationReporter> { { _, _ -> } }
+private typealias CollectionPagerMeasuredHeightLookup = (String) -> Int
+private typealias CollectionPagerMeasuredHeightReporter = (String, Int) -> Unit
+private val LocalCollectionPagerMeasuredHeightLookup = staticCompositionLocalOf<CollectionPagerMeasuredHeightLookup> { { _ -> 0 } }
+private val LocalCollectionPagerMeasuredHeightReporter = staticCompositionLocalOf<CollectionPagerMeasuredHeightReporter> { { _, _ -> } }
+private val LocalAppHeaderContentInset = staticCompositionLocalOf { 0.dp }
+private val LocalPrimaryLazyListState = staticCompositionLocalOf<LazyListState?> { null }
 private val LocalBottomNavigationContentInset = staticCompositionLocalOf { PrimaryNavigationBottomGap + PrimaryNavigationHeight + PrimaryNavigationContentGap }
 private val VulkanExpressiveShapes = Shapes(
     extraSmall = RoundedCornerShape(12.dp),
@@ -318,8 +383,10 @@ private val VulkanTypography = Typography(
 private fun elapsedMillis(startNanos: Long): Long = ((System.nanoTime() - startNanos) / 1_000_000L).coerceAtLeast(0L)
 
 private val VULKAN_TRADEMARK_DISPLAY_REGEX = Regex("""\bVulkan(?!Scope|®)""")
+private val SPIRV_TRADEMARK_DISPLAY_REGEX = Regex("""\bSPIR-V(?!™)""")
 
 private fun trademarkVulkanDisplayText(text: String): String = VULKAN_TRADEMARK_DISPLAY_REGEX.replace(text, "Vulkan®")
+private fun trademarkSpirvDisplayText(text: String): String = SPIRV_TRADEMARK_DISPLAY_REGEX.replace(text, "SPIR-V™")
 
 private data class DisplayReport(
     val resolution: String,
@@ -647,7 +714,8 @@ private data class AppUpdate(
     val installedAbi: String,
     val downloadAbi: String,
     val installedVersion: String,
-    val installedVersionCode: Long
+    val installedVersionCode: Long,
+    val assetSizeBytes: Long?
 )
 private const val OFFICIAL_DATABASE_API_ENDPOINT = "https://vulkanscope-database-api.vulkanscope.workers.dev"
 private const val OFFICIAL_DATABASE_WEB_URL = "https://efishell0.github.io/VulkanScope_database/"
@@ -655,6 +723,7 @@ private const val BACKGROUND_COLLECTION_BUDGET_MS = 60_000L
 private const val BACKGROUND_PROBE_LANES = 6
 private const val TURNIP_ARCHIVE_INPUT_MAX_BYTES = 96L * 1024L * 1024L
 private const val CHROMEOS_ARC_FEATURE = "org.chromium.arc"
+private const val COLLECTION_PAGE_SIZE = 25
 
 private fun isChromeOsRuntime(context: Context): Boolean = runCatching {
     context.packageManager.hasSystemFeature(CHROMEOS_ARC_FEATURE)
@@ -843,7 +912,38 @@ private data class ManagedTurnipDriver(
     val info: TurnipBundleInfo
 )
 
-private enum class TurnipFileManagerViewMode { LIST, COMPACT, GRID, DETAILS }
+private enum class FileManagerViewMode { LIST, COMPACT, DETAILS, GRID, DENSE_GRID, LARGE_GRID }
+
+private enum class FileManagerSortMode { NAME_ASC, NAME_DESC, MODIFIED_NEWEST, MODIFIED_OLDEST, CREATED_NEWEST, CREATED_OLDEST }
+
+private fun fileManagerCreationMillis(file: File): Long = runCatching {
+    java.nio.file.Files.readAttributes(
+        file.toPath(),
+        java.nio.file.attribute.BasicFileAttributes::class.java,
+        java.nio.file.LinkOption.NOFOLLOW_LINKS
+    ).creationTime().toMillis().coerceAtLeast(0L)
+}.getOrDefault(file.lastModified().coerceAtLeast(0L))
+
+private fun sortFileManagerChildren(children: MutableList<File>, mode: FileManagerSortMode) {
+    val locale = java.util.Locale.ROOT
+    when (mode) {
+        FileManagerSortMode.NAME_ASC -> children.sortBy { it.name.lowercase(locale) }
+        FileManagerSortMode.NAME_DESC -> children.sortByDescending { it.name.lowercase(locale) }
+        FileManagerSortMode.MODIFIED_NEWEST -> children.sortWith(compareByDescending<File> { it.lastModified() }.thenBy { it.name.lowercase(locale) })
+        FileManagerSortMode.MODIFIED_OLDEST -> children.sortWith(compareBy<File> { it.lastModified() }.thenBy { it.name.lowercase(locale) })
+        FileManagerSortMode.CREATED_NEWEST -> children.sortWith(compareByDescending<File> { fileManagerCreationMillis(it) }.thenBy { it.name.lowercase(locale) })
+        FileManagerSortMode.CREATED_OLDEST -> children.sortWith(compareBy<File> { fileManagerCreationMillis(it) }.thenBy { it.name.lowercase(locale) })
+    }
+}
+
+private fun fileManagerSortLabel(mode: FileManagerSortMode): String = when (mode) {
+    FileManagerSortMode.NAME_ASC -> "A–Z"
+    FileManagerSortMode.NAME_DESC -> "Z–A"
+    FileManagerSortMode.MODIFIED_NEWEST -> "Modified · newest first"
+    FileManagerSortMode.MODIFIED_OLDEST -> "Modified · oldest first"
+    FileManagerSortMode.CREATED_NEWEST -> "Created · newest first"
+    FileManagerSortMode.CREATED_OLDEST -> "Created · oldest first"
+}
 
 private fun turnipImportedSourceKey(path: String, name: String): String = path.trim() + "\u0000" + name.trim()
 
@@ -891,7 +991,8 @@ private data class TurnipFileManagerState(
     val loading: Boolean = false,
     val importing: Boolean = false,
     val status: String? = null,
-    val viewMode: TurnipFileManagerViewMode = TurnipFileManagerViewMode.LIST,
+    val viewMode: FileManagerViewMode = FileManagerViewMode.LIST,
+    val sortMode: FileManagerSortMode = FileManagerSortMode.NAME_ASC,
     val details: TurnipArchiveCandidate? = null
 )
 
@@ -980,7 +1081,7 @@ private suspend fun inspectTurnipArchive(file: File): TurnipArchiveCandidate? {
     }
 }
 
-private suspend fun scanTurnipFileManagerDirectory(root: File, directory: File): TurnipDirectoryListing {
+private suspend fun scanTurnipFileManagerDirectory(root: File, directory: File, sortMode: FileManagerSortMode): TurnipDirectoryListing {
     val coroutineContext = currentCoroutineContext()
     coroutineContext.ensureActive()
     val canonicalRoot = root.canonicalFile
@@ -1001,7 +1102,7 @@ private suspend fun scanTurnipFileManagerDirectory(root: File, directory: File):
             children += iterator.next().toFile()
         }
     }
-    children.sortBy { it.name.lowercase(java.util.Locale.ROOT) }
+    sortFileManagerChildren(children, sortMode)
     val folders = children.asSequence().mapNotNull { child ->
         coroutineContext.ensureActive()
         runCatching {
@@ -1025,7 +1126,6 @@ private suspend fun scanTurnipFileManagerDirectory(root: File, directory: File):
         inspectedZipCount += 1
         inspectTurnipArchive(child)?.let(candidates::add)
     }
-    candidates.sortBy { it.name.lowercase(java.util.Locale.ROOT) }
     return TurnipDirectoryListing(folders, candidates, entryLimitReached, zipLimitReached)
 }
 
@@ -1044,7 +1144,8 @@ private data class SharedStorageFileEntry(
     val path: String,
     val name: String,
     val sizeBytes: Long,
-    val modifiedAtMillis: Long
+    val modifiedAtMillis: Long,
+    val createdAtMillis: Long
 )
 
 private data class SharedStorageDirectoryListing(
@@ -1066,7 +1167,8 @@ private suspend fun scanSharedStorageDirectory(
     root: File,
     directory: File,
     allowedExtensions: Set<String>,
-    includeFiles: Boolean
+    includeFiles: Boolean,
+    sortMode: FileManagerSortMode
 ): SharedStorageDirectoryListing {
     val coroutineContext = currentCoroutineContext()
     coroutineContext.ensureActive()
@@ -1088,7 +1190,7 @@ private suspend fun scanSharedStorageDirectory(
             children += iterator.next().toFile()
         }
     }
-    children.sortBy { it.name.lowercase(java.util.Locale.ROOT) }
+    sortFileManagerChildren(children, sortMode)
     val folders = ArrayList<String>()
     val files = ArrayList<SharedStorageFileEntry>()
     for (child in children) {
@@ -1107,7 +1209,8 @@ private suspend fun scanSharedStorageDirectory(
                 path = canonical.path,
                 name = canonical.name.take(512),
                 sizeBytes = canonical.length().coerceAtLeast(0L),
-                modifiedAtMillis = canonical.lastModified().coerceAtLeast(0L)
+                modifiedAtMillis = canonical.lastModified().coerceAtLeast(0L),
+                createdAtMillis = fileManagerCreationMillis(canonical)
             )
         }
     }
@@ -1755,6 +1858,7 @@ class MainActivity : ComponentActivity() {
         startupTimingColdLaunch = savedInstanceState == null
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         splashScreen.setOnExitAnimationListener { provider ->
             provider.view.animate()
                 .alpha(0f)
@@ -1767,7 +1871,7 @@ class MainActivity : ComponentActivity() {
                 }
                 .start()
         }
-        window.navigationBarColor = android.graphics.Color.rgb(17, 17, 17)
+        window.navigationBarColor = Color.TRANSPARENT
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
         }
@@ -1779,9 +1883,10 @@ class MainActivity : ComponentActivity() {
         if (runCatching { migrateLegacyTurnipBundleIfNeeded(filesDir, prefs) }.getOrDefault(false)) turnipManagerRevision += 1
         driverMode = DriverMode.values().find { it.name == prefs.getString("driver_mode", DriverMode.SYSTEM.name) } ?: DriverMode.SYSTEM
         if (!isTurnipPlatformEligible()) turnipSupport = TurnipSupport.UNSUPPORTED
+        val suppressDesktopSecondaryInput = isChromeOsRuntime(this) || isAndroidPcFormFactor(this)
         setContent {
             CompositionLocalProvider(LocalSharedStorageAccessRequest provides { granted, denied -> requestSharedStorageAccess(granted, denied) }) {
-            Box(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxSize().consumeDesktopSecondaryMouseInput(suppressDesktopSecondaryInput)) {
             if (startupGateOpen || !openingAnimationEnabled) {
             VulkanScopeApp(
                 displayReport = displayReportState ?: DisplayReport("Unknown", "Unknown", null, "Unknown", emptyList(), "Unknown", "Unknown", "Unknown", emptyList(), "unknown"),
@@ -1880,7 +1985,14 @@ class MainActivity : ComponentActivity() {
                     onNavigate = { path -> loadTurnipFileManagerDirectory(path) },
                     onUp = { navigateTurnipFileManagerUp() },
                     onToggleSelection = { path -> toggleTurnipFileManagerSelection(path) },
-                    onViewMode = { mode -> turnipFileManagerState = turnipFileManagerState.copy(viewMode = mode) },
+                    onViewMode = { mode ->
+                        prefs.edit().putString("turnip_file_manager_view_mode", mode.name).apply()
+                        turnipFileManagerState = turnipFileManagerState.copy(viewMode = mode)
+                    },
+                    onSortMode = { mode ->
+                        prefs.edit().putString("turnip_file_manager_sort_mode", mode.name).apply()
+                        loadTurnipFileManagerDirectory(turnipFileManagerState.directoryPath, mode)
+                    },
                     onDetails = { candidate -> turnipFileManagerState = turnipFileManagerState.copy(details = candidate) },
                     onDismissDetails = { turnipFileManagerState = turnipFileManagerState.copy(details = null) },
                     onImport = { importSelectedTurnipFiles() }
@@ -2017,11 +2129,19 @@ class MainActivity : ComponentActivity() {
         turnipFileManagerScanGeneration += 1L
         val generation = turnipFileManagerScanGeneration
         val requestedRoot = android.os.Environment.getExternalStorageDirectory()
+        val preferredViewMode = runCatching {
+            FileManagerViewMode.valueOf(prefs.getString("turnip_file_manager_view_mode", FileManagerViewMode.LIST.name) ?: FileManagerViewMode.LIST.name)
+        }.getOrDefault(FileManagerViewMode.LIST)
+        val preferredSortMode = runCatching {
+            FileManagerSortMode.valueOf(prefs.getString("turnip_file_manager_sort_mode", FileManagerSortMode.NAME_ASC.name) ?: FileManagerSortMode.NAME_ASC.name)
+        }.getOrDefault(FileManagerSortMode.NAME_ASC)
         turnipFileManagerState = TurnipFileManagerState(
             visible = true,
             rootPath = requestedRoot.absolutePath,
             directoryPath = requestedRoot.absolutePath,
-            loading = true
+            loading = true,
+            viewMode = preferredViewMode,
+            sortMode = preferredSortMode
         )
         turnipFileManagerScanJob = activityScope.launch {
             try {
@@ -2036,7 +2156,7 @@ class MainActivity : ComponentActivity() {
                         val name = driver.info.zipName?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
                         turnipImportedSourceKey(location, name)
                     }.toSet()
-                    val listing = if (remaining > 0) scanTurnipFileManagerDirectory(root, root) else TurnipDirectoryListing(emptyList(), emptyList(), false, false)
+                    val listing = if (remaining > 0) scanTurnipFileManagerDirectory(root, root, preferredSortMode) else TurnipDirectoryListing(emptyList(), emptyList(), false, false)
                     TurnipFileManagerSetup(root, remaining, listing, importedSourceKeys)
                 }
                 if (generation != turnipFileManagerScanGeneration) return@launch
@@ -2072,7 +2192,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun loadTurnipFileManagerDirectory(path: String) {
+    private fun loadTurnipFileManagerDirectory(path: String, sortOverride: FileManagerSortMode? = null) {
         val current = turnipFileManagerState
         if (!current.visible || current.loading || current.importing || !android.os.Environment.isExternalStorageManager()) return
         turnipFileManagerScanJob?.cancel()
@@ -2080,10 +2200,11 @@ class MainActivity : ComponentActivity() {
         val generation = turnipFileManagerScanGeneration
         val root = File(current.rootPath)
         val target = File(path)
-        turnipFileManagerState = current.copy(directoryPath = path, folders = emptyList(), candidates = emptyList(), loading = true, status = null, details = null)
+        val requestedSort = sortOverride ?: current.sortMode
+        turnipFileManagerState = current.copy(directoryPath = path, folders = emptyList(), candidates = emptyList(), loading = true, status = null, details = null, sortMode = requestedSort)
         turnipFileManagerScanJob = activityScope.launch {
             try {
-                val listing = withContext(Dispatchers.IO) { scanTurnipFileManagerDirectory(root, target) }
+                val listing = withContext(Dispatchers.IO) { scanTurnipFileManagerDirectory(root, target, requestedSort) }
                 if (generation != turnipFileManagerScanGeneration) return@launch
                 val latest = turnipFileManagerState
                 if (!latest.visible || latest.importing) return@launch
@@ -2814,7 +2935,8 @@ class MainActivity : ComponentActivity() {
                 installedAbi = abi,
                 downloadAbi = if (exact != null) abi else "universal",
                 installedVersion = current,
-                installedVersionCode = installedVersionCode()
+                installedVersionCode = installedVersionCode(),
+                assetSizeBytes = selected.optLong("size").takeIf { it > 0L }
             )
             }
         } finally {
@@ -2881,6 +3003,7 @@ class MainActivity : ComponentActivity() {
         updateTransferState = UpdateTransferState(
             update = update,
             phase = UpdateTransferPhase.CONNECTING,
+            totalBytes = update.assetSizeBytes,
             connectionStatus = "Connecting",
             log = listOf("Preparing ${update.assetName}", "Connecting to the official VulkanScope release asset…")
         )
@@ -3058,11 +3181,13 @@ class MainActivity : ComponentActivity() {
                     if (!response.isSuccessful) error("Update download failed (HTTP ${response.code}).")
                     val body = response.body
                     val contentLength = body.contentLength().takeIf { it >= 0L }
-                    if (contentLength != null && contentLength > 256L * 1024L * 1024L) error("Update package exceeds the safety limit.")
+                    val expectedSize = update.assetSizeBytes
+                    val transferTotal = contentLength ?: expectedSize
+                    if (transferTotal != null && transferTotal > 256L * 1024L * 1024L) error("Update package exceeds the safety limit.")
                     publishUpdateTransfer(
                         phase = if (updateDownloadPaused) UpdateTransferPhase.PAUSED else UpdateTransferPhase.DOWNLOADING,
                         bytesDownloaded = 0L,
-                        totalBytes = contentLength,
+                        totalBytes = transferTotal,
                         bytesPerSecond = 0L,
                         connectionStatus = if (updateDownloadPaused) "Paused" else "Connected",
                         logLine = "Connected. HTTP ${response.code}${contentLength?.let { "; ${formatUpdateBytes(it)} expected" } ?: ""}."
@@ -3100,7 +3225,7 @@ class MainActivity : ComponentActivity() {
                                     publishUpdateTransfer(
                                         phase = UpdateTransferPhase.DOWNLOADING,
                                         bytesDownloaded = total,
-                                        totalBytes = contentLength,
+                                        totalBytes = transferTotal,
                                         bytesPerSecond = speed,
                                         connectionStatus = if (connected) "Connected" else "Connection unavailable",
                                         logLine = logLine
@@ -3110,10 +3235,11 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                             output.fd.sync()
+                            if (expectedSize != null && total != expectedSize) error("Downloaded package size does not match the selected GitHub release asset metadata.")
                             publishUpdateTransfer(
                                 phase = UpdateTransferPhase.VERIFYING,
                                 bytesDownloaded = total,
-                                totalBytes = contentLength,
+                                totalBytes = transferTotal,
                                 bytesPerSecond = 0L,
                                 connectionStatus = "Verifying",
                                 logLine = "Download finished. Verifying package identity, signature and version…"
@@ -4690,8 +4816,6 @@ private fun VulkanScopeOpeningAnimation(startAnimation: Boolean, onFinished: () 
     )
     val lineScale by animateFloatAsState(
         targetValue = when {
-            phase >= 4 -> 0.58f
-            phase >= 3 -> 0.88f
             phase >= 2 -> 1f
             phase >= 1 -> 0.34f
             else -> 0f
@@ -4795,7 +4919,7 @@ private fun VulkanScopeOpeningAnimation(startAnimation: Boolean, onFinished: () 
             }
         ) {
             Image(
-                painter = painterResource(R.drawable.vulkanscope_logo_horizontal),
+                painter = painterResource(R.drawable.vulkanscope_logo_horizontal_aligned),
                 contentDescription = "VulkanScope",
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
@@ -4803,50 +4927,25 @@ private fun VulkanScopeOpeningAnimation(startAnimation: Boolean, onFinished: () 
                     .fillMaxWidth(logoWidthFraction)
                     .heightIn(max = if (landscape) 112.dp else 96.dp)
             )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.graphicsLayer { alpha = lineAlpha }
-            ) {
-                Box(
-                    Modifier
-                        .size(4.dp)
-                        .graphicsLayer {
-                            scaleX = 0.72f + accentPulse * 0.34f
-                            scaleY = 0.72f + accentPulse * 0.34f
-                        }
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(VulkanAccentSoft.copy(alpha = 0.78f))
-                )
-                Box(
-                    Modifier
-                        .width(lineWidth)
-                        .height(2.dp)
-                        .graphicsLayer { scaleX = lineScale }
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(
-                            Brush.horizontalGradient(
-                                colors = listOf(
-                                    ComposeColor.Transparent,
-                                    ComposeColor(0xFF7A171B),
-                                    VulkanAccentSoft,
-                                    ComposeColor(0xFF7A171B),
-                                    ComposeColor.Transparent
-                                )
+            Box(
+                Modifier
+                    .width(lineWidth + 20.dp)
+                    .height(2.dp)
+                    .graphicsLayer {
+                        alpha = lineAlpha
+                        scaleX = lineScale
+                    }
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                ComposeColor(0xFF7A171B),
+                                VulkanAccentSoft,
+                                ComposeColor(0xFF7A171B)
                             )
                         )
-                )
-                Box(
-                    Modifier
-                        .size(4.dp)
-                        .graphicsLayer {
-                            scaleX = 0.72f + accentPulse * 0.34f
-                            scaleY = 0.72f + accentPulse * 0.34f
-                        }
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(VulkanAccentSoft.copy(alpha = 0.78f))
-                )
-            }
+                    )
+            )
         }
     }
 }
@@ -4956,20 +5055,58 @@ private fun VulkanScopeApp(
         }
 
         val density = LocalDensity.current
+        val chromeSourceLayer = rememberGraphicsLayer()
+        val chromeBlurredLayer = rememberGraphicsLayer()
+        var pageChromeBackdrop by remember { mutableStateOf<ChromeBackdropSource?>(null) }
+        val chromeBackdropReporter = remember {
+            { layer: GraphicsLayer, rootOffset: Offset? ->
+                if (rootOffset == null) {
+                    if (pageChromeBackdrop?.layer === layer) pageChromeBackdrop = null
+                } else {
+                    pageChromeBackdrop = ChromeBackdropSource(layer, rootOffset)
+                }
+                Unit
+            }
+        }
+        val chromeBlurRadiusPx = with(density) { 24.dp.toPx() }
+        val chromeRenderEffect = remember(chromeBlurRadiusPx) {
+            AndroidRenderEffect.createBlurEffect(chromeBlurRadiusPx, chromeBlurRadiusPx, Shader.TileMode.CLAMP).asComposeRenderEffect()
+        }
+        LaunchedEffect(chromeBlurredLayer, chromeRenderEffect) {
+            chromeBlurredLayer.renderEffect = chromeRenderEffect
+        }
         var transientOverlayHeightPx by remember { mutableIntStateOf(0) }
         var bottomNavigationHeightPx by remember { mutableIntStateOf(0) }
+        val pinnedPagerHeights = remember { mutableStateMapOf<String, Int>() }
         val transientOverlayContentInset = with(density) { transientOverlayHeightPx.toDp() }.let { if (it > 0.dp) it + 8.dp else 0.dp }
+        val pinnedPagerHeightPx = pinnedPagerHeights.values.maxOrNull() ?: 0
+        val pinnedPagerContentInset = with(density) { pinnedPagerHeightPx.toDp() }.let { if (it > 0.dp) it + 4.dp else 0.dp }
+        val coordinatedPinnedPagerInset by animateDpAsState(
+            targetValue = pinnedPagerContentInset,
+            animationSpec = tween(OverlayCoordinationMotionMillis, easing = FastOutSlowInEasing),
+            label = "coordinatedPinnedPagerInset"
+        )
         val bottomNavigationContentInset = with(density) { bottomNavigationHeightPx.toDp() } + PrimaryNavigationContentGap
+        val stickyPagerStateReporter = remember(pinnedPagerHeights) {
+            { key: String, pinned: Boolean, heightPx: Int ->
+                if (pinned && heightPx > 0) pinnedPagerHeights[key] = heightPx else pinnedPagerHeights.remove(key)
+                Unit
+            }
+        }
 
         CompositionLocalProvider(
             LocalValidatedNetwork provides validatedNetworkAvailable,
             LocalTransientOverlayContentInset provides transientOverlayContentInset,
-            LocalBottomNavigationContentInset provides bottomNavigationContentInset
+            LocalPinnedPagerContentInset provides pinnedPagerContentInset,
+            LocalStickyPagerStateReporter provides stickyPagerStateReporter,
+            LocalBottomNavigationContentInset provides bottomNavigationContentInset,
+            LocalChromeBackdropReporter provides chromeBackdropReporter
         ) {
             Scaffold(
                 containerColor = ComposeColor.Black,
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = {
+                    val headerBackdrop = pageChromeBackdrop ?: ChromeBackdropSource(chromeBlurredLayer, Offset.Zero)
                     AppHeader(
                         page,
                         onBack = {
@@ -4979,11 +5116,24 @@ private fun VulkanScopeApp(
                                 else -> page = Page.Overview
                             }
                         },
-                        onSettings = { settingsSection = null; page = Page.Settings }
+                        onSettings = { settingsSection = null; page = Page.Settings },
+                        backdropLayer = headerBackdrop.layer,
+                        backdropRootOffset = headerBackdrop.rootOffset
                     )
                 }
             ) { padding ->
-                Box(Modifier.fillMaxSize().padding(padding)) {
+                val headerContentInset = padding.calculateTopPadding()
+                CompositionLocalProvider(LocalAppHeaderContentInset provides headerContentInset) {
+                    Box(Modifier.fillMaxSize()) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .drawWithContent {
+                                chromeSourceLayer.record { this@drawWithContent.drawContent() }
+                                chromeBlurredLayer.record { drawLayer(chromeSourceLayer) }
+                                drawLayer(chromeSourceLayer)
+                            }
+                    ) {
                     androidx.compose.runtime.key(surfaceHostGeneration) {
                         SurfaceProbe(
                             modifier = Modifier.matchParentSize(),
@@ -5035,6 +5185,7 @@ private fun VulkanScopeApp(
                                                 }
                                             )
                                         ) {
+                                            CompositionLocalProvider(LocalAppHeaderContentInset provides if (current.devices.size > 1) 0.dp else headerContentInset) {
                                             PageContent(
                                                 page = targetPage,
                                                 report = current,
@@ -5081,18 +5232,28 @@ private fun VulkanScopeApp(
                                                 queryTimingMs = queryTimingMs,
                                                 encyclopediaSeed = encyclopediaSeed
                                             )
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
                     }
+                    }
+                    val navigationBackdrop = pageChromeBackdrop ?: ChromeBackdropSource(chromeBlurredLayer, Offset.Zero)
+                    SystemNavigationBackdrop(
+                        backdropLayer = navigationBackdrop.layer,
+                        backdropRootOffset = navigationBackdrop.rootOffset,
+                        modifier = Modifier.matchParentSize().zIndex(6f)
+                    )
                     CompactBottomNavigationBar(
                         selectedPage = selectedNavigationPage(page),
                         onPageSelected = { target ->
                             if (target == Page.Surface) surfaceSection = null
                             page = target
                         },
+                        backdropLayer = navigationBackdrop.layer,
+                        backdropRootOffset = navigationBackdrop.rootOffset,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .onSizeChanged { bottomNavigationHeightPx = it.height }
@@ -5106,8 +5267,11 @@ private fun VulkanScopeApp(
                         onInstallUpdate = onRequestUpdateConfirmation,
                         modifier = Modifier
                             .align(Alignment.TopCenter)
+                            .offset(y = headerContentInset + coordinatedPinnedPagerInset)
+                            .zIndex(11f)
                             .onSizeChanged { transientOverlayHeightPx = it.height }
                     )
+                    }
                 }
             }
         }
@@ -5146,6 +5310,7 @@ private fun VulkanScopeApp(
         }
         pendingDriverModeConfirmation?.let { target ->
             AlertDialog(
+            modifier = Modifier.border(1.dp, VulkanAccentSoft.copy(alpha = 0.46f), MaterialTheme.shapes.extraLarge),
                 onDismissRequest = onDismissDriverModeConfirmation,
                 title = { QuestionDialogTitle(if (target == DriverMode.SYSTEM) "Switch to System Vulkan® driver?" else "Switch to Turnip driver?") },
                 text = {
@@ -5162,6 +5327,7 @@ private fun VulkanScopeApp(
         }
         pendingTurnipActivationSlot?.let { slot ->
             AlertDialog(
+            modifier = Modifier.border(1.dp, VulkanAccentSoft.copy(alpha = 0.46f), MaterialTheme.shapes.extraLarge),
                 onDismissRequest = onDismissTurnipActivation,
                 title = { QuestionDialogTitle("Activate Turnip driver?") },
                 text = { Text("Slot %02d will become VulkanScope's active Turnip driver. The current driver selection will be deactivated and a fresh Vulkan® collection will start after activation.".format(java.util.Locale.ROOT, slot)) },
@@ -5202,9 +5368,31 @@ private fun SurfaceProbe(
 
 @Composable
 private fun PhysicalDeviceSelector(devices: List<DeviceReport>, selectedIndex: Int, onSelected: (Int) -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    val headerContentInset = LocalAppHeaderContentInset.current
+    val pageTopInset = headerContentInset + PageChromeSeparation
+    Column(
+        Modifier.fillMaxWidth().padding(start = 18.dp, top = pageTopInset + 6.dp, end = 18.dp, bottom = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
         Text("Physical device", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
         ExpressiveFilterBar(devices.mapIndexed { index, device -> "GPU ${index + 1} · ${device.name.ifBlank { "Unknown" }.take(48)}" }, selectedIndex, onSelected = onSelected)
+    }
+}
+
+private fun Modifier.consumeDesktopSecondaryMouseInput(enabled: Boolean): Modifier {
+    if (!enabled) return this
+    return pointerInput(enabled) {
+        awaitPointerEventScope {
+            var secondarySequence = false
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                if (event.changes.none { it.type == PointerType.Mouse }) continue
+                if (secondarySequence || event.buttons.isSecondaryPressed) {
+                    event.changes.forEach { change -> if (!change.isConsumed) change.consume() }
+                    secondarySequence = event.buttons.isSecondaryPressed
+                }
+            }
+        }
     }
 }
 
@@ -5296,31 +5484,476 @@ private fun VulkanLazyPage(
     val navigationPadding = WindowInsets.navigationBars.asPaddingValues()
     val layoutDirection = LocalLayoutDirection.current
     val transientOverlayContentInset = LocalTransientOverlayContentInset.current
+    val pinnedPagerContentInset = LocalPinnedPagerContentInset.current
+    val coordinatedTransientOverlayInset by animateDpAsState(
+        targetValue = transientOverlayContentInset,
+        animationSpec = tween(OverlayCoordinationMotionMillis, easing = FastOutSlowInEasing),
+        label = "coordinatedTopOverlayInset"
+    )
+    val headerContentInset = LocalAppHeaderContentInset.current
     val bottomNavigationContentInset = LocalBottomNavigationContentInset.current
     val horizontalNavigationStartInset = navigationPadding.calculateLeftPadding(layoutDirection)
     val horizontalNavigationEndInset = navigationPadding.calculateRightPadding(layoutDirection)
-    Box(modifier.fillMaxSize()) {
-        LazyColumn(
-            state = listState,
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                start = 18.dp + horizontalNavigationStartInset,
-                top = navigationPadding.calculateTopPadding() + transientOverlayContentInset,
-                end = 18.dp + horizontalNavigationEndInset,
-                bottom = bottomNavigationContentInset
-            ),
-            modifier = Modifier.fillMaxSize().desktopVerticalPointerScroll(listState, pointerWheelScalePx).focusGroup(),
-            verticalArrangement = Arrangement.spacedBy(verticalSpacing),
-            userScrollEnabled = true,
-            content = content
-        )
-        ExpressiveScrollHints(
-            listState,
-            Modifier.fillMaxSize().padding(
-                start = 12.dp + horizontalNavigationStartInset,
-                top = transientOverlayContentInset + 10.dp,
-                end = 12.dp + horizontalNavigationEndInset,
-                bottom = bottomNavigationContentInset + 4.dp
+    val density = LocalDensity.current
+    val headerBoundaryPx = with(density) { headerContentInset.roundToPx() }
+    val pageTopContentInset = headerContentInset + PageChromeSeparation
+    val glassPaddingPx = with(density) { 12.dp.roundToPx() }
+    val overlayCoordinationLeadPx = with(density) { OverlayCoordinationLead.roundToPx() }
+    val verticalSpacingPx = with(density) { verticalSpacing.roundToPx() }
+    val pagerRegistrations = remember(listState) { mutableStateMapOf<String, CollectionPagerRegistration>() }
+    val pagerMeasuredHeights = remember(listState) { mutableStateMapOf<String, Int>() }
+    val registrationReporter = remember(pagerRegistrations) {
+        { key: String, registration: CollectionPagerRegistration? ->
+            if (registration == null) pagerRegistrations.remove(key) else pagerRegistrations[key] = registration
+            Unit
+        }
+    }
+    val measuredHeightLookup = remember(pagerMeasuredHeights) {
+        { key: String -> pagerMeasuredHeights[key] ?: 0 }
+    }
+    val measuredHeightReporter = remember(pagerMeasuredHeights) {
+        { key: String, heightPx: Int ->
+            if (heightPx > 0 && pagerMeasuredHeights[key] != heightPx) pagerMeasuredHeights[key] = heightPx
+            Unit
+        }
+    }
+    val activePagerVisual by remember(listState, pagerRegistrations, headerBoundaryPx, glassPaddingPx, overlayCoordinationLeadPx, verticalSpacingPx) {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            val visibleItems = layoutInfo.visibleItemsInfo
+            val firstIndex = listState.firstVisibleItemIndex
+            val firstOffset = listState.firstVisibleItemScrollOffset
+            pagerRegistrations.values
+                .asSequence()
+                .filter { it.itemIndex >= 0 && it.heightPx > 0 && it.layoutItemCount == layoutInfo.totalItemsCount }
+                .mapNotNull { registration ->
+                    val direct = visibleItems.firstOrNull { it.key == registration.key }
+                    val previous = visibleItems.firstOrNull { it.index == registration.itemIndex - 1 }
+                    val next = visibleItems.firstOrNull { it.index == registration.itemIndex + 1 }
+                    val naturalOffset = when {
+                        direct != null -> (direct.offset - layoutInfo.viewportStartOffset).toFloat()
+                        previous != null -> (previous.offset + previous.size + verticalSpacingPx - layoutInfo.viewportStartOffset).toFloat()
+                        next != null -> (next.offset - registration.heightPx - verticalSpacingPx - layoutInfo.viewportStartOffset).toFloat()
+                        else -> null
+                    }
+                    val passedAnchor = naturalOffset == null && (
+                        firstIndex > registration.itemIndex ||
+                            (firstIndex == registration.itemIndex && firstOffset > 0)
+                        )
+                    if (naturalOffset == null && !passedAnchor) {
+                        null
+                    } else {
+                        val resolvedNaturalOffset = naturalOffset ?: headerBoundaryPx.toFloat()
+                        val transitionDistance = (registration.heightPx + glassPaddingPx).coerceAtLeast(1).toFloat()
+                        val progress = if (passedAnchor && naturalOffset == null) {
+                            1f
+                        } else {
+                            ((headerBoundaryPx + transitionDistance - resolvedNaturalOffset) / transitionDistance).coerceIn(0f, 1f)
+                        }
+                        val overlayOffset = resolvedNaturalOffset.coerceAtLeast(headerBoundaryPx.toFloat())
+                        val pagerBottom = overlayOffset + registration.heightPx
+                        val coordinationProgress = if (passedAnchor && naturalOffset == null) {
+                            1f
+                        } else {
+                            ((headerBoundaryPx + transitionDistance + overlayCoordinationLeadPx - resolvedNaturalOffset) / overlayCoordinationLeadPx.coerceAtLeast(1)).coerceIn(0f, 1f)
+                        }
+                        val liveLaneExtent = (pagerBottom + glassPaddingPx - headerBoundaryPx).coerceAtLeast(0f)
+                        val joinStartLaneExtent = ((registration.heightPx + glassPaddingPx) * 2).toFloat()
+                        val laneExtent = when {
+                            progress > 0f -> liveLaneExtent.toInt()
+                            coordinationProgress > 0f -> (joinStartLaneExtent * coordinationProgress).toInt()
+                            else -> 0
+                        }
+                        val glassHeightPx = if (progress > 0f) {
+                            (headerBoundaryPx + transitionDistance * progress).toInt().coerceAtLeast(headerBoundaryPx)
+                        } else {
+                            headerBoundaryPx
+                        }
+                        CollectionPagerVisualState(registration, progress, overlayOffset, laneExtent, glassHeightPx)
+                    }
+                }
+                .maxByOrNull { it.registration.itemIndex }
+        }
+    }
+    val reportStickyPagerState = LocalStickyPagerStateReporter.current
+    val activeReporterKey = activePagerVisual?.registration?.let { "${it.key}@${System.identityHashCode(listState)}" }
+    val activeLaneExtent = activePagerVisual?.laneExtentPx ?: 0
+    SideEffect {
+        val reporterKey = activeReporterKey
+        if (reporterKey != null) reportStickyPagerState(reporterKey, activeLaneExtent > 0, activeLaneExtent)
+    }
+    DisposableEffect(activeReporterKey) {
+        val reporterKey = activeReporterKey
+        onDispose {
+            if (reporterKey != null) reportStickyPagerState(reporterKey, false, 0)
+        }
+    }
+    val sourceLayer = rememberGraphicsLayer()
+    val blurredLayer = rememberGraphicsLayer()
+    val reportChromeBackdrop = LocalChromeBackdropReporter.current
+    var pageRootOffset by remember { mutableStateOf(Offset.Zero) }
+    val blurRadiusPx = with(density) { 24.dp.toPx() }
+    val glassRenderEffect = remember(blurRadiusPx) {
+        AndroidRenderEffect.createBlurEffect(blurRadiusPx, blurRadiusPx, Shader.TileMode.CLAMP).asComposeRenderEffect()
+    }
+    LaunchedEffect(blurredLayer, glassRenderEffect) {
+        blurredLayer.renderEffect = glassRenderEffect
+    }
+    LaunchedEffect(blurredLayer, pageRootOffset) {
+        if (pageRootOffset.y <= 0.5f) reportChromeBackdrop(blurredLayer, pageRootOffset) else reportChromeBackdrop(blurredLayer, null)
+    }
+    DisposableEffect(blurredLayer) {
+        onDispose { reportChromeBackdrop(blurredLayer, null) }
+    }
+    val pagerVisual = activePagerVisual
+    val glassHeight = if (pagerVisual != null && pagerVisual.progress > 0f) with(density) { pagerVisual.glassHeightPx.toDp() } else 0.dp
+    val scrollHintTopInset by animateDpAsState(
+        targetValue = headerContentInset + pinnedPagerContentInset + transientOverlayContentInset + 10.dp,
+        animationSpec = tween(OverlayCoordinationMotionMillis, easing = FastOutSlowInEasing),
+        label = "scrollHintTopInset"
+    )
+    CompositionLocalProvider(
+        LocalPrimaryLazyListState provides listState,
+        LocalCollectionPagerRegistrationReporter provides registrationReporter,
+        LocalCollectionPagerMeasuredHeightLookup provides measuredHeightLookup,
+        LocalCollectionPagerMeasuredHeightReporter provides measuredHeightReporter
+    ) {
+        Box(
+            modifier
+                .fillMaxSize()
+                .onGloballyPositioned { coordinates ->
+                    val offset = coordinates.positionInRoot()
+                    if (offset != pageRootOffset) pageRootOffset = offset
+                }
+        ) {
+            LazyColumn(
+                state = listState,
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    start = 18.dp + horizontalNavigationStartInset,
+                    top = pageTopContentInset + coordinatedTransientOverlayInset,
+                    end = 18.dp + horizontalNavigationEndInset,
+                    bottom = bottomNavigationContentInset
+                ),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .drawWithContent {
+                        sourceLayer.record { this@drawWithContent.drawContent() }
+                        blurredLayer.record { drawLayer(sourceLayer) }
+                        drawLayer(sourceLayer)
+                    }
+                    .desktopVerticalPointerScroll(listState, pointerWheelScalePx)
+                    .focusGroup(),
+                verticalArrangement = Arrangement.spacedBy(verticalSpacing),
+                userScrollEnabled = true,
+                content = content
             )
+            if (glassHeight > 0.dp) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .height(glassHeight)
+                        .clipToBounds()
+                        .drawWithContent {
+                            val glassTop = headerBoundaryPx.toFloat().coerceIn(0f, size.height)
+                            if (glassTop < size.height) {
+                                clipRect(top = glassTop) {
+                                    drawLayer(blurredLayer)
+                                    drawRect(
+                                        color = VulkanGlassTint,
+                                        topLeft = Offset(0f, glassTop),
+                                        size = Size(size.width, size.height - glassTop)
+                                    )
+                                }
+                            }
+                            drawContent()
+                        }
+                        .zIndex(7f)
+                )
+            }
+            if (pagerVisual != null) {
+                val registration = pagerVisual.registration
+                Surface(
+                    color = ComposeColor.Transparent,
+                    contentColor = VulkanTextPrimary,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .padding(start = 18.dp + horizontalNavigationStartInset, end = 18.dp + horizontalNavigationEndInset)
+                        .offset { IntOffset(0, pagerVisual.overlayOffsetPx.toInt()) }
+                        .zIndex(9f)
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .onSizeChanged { size -> if (size.height > 0 && size.height != registration.heightPx) registration.onMeasuredHeight(size.height) }
+                    ) {
+                        CollectionPager(
+                            totalItems = registration.totalItems,
+                            currentPage = registration.currentPage,
+                            onPageChange = { targetPage ->
+                                val current = pagerRegistrations[registration.key] ?: registration
+                                pagerRegistrations[registration.key] = current.copy(currentPage = targetPage)
+                                current.onPageChange(targetPage)
+                            },
+                            pageSize = registration.pageSize
+                        )
+                    }
+                }
+            }
+            ExpressiveScrollHints(
+                listState,
+                Modifier
+                    .fillMaxSize()
+                    .zIndex(10f)
+                    .padding(
+                        start = 12.dp + horizontalNavigationStartInset,
+                        top = scrollHintTopInset,
+                        end = 12.dp + horizontalNavigationEndInset,
+                        bottom = bottomNavigationContentInset + 4.dp
+                    )
+            )
+        }
+    }
+}
+
+@Composable
+private fun SoftScrollIntersectionShadows(
+    showTop: Boolean,
+    showBottom: Boolean,
+    modifier: Modifier = Modifier,
+    edgeColor: ComposeColor = VulkanBlack
+) {
+    Box(modifier) {
+        AnimatedVisibility(
+            visible = showTop,
+            enter = fadeIn(tween(170)),
+            exit = fadeOut(tween(140)),
+            modifier = Modifier.align(Alignment.TopCenter)
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(46.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                edgeColor.copy(alpha = 0.96f),
+                                edgeColor.copy(alpha = 0.72f),
+                                edgeColor.copy(alpha = 0.30f),
+                                ComposeColor.Transparent
+                            )
+                        )
+                    )
+            )
+        }
+        AnimatedVisibility(
+            visible = showBottom,
+            enter = fadeIn(tween(170)),
+            exit = fadeOut(tween(140)),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                ComposeColor.Transparent,
+                                edgeColor.copy(alpha = 0.28f),
+                                edgeColor.copy(alpha = 0.70f),
+                                edgeColor.copy(alpha = 0.96f)
+                            )
+                        )
+                    )
+            )
+        }
+    }
+}
+
+@Composable
+private fun CollectionPager(totalItems: Int, currentPage: Int, onPageChange: (Int) -> Unit, pageSize: Int = COLLECTION_PAGE_SIZE) {
+    val pageCount = maxOf(1, (totalItems + pageSize - 1) / pageSize)
+    if (pageCount <= 1) return
+    val focusManager = LocalFocusManager.current
+    var pageField by remember { mutableStateOf(TextFieldValue((currentPage + 1).toString())) }
+    var pageFieldFocused by remember { mutableStateOf(false) }
+    var suppressFocusCommit by remember { mutableStateOf(false) }
+    fun commitPageSelection() {
+        val requested = pageField.text.toIntOrNull()
+        val resolvedPage = when {
+            requested == null -> currentPage + 1
+            requested < 1 -> 1
+            requested > pageCount -> pageCount
+            else -> requested
+        }
+        pageField = TextFieldValue(resolvedPage.toString())
+        if (resolvedPage - 1 != currentPage) onPageChange(resolvedPage - 1)
+    }
+    fun requestPageChange(targetPage: Int) {
+        val bounded = targetPage.coerceIn(0, pageCount - 1)
+        suppressFocusCommit = true
+        pageField = TextFieldValue((bounded + 1).toString())
+        focusManager.clearFocus(force = true)
+        pageFieldFocused = false
+        suppressFocusCommit = false
+        if (bounded != currentPage) onPageChange(bounded)
+    }
+    LaunchedEffect(currentPage, pageCount, pageFieldFocused) {
+        if (!pageFieldFocused) pageField = TextFieldValue((currentPage + 1).coerceIn(1, pageCount).toString())
+    }
+    Surface(
+        shape = RoundedCornerShape(22.dp),
+        color = VulkanPagerSurface,
+        contentColor = VulkanTextPrimary,
+        border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant.copy(alpha = 0.82f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Box(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                IconButton(
+                    onClick = { if (currentPage > 0) requestPageChange(currentPage - 1) },
+                    enabled = currentPage > 0,
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = VulkanAccentContainer,
+                        contentColor = VulkanTextPrimary,
+                        disabledContainerColor = VulkanSurfaceTonal,
+                        disabledContentColor = VulkanTextMuted
+                    )
+                ) {
+                    Icon(painterResource(R.drawable.ic_chevron_left), contentDescription = "Previous page")
+                }
+                Box(Modifier.width(72.dp), contentAlignment = Alignment.Center) {
+                    OutlinedTextField(
+                        value = pageField,
+                        onValueChange = { value ->
+                            val candidate = value.text
+                            when {
+                                candidate.isEmpty() -> pageField = value
+                                candidate.all { it.isDigit() } && !(candidate.length > 1 && candidate.startsWith('0')) && (candidate.toIntOrNull() ?: 0) in 1..pageCount -> pageField = value
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().onFocusChanged { focus ->
+                            val wasFocused = pageFieldFocused
+                            pageFieldFocused = focus.isFocused
+                            if (focus.isFocused) {
+                                pageField = pageField.copy(selection = TextRange(0, pageField.text.length))
+                            } else if (wasFocused && !suppressFocusCommit) {
+                                if (pageField.text.isBlank()) pageField = TextFieldValue((currentPage + 1).toString())
+                                commitPageSelection()
+                            }
+                        },
+                        singleLine = true,
+                        label = { Text("Page") },
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(textAlign = TextAlign.Center),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = {
+                            commitPageSelection()
+                            focusManager.clearFocus(force = true)
+                        }),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = VulkanAccentSoft,
+                            unfocusedBorderColor = VulkanOutline,
+                            focusedTextColor = VulkanTextPrimary,
+                            unfocusedTextColor = ComposeColor.Transparent,
+                            cursorColor = VulkanAccentSoft
+                        )
+                    )
+                    if (!pageFieldFocused) {
+                        Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
+                            AnimatedContent(
+                                targetState = (currentPage + 1).coerceIn(1, pageCount),
+                                transitionSpec = { fadeIn(tween(150)) togetherWith fadeOut(tween(130)) },
+                                label = "pageNumberTransition"
+                            ) { animatedNumber ->
+                                Text(animatedNumber.toString(), color = VulkanTextPrimary, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, modifier = Modifier.offset(y = 4.dp))
+                            }
+                        }
+                    }
+                }
+                Text("/ $pageCount", color = VulkanTextSecondary, style = MaterialTheme.typography.bodyMedium)
+                IconButton(
+                    onClick = { if (currentPage + 1 < pageCount) requestPageChange(currentPage + 1) },
+                    enabled = currentPage + 1 < pageCount,
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = VulkanAccentContainer,
+                        contentColor = VulkanTextPrimary,
+                        disabledContainerColor = VulkanSurfaceTonal,
+                        disabledContentColor = VulkanTextMuted
+                    )
+                ) {
+                    Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = "Next page")
+                }
+            }
+        }
+    }
+}
+
+
+
+private fun LazyListScope.stickyCollectionPager(
+    totalItems: Int,
+    currentPage: Int,
+    onPageChange: (Int) -> Unit,
+    pageSize: Int = COLLECTION_PAGE_SIZE,
+    pagerKey: String = "collection-pager"
+) {
+    if (totalItems <= pageSize) {
+        item(key = "$pagerKey-cleanup") {
+            val reportRegistration = LocalCollectionPagerRegistrationReporter.current
+            LaunchedEffect(pagerKey) { reportRegistration(pagerKey, null) }
+        }
+        return
+    }
+    item(key = pagerKey) {
+        val listState = LocalPrimaryLazyListState.current
+        val density = LocalDensity.current
+        val reportRegistration = LocalCollectionPagerRegistrationReporter.current
+        val measuredHeightLookup = LocalCollectionPagerMeasuredHeightLookup.current
+        val reportMeasuredHeight = LocalCollectionPagerMeasuredHeightReporter.current
+        val latestOnPageChange = rememberUpdatedState(onPageChange)
+        val initialPagerHeightPx = with(density) { 72.dp.roundToPx() }
+        val storedPagerHeightPx = measuredHeightLookup(pagerKey)
+        val pagerHeightPx = if (storedPagerHeightPx > 0) storedPagerHeightPx else initialPagerHeightPx
+        var pagerIndex by remember(pagerKey) { mutableIntStateOf(-1) }
+        val updateMeasuredHeight = remember(pagerKey, reportMeasuredHeight) {
+            { measuredHeight: Int ->
+                if (measuredHeight > 0) reportMeasuredHeight(pagerKey, measuredHeight)
+                Unit
+            }
+        }
+        val pagerInfo by remember(listState, pagerKey) {
+            derivedStateOf { listState?.layoutInfo?.visibleItemsInfo?.firstOrNull { it.key == pagerKey } }
+        }
+        val layoutItemCount by remember(listState) {
+            derivedStateOf { listState?.layoutInfo?.totalItemsCount ?: 0 }
+        }
+        LaunchedEffect(pagerInfo?.index) {
+            pagerInfo?.let { pagerIndex = it.index }
+        }
+        LaunchedEffect(pagerIndex, pagerHeightPx, layoutItemCount, totalItems, currentPage, pageSize) {
+            if (pagerIndex >= 0 && pagerHeightPx > 0 && layoutItemCount > 0) {
+                reportRegistration(
+                    pagerKey,
+                    CollectionPagerRegistration(
+                        key = pagerKey,
+                        itemIndex = pagerIndex,
+                        heightPx = pagerHeightPx,
+                        layoutItemCount = layoutItemCount,
+                        totalItems = totalItems,
+                        currentPage = currentPage,
+                        pageSize = pageSize,
+                        onPageChange = { targetPage -> latestOnPageChange.value(targetPage) },
+                        onMeasuredHeight = updateMeasuredHeight
+                    )
+                )
+            }
+        }
+        Spacer(
+            Modifier
+                .fillMaxWidth()
+                .height(with(density) { pagerHeightPx.toDp() })
         )
     }
 }
@@ -5381,7 +6014,7 @@ private fun rememberScrollIndicatorVisibility(triggerKey: Any, hasScrollableDire
 
 @Composable
 private fun ScrollBoundaryIndicatorColumn(showUp: Boolean, showDown: Boolean, visible: Boolean, modifier: Modifier = Modifier) {
-    Box(modifier) {
+    Box(modifier.zIndex(10f)) {
         AnimatedVisibility(
             visible = visible && showUp,
             modifier = Modifier.align(Alignment.TopCenter),
@@ -5952,9 +6585,18 @@ private fun encyclopediaSearch(category: String, rawQuery: String): List<Encyclo
 @Composable
 private fun EncyclopediaPage(initialQuery: String = "") {
     var query by rememberSaveable { mutableStateOf(initialQuery) }
-    LaunchedEffect(initialQuery) { if (initialQuery.isNotBlank()) query = initialQuery }
     var category by rememberSaveable { mutableStateOf("All") }
+    var page by rememberSaveable { mutableIntStateOf(0) }
+    LaunchedEffect(initialQuery) {
+        if (initialQuery.isNotBlank()) {
+            query = initialQuery
+            page = 0
+        }
+    }
     val entries = remember(query, category) { encyclopediaSearch(category, query) }
+    val pageCount = maxOf(1, (entries.size + COLLECTION_PAGE_SIZE - 1) / COLLECTION_PAGE_SIZE)
+    LaunchedEffect(entries.size) { if (page >= pageCount) page = pageCount - 1 }
+    val pagedEntries = entries.drop(page * COLLECTION_PAGE_SIZE).take(COLLECTION_PAGE_SIZE)
     VulkanLazyPage(verticalSpacing = 12.dp) {
         item {
             CapabilitySectionCard("Encyclopedia") {
@@ -5967,12 +6609,15 @@ private fun EncyclopediaPage(initialQuery: String = "") {
                 Text("Runtime evidence and registry/reference symbols are separate evidence classes.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
                 ExpressiveSearchField(
                     value = query,
-                    onValueChange = { query = it },
+                    onValueChange = { query = it; page = 0 },
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     placeholderText = "Search VK_SUCCESS, vkCreateInstance, VkFormat, VK_KHR_swapchain…"
                 )
                 val categories = listOf("All", "VkResult", "Commands", "VK_*", "Types", "Extensions")
-                ExpressiveFilterBar(categories, categories.indexOf(category).coerceAtLeast(0)) { category = categories[it] }
+                ExpressiveFilterBar(categories, categories.indexOf(category).coerceAtLeast(0)) {
+                    category = categories[it]
+                    page = 0
+                }
                 Text(
                     when {
                         (category == "Commands" || category == "VK_*" || category == "Types") && query.trim().length < 2 -> "Type at least 2 characters to search this large registry symbol family. Results are capped at $ENCYCLOPEDIA_VISIBLE_RESULT_LIMIT; refine the query for a specific symbol."
@@ -5992,6 +6637,7 @@ private fun EncyclopediaPage(initialQuery: String = "") {
                 )
             }
         }
+        stickyCollectionPager(totalItems = entries.size, currentPage = page, onPageChange = { page = it })
         if (entries.isEmpty()) {
             item {
                 CapabilityItemCard {
@@ -6004,7 +6650,7 @@ private fun EncyclopediaPage(initialQuery: String = "") {
                 }
             }
         } else {
-            items(entries, key = { "${it.category}:${it.title}" }) { entry ->
+            items(pagedEntries, key = { "${it.category}:${it.title}" }) { entry ->
                 CapabilityItemCard {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         Text(trademarkVulkanDisplayText(entry.title), color = VulkanTextPrimary, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
@@ -6088,6 +6734,7 @@ private fun AnalysisPage(report: VulkanReport, device: DeviceReport?, display: D
     }
     analysisModel.state.pendingHistoryDelete?.let { record ->
         AlertDialog(
+            modifier = Modifier.border(1.dp, VulkanAccentSoft.copy(alpha = 0.46f), MaterialTheme.shapes.extraLarge),
             onDismissRequest = { analysisModel.state.pendingHistoryDelete = null },
             title = { QuestionDialogTitle("Delete analysis history snapshot?") },
             text = { Text("This deletes the selected bounded local analysis snapshot from VulkanScope private storage. The action cannot be undone.") },
@@ -6102,6 +6749,7 @@ private fun AnalysisPage(report: VulkanReport, device: DeviceReport?, display: D
     }
     if (analysisModel.state.pendingHistoryDeleteAll) {
         AlertDialog(
+            modifier = Modifier.border(1.dp, VulkanAccentSoft.copy(alpha = 0.46f), MaterialTheme.shapes.extraLarge),
             onDismissRequest = { analysisModel.state.pendingHistoryDeleteAll = false },
             title = { QuestionDialogTitle("Delete all analysis history?") },
             text = { Text("Delete all ${analysisModel.state.history.size} retained local analysis snapshots? This does not change current Vulkan® capability evidence.") },
@@ -6116,6 +6764,7 @@ private fun AnalysisPage(report: VulkanReport, device: DeviceReport?, display: D
     }
     analysisModel.state.pendingWatchDelete?.let { token ->
         AlertDialog(
+            modifier = Modifier.border(1.dp, VulkanAccentSoft.copy(alpha = 0.46f), MaterialTheme.shapes.extraLarge),
             onDismissRequest = { analysisModel.state.pendingWatchDelete = null },
             title = { QuestionDialogTitle("Remove watched evidence?") },
             text = { Text("Remove $token from the local watched-evidence list?") },
@@ -6130,6 +6779,7 @@ private fun AnalysisPage(report: VulkanReport, device: DeviceReport?, display: D
     }
     if (analysisModel.state.pendingWatchDeleteAll) {
         AlertDialog(
+            modifier = Modifier.border(1.dp, VulkanAccentSoft.copy(alpha = 0.46f), MaterialTheme.shapes.extraLarge),
             onDismissRequest = { analysisModel.state.pendingWatchDeleteAll = false },
             title = { QuestionDialogTitle("Delete all watched evidence?") },
             text = { Text("Delete all ${analysisModel.state.watched.size} entries from the local watched-evidence list? This does not change Vulkan® capability evidence.") },
@@ -6407,14 +7057,68 @@ private fun QuickAccessCard(title: String, destination: Page, navigate: (Page) -
 
 
 @Composable
+private fun SystemNavigationBackdrop(
+    backdropLayer: GraphicsLayer,
+    backdropRootOffset: Offset,
+    modifier: Modifier = Modifier
+) {
+    val navigationInsets = WindowInsets.navigationBars.asPaddingValues()
+    val layoutDirection = LocalLayoutDirection.current
+    val bottomInset = navigationInsets.calculateBottomPadding()
+    val leftInset = navigationInsets.calculateLeftPadding(layoutDirection)
+    val rightInset = navigationInsets.calculateRightPadding(layoutDirection)
+    Box(modifier) {
+        if (bottomInset > 0.dp) {
+            var targetRootOffset by remember { mutableStateOf(Offset.Zero) }
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(bottomInset)
+                    .onGloballyPositioned { targetRootOffset = it.positionInRoot() }
+                    .frostedChromeBackdrop(backdropLayer, backdropRootOffset, targetRootOffset)
+            )
+        } else {
+            if (leftInset > 0.dp) {
+                var targetRootOffset by remember { mutableStateOf(Offset.Zero) }
+                Box(
+                    Modifier
+                        .align(if (layoutDirection == LayoutDirection.Ltr) Alignment.CenterStart else Alignment.CenterEnd)
+                        .fillMaxHeight()
+                        .width(leftInset)
+                        .onGloballyPositioned { targetRootOffset = it.positionInRoot() }
+                        .frostedChromeBackdrop(backdropLayer, backdropRootOffset, targetRootOffset)
+                )
+            }
+            if (rightInset > 0.dp) {
+                var targetRootOffset by remember { mutableStateOf(Offset.Zero) }
+                Box(
+                    Modifier
+                        .align(if (layoutDirection == LayoutDirection.Ltr) Alignment.CenterEnd else Alignment.CenterStart)
+                        .fillMaxHeight()
+                        .width(rightInset)
+                        .onGloballyPositioned { targetRootOffset = it.positionInRoot() }
+                        .frostedChromeBackdrop(backdropLayer, backdropRootOffset, targetRootOffset)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun CompactBottomNavigationBar(
     selectedPage: Page,
     onPageSelected: (Page) -> Unit,
+    backdropLayer: GraphicsLayer,
+    backdropRootOffset: Offset,
     modifier: Modifier = Modifier
 ) {
     val items = navigationItems()
     val navigationBarInsets = WindowInsets.navigationBars.asPaddingValues()
+    val layoutDirection = LocalLayoutDirection.current
     val bottomSystemInset = navigationBarInsets.calculateBottomPadding()
+    val startSystemInset = navigationBarInsets.calculateLeftPadding(layoutDirection)
+    val endSystemInset = navigationBarInsets.calculateRightPadding(layoutDirection)
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
     val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val compactMaxWidth = if (landscape) 340.dp else PrimaryNavigationMaxWidth
@@ -6430,24 +7134,33 @@ private fun CompactBottomNavigationBar(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, bottom = PrimaryNavigationBottomGap + bottomSystemInset),
+            .padding(start = 16.dp + startSystemInset, end = 16.dp + endSystemInset, bottom = PrimaryNavigationBottomGap + bottomSystemInset),
         contentAlignment = Alignment.BottomCenter
     ) {
         val targetWidth = maxWidth.coerceAtMost(compactMaxWidth)
+        val navigationShape = RoundedCornerShape(999.dp)
+        var navigationRootOffset by remember { mutableStateOf(Offset.Zero) }
         Surface(
-            color = ComposeColor(0xD61A1A1F),
+            color = ComposeColor.Transparent,
             contentColor = VulkanTextPrimary,
-            shape = RoundedCornerShape(999.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, ComposeColor(0x423A3438)),
+            shape = navigationShape,
+            border = androidx.compose.foundation.BorderStroke(1.dp, VulkanGlassBorder),
             shadowElevation = 10.dp,
             modifier = Modifier
                 .width(targetWidth)
                 .height(compactHeight)
         ) {
-            Row(
-                modifier = Modifier.fillMaxSize(),
-                verticalAlignment = Alignment.CenterVertically
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .clip(navigationShape)
+                    .onGloballyPositioned { navigationRootOffset = it.positionInRoot() }
+                    .frostedChromeBackdrop(backdropLayer, backdropRootOffset, navigationRootOffset)
             ) {
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                 items.forEach { item ->
                     val selected = item.page == selectedPage
                     val interactionSource = remember(item.page) { MutableInteractionSource() }
@@ -6536,6 +7249,7 @@ private fun CompactBottomNavigationBar(
         }
     }
 }
+}
 
 @Composable
 private fun ExploreDestinationTile(page: Page, onNavigate: (Page) -> Unit, modifier: Modifier = Modifier) {
@@ -6584,46 +7298,146 @@ private fun ExploreCard(onNavigate: (Page) -> Unit) {
 }
 
 
+@Composable
+private fun HeaderActionButton(
+    icon: Int,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    size: Dp = 50.dp
+) {
+    val background = if (enabled) ComposeColor(0xFF35191D) else VulkanSurfaceLow
+    val content = if (enabled) VulkanAccentSoft else VulkanTextMuted
+    Surface(
+        shape = CircleShape,
+        color = background,
+        contentColor = content,
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (enabled) VulkanAccentSoft.copy(alpha = 0.34f) else VulkanOutlineVariant),
+        tonalElevation = 2.dp,
+        shadowElevation = 5.dp,
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Icon(painterResource(icon), contentDescription = contentDescription, tint = content, modifier = Modifier.size(if (size < 46.dp) 20.dp else 23.dp))
+        }
+    }
+}
+
+@Composable
+private fun AnimatedHeaderActionButton(
+    visible: Boolean,
+    icon: Int,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    fromEnd: Boolean = false,
+    buttonSize: Dp = 50.dp,
+    slotSize: Dp = 50.dp
+) {
+    Box(modifier.size(slotSize), contentAlignment = Alignment.Center) {
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(tween(190)) + slideInHorizontally(tween(240, easing = FastOutSlowInEasing)) { width -> if (fromEnd) width / 2 else -width / 2 } + scaleIn(animationSpec = tween(190), initialScale = 0.82f),
+            exit = fadeOut(tween(150)) + slideOutHorizontally(tween(210, easing = FastOutSlowInEasing)) { width -> if (fromEnd) width / 2 else -width / 2 } + scaleOut(animationSpec = tween(150), targetScale = 0.82f)
+        ) {
+            HeaderActionButton(icon = icon, contentDescription = contentDescription, onClick = onClick, enabled = enabled, size = buttonSize)
+        }
+    }
+}
+
+@Composable
+private fun HeaderTitleBadge(title: String, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(
+            trademarkVulkanDisplayText(title),
+            style = MaterialTheme.typography.titleSmall,
+            color = ComposeColor(0xFFF5F0F1),
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Box(Modifier.width(28.dp).height(2.dp).clip(RoundedCornerShape(99.dp)).background(VulkanAccentSoft.copy(alpha = 0.88f)))
+    }
+}
+
+private fun Modifier.frostedChromeBackdrop(backdropLayer: GraphicsLayer, backdropRootOffset: Offset, targetRootOffset: Offset): Modifier = drawWithContent {
+    clipRect {
+        withTransform({ translate(backdropRootOffset.x - targetRootOffset.x, backdropRootOffset.y - targetRootOffset.y) }) {
+            drawLayer(backdropLayer)
+        }
+        drawRect(VulkanGlassTint)
+    }
+    drawContent()
+}
+
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AppHeader(page: Page, onBack: () -> Unit, onSettings: () -> Unit) {
-    val expandedTextLayout = preferExpandedTextLayout()
-    TopAppBar(
-        navigationIcon = {
-            if (page != Page.Overview) {
-                ExpressiveIconButton(R.drawable.ic_back, "Back", onBack)
-            }
-        },
-        title = {
-            if (expandedTextLayout) {
-                Text(
-                    "VulkanScope · ${trademarkVulkanDisplayText(page.title)}",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = VulkanTextPrimary,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.semantics { heading() }
+private fun AppHeader(page: Page, onBack: () -> Unit, onSettings: () -> Unit, backdropLayer: GraphicsLayer, backdropRootOffset: Offset) {
+    val showBack = page != Page.Overview
+    val showSettings = page != Page.Settings
+    val navigationPadding = WindowInsets.navigationBars.asPaddingValues()
+    val layoutDirection = LocalLayoutDirection.current
+    val navigationStartInset = navigationPadding.calculateLeftPadding(layoutDirection)
+    val navigationEndInset = navigationPadding.calculateRightPadding(layoutDirection)
+    var headerRootOffset by remember { mutableStateOf(Offset.Zero) }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .onGloballyPositioned { headerRootOffset = it.positionInRoot() }
+            .frostedChromeBackdrop(backdropLayer, backdropRootOffset, headerRootOffset)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(
+                    start = 14.dp + navigationStartInset,
+                    end = 14.dp + navigationEndInset,
+                    top = 8.dp,
+                    bottom = 9.dp
+                ),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            AnimatedHeaderActionButton(
+                visible = showBack,
+                icon = R.drawable.ic_back,
+                contentDescription = "Back",
+                onClick = onBack,
+                buttonSize = 36.dp,
+                slotSize = 50.dp
+            )
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Image(
+                    painter = painterResource(R.drawable.vulkanscope_logo_horizontal_aligned),
+                    contentDescription = "VulkanScope",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.width(126.dp).height(30.dp)
                 )
-            } else {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Image(
-                        painter = painterResource(R.drawable.vulkanscope_logo_horizontal),
-                        contentDescription = "VulkanScope",
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.width(148.dp).height(28.dp)
-                    )
-                    Text(trademarkVulkanDisplayText(page.title), style = MaterialTheme.typography.labelMedium, color = ComposeColor(0xFF9E9E9E), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.semantics { heading() })
-                }
+                Box(Modifier.width(1.dp).height(25.dp).background(ComposeColor.White.copy(alpha = 0.13f)))
+                HeaderTitleBadge(title = page.title, modifier = Modifier.weight(1f))
             }
-        },
-        actions = {
-            if (page != Page.Settings) {
-                ExpressiveIconButton(R.drawable.ic_settings, "Settings", onSettings)
-            }
-        },
-        colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = ComposeColor.Black)
-    )
+            AnimatedHeaderActionButton(
+                visible = showSettings,
+                icon = R.drawable.ic_settings,
+                contentDescription = "Settings",
+                onClick = onSettings,
+                fromEnd = true,
+                buttonSize = 50.dp,
+                slotSize = 50.dp
+            )
+        }
+    }
 }
 
 @Composable
@@ -6750,6 +7564,7 @@ private fun HdrTypeCard(type: String) {
 private fun SurfaceFormatsPage(device: DeviceReport?) {
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf(SupportFilter.ALL) }
+    var page by rememberSaveable { mutableIntStateOf(0) }
     val entries = remember(device) {
         val formats = device?.surfaceFormats ?: emptyList()
         val completeEnumeration = device?.surfaceFormatEnumerationComplete == true && !device.surfaceFormatQuerySpecAnomaly
@@ -6761,6 +7576,11 @@ private fun SurfaceFormatsPage(device: DeviceReport?) {
             statusOk && (query.isBlank() || entry.format.contains(query, true) || entry.colorSpace.contains(query, true) || entry.classification.contains(query, true) || entry.description.contains(query, true))
         }
     }
+    val pageCount = maxOf(1, (filtered.size + COLLECTION_PAGE_SIZE - 1) / COLLECTION_PAGE_SIZE)
+    LaunchedEffect(query, filter) { page = 0 }
+    LaunchedEffect(filtered.size) { page = page.coerceIn(0, pageCount - 1) }
+    val pageStart = page * COLLECTION_PAGE_SIZE
+    val paged = filtered.drop(pageStart).take(COLLECTION_PAGE_SIZE)
     VulkanLazyPage(verticalSpacing = 12.dp) {
         item { CapabilitySectionCard("VkSurfaceKHR") {
             CapabilityKeyValue("Status", device?.surfaceQueryStatus?.replace('_', ' ')?.uppercase() ?: "UNKNOWN")
@@ -6837,7 +7657,8 @@ private fun SurfaceFormatsPage(device: DeviceReport?) {
         item { CapabilitySectionCard("Format + color-space pairs") {
             if (filtered.isEmpty()) Text("No matching entries") else Text("${filtered.size} matching format/color-space pairs", color = VulkanTextMuted, style = MaterialTheme.typography.bodySmall)
         } }
-        items(filtered, key = { "${it.format}|${it.colorSpace}|${it.supported}" }) { format ->
+        stickyCollectionPager(totalItems = filtered.size, currentPage = page, onPageChange = { page = it })
+        items(paged, key = { "${it.format}|${it.colorSpace}|${it.supported}" }) { format ->
             CapabilityItemCard(containerColor = VulkanSurfaceTonal) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(format.format, fontWeight = FontWeight.SemiBold)
@@ -6856,6 +7677,13 @@ private fun SurfaceSectionCards(onSelected: (SurfaceSection) -> Unit) {
     val navigationPadding = WindowInsets.navigationBars.asPaddingValues()
     val layoutDirection = LocalLayoutDirection.current
     val topOverlayInset = LocalTransientOverlayContentInset.current
+    val coordinatedTopOverlayInset by animateDpAsState(
+        targetValue = topOverlayInset,
+        animationSpec = tween(OverlayCoordinationMotionMillis, easing = FastOutSlowInEasing),
+        label = "surfaceTopOverlayInset"
+    )
+    val headerContentInset = LocalAppHeaderContentInset.current
+    val pageTopInset = headerContentInset + PageChromeSeparation
     val bottomNavigationInset = LocalBottomNavigationContentInset.current
     val startInset = navigationPadding.calculateLeftPadding(layoutDirection)
     val endInset = navigationPadding.calculateRightPadding(layoutDirection)
@@ -6870,7 +7698,7 @@ private fun SurfaceSectionCards(onSelected: (SurfaceSection) -> Unit) {
                 .focusGroup()
                 .padding(
                     start = 18.dp + startInset,
-                    top = 8.dp + topOverlayInset,
+                    top = pageTopInset + coordinatedTopOverlayInset,
                     end = 18.dp + endInset,
                     bottom = bottomNavigationInset
                 ),
@@ -6890,7 +7718,7 @@ private fun SurfaceSectionCards(onSelected: (SurfaceSection) -> Unit) {
             scrollState,
             Modifier.fillMaxSize().padding(
                 start = 12.dp + startInset,
-                top = 8.dp + topOverlayInset,
+                top = headerContentInset + 8.dp + coordinatedTopOverlayInset,
                 end = 12.dp + endInset,
                 bottom = bottomNavigationInset + 4.dp
             )
@@ -6998,6 +7826,7 @@ private fun FeaturesPage(device: DeviceReport?) {
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf(SupportFilter.ALL) }
     var sourceFilter by remember { mutableStateOf("All") }
+    var page by rememberSaveable { mutableIntStateOf(0) }
     val all = device?.features ?: emptyList()
     val sources = remember(all) { listOf("All") + all.map { featureSource(it.name) }.distinct() }
     val filtered = remember(all, query, filter, sourceFilter) {
@@ -7012,17 +7841,29 @@ private fun FeaturesPage(device: DeviceReport?) {
             supportMatches && sourceMatches && textMatches
         }
     }
+    val pageCount = maxOf(1, (filtered.size + COLLECTION_PAGE_SIZE - 1) / COLLECTION_PAGE_SIZE)
+    LaunchedEffect(query, filter, sourceFilter) { page = 0 }
+    LaunchedEffect(filtered.size) { page = page.coerceIn(0, pageCount - 1) }
+    val pageStart = page * COLLECTION_PAGE_SIZE
+    val paged = filtered.drop(pageStart).take(COLLECTION_PAGE_SIZE)
     VulkanLazyPage(verticalSpacing = 8.dp) {
         item {
             CapabilitySectionCard("Feature explorer") {
-            Text("Runtime feature support. Core 1.0, promoted core versions and extension-provided feature blocks remain distinguishable.", style = MaterialTheme.typography.bodySmall, color = ComposeColor(0xFFB6ACAE))
-            ExpressiveSearchField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), labelText = "Search features")
-            SupportFilterRow(filter) { filter = it }
-            ExpressiveFilterBar(sources, sources.indexOf(sourceFilter).coerceAtLeast(0), arrowTint = VulkanAccentSoft) { sourceFilter = sources[it] }
-            ExpressiveMetricGrid(listOf("Visible features" to filtered.size.toString()), Modifier.padding(top = 4.dp))
+                Text("Runtime feature support. Core 1.0, promoted core versions and extension-provided feature blocks remain distinguishable.", style = MaterialTheme.typography.bodySmall, color = ComposeColor(0xFFB6ACAE))
+                ExpressiveSearchField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), labelText = "Search features")
+                SupportFilterRow(filter) { filter = it }
+                ExpressiveFilterBar(sources, sources.indexOf(sourceFilter).coerceAtLeast(0), arrowTint = VulkanAccentSoft) { sourceFilter = sources[it] }
+                ExpressiveMetricGrid(
+                    listOf(
+                        "Matching features" to filtered.size.toString(),
+                        "Showing" to if (filtered.isEmpty()) "0" else "${pageStart + 1}-${pageStart + paged.size}"
+                    ),
+                    Modifier.padding(top = 4.dp)
+                )
             }
         }
-        itemsIndexed(filtered, key = { index, feature -> "feature:${feature.name}:$index" }) { _, feature ->
+        stickyCollectionPager(totalItems = filtered.size, currentPage = page, onPageChange = { page = it })
+        itemsIndexed(paged, key = { index, feature -> "feature:${feature.name}:${pageStart + index}" }) { _, feature ->
             CapabilityItemCard {
                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -7073,11 +7914,19 @@ private fun MemoryPage(device: DeviceReport?) {
 
 @Composable
 private fun QueuesPage(device: DeviceReport?) {
+    var page by rememberSaveable { mutableIntStateOf(0) }
+    val queues = remember(device) { device?.queues ?: emptyList() }
+    val pageCount = maxOf(1, (queues.size + COLLECTION_PAGE_SIZE - 1) / COLLECTION_PAGE_SIZE)
+    LaunchedEffect(queues.size) { page = page.coerceIn(0, pageCount - 1) }
+    val pageStart = page * COLLECTION_PAGE_SIZE
+    val pagedQueues = queues.drop(pageStart).take(COLLECTION_PAGE_SIZE)
     VulkanLazyPage(verticalSpacing = 10.dp) {
         item { CapabilitySectionCard("Queue query safety") {
             CapabilityKeyValue("Enumeration safety rejection", when (device?.queueQuerySafetyRejected) { true -> "YES · result discarded"; false -> "NO"; null -> "Unavailable" })
+            CapabilityKeyValue("Queue families", queues.size.toString())
         } }
-        items(device?.queues ?: emptyList(), key = { it.index }) { queue ->
+        stickyCollectionPager(totalItems = queues.size, currentPage = page, onPageChange = { page = it }, pagerKey = "queues-pager")
+        items(pagedQueues, key = { it.index }) { queue ->
             CapabilitySectionCard("Queue family ${queue.index}") {
                 CapabilityKeyValue("Queue count", queue.count.toString())
                 CapabilityKeyValue("Timestamp valid bits", queue.timestampBits.toString())
@@ -7097,11 +7946,9 @@ private fun QueuesPage(device: DeviceReport?) {
                 if (queueVideoCodecEvidenceRetained(queue)) CapabilityKeyValue("Video codec operations", videoCodecOperationFlags(queue.videoCodecOperations))
             }
         }
-        if (device?.queues.isNullOrEmpty()) item { EmptyState("Queue family data unavailable") }
+        if (queues.isEmpty()) item { EmptyState("Queue family data unavailable") }
     }
 }
-
-
 
 private data class VideoProfileEvidence(
     val operation: String,
@@ -7278,6 +8125,7 @@ private fun videoProfileQueueFamilies(profile: VideoProfileEvidence, queues: Lis
 @Composable
 private fun VulkanVideoPage(device: DeviceReport?) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    var page by rememberSaveable { mutableIntStateOf(0) }
     val evidence = remember(device) { parseVulkanVideoEvidence(device) }
     val tabs = listOf("Overview", "Matrix", "Decode", "Encode", "Formats", "Queues")
     val registry = evidence.general.lastOrNull { it.name == "videoRegistry" }?.value
@@ -7289,11 +8137,22 @@ private fun VulkanVideoPage(device: DeviceReport?) {
     val queryStatus = evidence.general.lastOrNull { it.name == "queryStatus" }?.value
         ?: capabilityQuery?.takeIf { it.startsWith("Unavailable", true) || it.startsWith("Unknown", true) }
         ?: if (evidence.profiles.isNotEmpty()) "Available: exact-profile Vulkan Video census evidence was collected." else "Unknown: Vulkan Video query status was not reported."
+    val activeTotal = when (tab) {
+        1 -> evidence.profiles.size
+        2 -> decodeProfiles.size
+        3 -> encodeProfiles.size
+        4 -> evidence.formats.size
+        5 -> device?.queues?.size ?: 0
+        else -> 0
+    }
+    val activePageCount = maxOf(1, (activeTotal + COLLECTION_PAGE_SIZE - 1) / COLLECTION_PAGE_SIZE)
+    LaunchedEffect(tab) { page = 0 }
+    LaunchedEffect(activeTotal) { page = page.coerceIn(0, activePageCount - 1) }
     VulkanLazyPage(verticalSpacing = 10.dp) {
         item {
             CapabilitySectionCard("Vulkan Video") {
                 Text("Exact-profile Vulkan® Video evidence collected by VulkanScope. Capability results below apply only to the queried exact 4:2:0 8-bit luma/chroma profile combinations and never imply codec-wide support.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-                ExpressiveFilterBar(tabs, tab) { tab = it }
+                ExpressiveFilterBar(tabs, tab) { tab = it; page = 0 }
             }
         }
         if (tab == 0) {
@@ -7334,7 +8193,8 @@ private fun VulkanVideoPage(device: DeviceReport?) {
             item { CapabilitySectionCard("Exact-profile matrix") {
                 Text("Each row keeps exact-profile capability state, matching queue codec-operation evidence and bounded sampled-format evidence separate. A queue/format association does not upgrade the exact-profile capability state.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
             } }
-            items(evidence.profiles, key = { "matrix:${it.operation}:${it.variant}" }) { profile ->
+            stickyCollectionPager(totalItems = evidence.profiles.size, currentPage = page, onPageChange = { page = it }, pagerKey = "video-matrix-pager")
+            items(evidence.profiles.drop(page * COLLECTION_PAGE_SIZE).take(COLLECTION_PAGE_SIZE), key = { "matrix:${it.operation}:${it.variant}" }) { profile ->
                 val queueFamilies = videoProfileQueueFamilies(profile, device?.queues.orEmpty())
                 val sampledFormats = evidence.formats.filter { it.name.contains(profile.operation, true) || it.name.contains(profile.codec, true) }
                 CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -7356,11 +8216,13 @@ private fun VulkanVideoPage(device: DeviceReport?) {
             if (evidence.profiles.isEmpty()) item { EmptyState("No exact-profile Vulkan® Video evidence reported") }
         } else if (tab == 2) {
             item { CapabilitySectionCard("Decode profiles") { Text("H.264, H.265, VP9 and AV1 exact decode-profile combinations from the locked registry-driven census.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall) } }
-            items(decodeProfiles, key = { "decode:${it.operation}:${it.variant}" }) { VideoProfileEvidenceCard(it) }
+            stickyCollectionPager(totalItems = decodeProfiles.size, currentPage = page, onPageChange = { page = it }, pagerKey = "video-decode-pager")
+            items(decodeProfiles.drop(page * COLLECTION_PAGE_SIZE).take(COLLECTION_PAGE_SIZE), key = { "decode:${it.operation}:${it.variant}" }) { VideoProfileEvidenceCard(it) }
             if (decodeProfiles.isEmpty()) item { EmptyState("No decode-profile evidence reported") }
         } else if (tab == 3) {
             item { CapabilitySectionCard("Encode profiles") { Text("H.264, H.265 and AV1 exact encode-profile combinations from the locked registry-driven census.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall) } }
-            items(encodeProfiles, key = { "encode:${it.operation}:${it.variant}" }) { VideoProfileEvidenceCard(it) }
+            stickyCollectionPager(totalItems = encodeProfiles.size, currentPage = page, onPageChange = { page = it }, pagerKey = "video-encode-pager")
+            items(encodeProfiles.drop(page * COLLECTION_PAGE_SIZE).take(COLLECTION_PAGE_SIZE), key = { "encode:${it.operation}:${it.variant}" }) { VideoProfileEvidenceCard(it) }
             if (encodeProfiles.isEmpty()) item { EmptyState("No encode-profile evidence reported") }
         } else if (tab == 4) {
             item {
@@ -7369,7 +8231,8 @@ private fun VulkanVideoPage(device: DeviceReport?) {
                     Text("These rows preserve the existing bounded sampled-profile format recipes. A listed format is evidence only for the exact sampled profile and usage token shown in that row.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
                 }
             }
-            items(evidence.formats, key = { it.name }) { entry ->
+            stickyCollectionPager(totalItems = evidence.formats.size, currentPage = page, onPageChange = { page = it }, pagerKey = "video-formats-pager")
+            items(evidence.formats.drop(page * COLLECTION_PAGE_SIZE).take(COLLECTION_PAGE_SIZE), key = { it.name }) { entry ->
                 CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text(entry.name.removePrefix("Video formats · "), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
                     Text(entry.value, color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
@@ -7382,7 +8245,9 @@ private fun VulkanVideoPage(device: DeviceReport?) {
                     Text("Queue-family video flags and codec-operation masks are independent runtime evidence. A false queue flag remains an exact queried value and is not reclassified as Unsupported unless an owning support query establishes that state.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
                 }
             }
-            items(device?.queues.orEmpty(), key = { it.index }) { queue ->
+            val videoQueues = device?.queues.orEmpty()
+            stickyCollectionPager(totalItems = videoQueues.size, currentPage = page, onPageChange = { page = it }, pagerKey = "video-queues-pager")
+            items(videoQueues.drop(page * COLLECTION_PAGE_SIZE).take(COLLECTION_PAGE_SIZE), key = { it.index }) { queue ->
                 CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("Queue family ${queue.index}", modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
@@ -7820,6 +8685,8 @@ private fun encodeSavedMinimumProfiles(profiles: Map<String, String>): String = 
 
 private class AnalysisWorkspaceState(initialWatched: Set<String>, initialProfiles: Map<String, String>, initialAbWorkflowStage: String) {
     var tab by mutableIntStateOf(0)
+    var contentPage by mutableIntStateOf(0)
+    var savedProfilesPage by mutableIntStateOf(0)
     var baseline by mutableStateOf<JSONObject?>(null)
     var analysisStatus by mutableStateOf("No baseline imported")
     var diffQuery by mutableStateOf("")
@@ -8287,12 +9154,20 @@ private fun historyLabel(record: AnalysisHistoryRecord): String = java.text.Date
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, report: VulkanReport, device: DeviceReport?) {
     val state = model.state
+    fun analysisPage(total: Int): Int = state.contentPage.coerceIn(0, maxOf(0, (total + COLLECTION_PAGE_SIZE - 1) / COLLECTION_PAGE_SIZE - 1))
+    fun <T> analysisSlice(source: List<T>): List<T> {
+        val page = analysisPage(source.size)
+        return source.drop(page * COLLECTION_PAGE_SIZE).take(COLLECTION_PAGE_SIZE)
+    }
+    fun analysisPager(total: Int, key: String = "analysis-primary-${state.tab}") {
+        stickyCollectionPager(totalItems = total, currentPage = analysisPage(total), onPageChange = { state.contentPage = it }, pagerKey = key)
+    }
     val tabs = listOf("Compare", "Search", "Drivers", "Diagnostics", "Requirements", "Minimums", "Graph", "Presentation", "Raw JSON", "Database", "History", "Watched", "Quality", "Share", "Tests")
     item {
         CapabilitySectionCard("Analysis workspace") {
             Text("Analysis, history, custom minimums and optional tests stay local unless you explicitly fetch a public Database report or share a link. None of these tools mutate canonical TXT, HTML or Database capability evidence.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
             Text("Analysis JSON exchange uses VulkanScope's in-app shared-storage browser; storage access is requested only after an explicit import/export action.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
-            ExpressiveFilterBar(tabs, state.tab) { state.tab = it }
+            ExpressiveFilterBar(tabs, state.tab) { state.tab = it; state.contentPage = 0 }
         }
     }
     when (state.tab) {
@@ -8302,9 +9177,9 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
                 SharedStoragePermissionActionButton("Import analysis snapshot", "Open the in-app shared-storage browser · JSON · 8 MiB bound", R.drawable.ic_action_import) { model.importSnapshot() }
                 SharedStoragePermissionActionButton("Export analysis snapshot", "Choose a shared-storage folder and JSON file name", R.drawable.ic_export) { model.exportSnapshot() }
                 if (state.baseline != null) {
-                    ExpressiveToggleRow("Show unchanged", "Include evidence rows whose canonical value is unchanged.", state.includeUnchanged) { state.includeUnchanged = it }
-                    ExpressiveFilterBar(listOf("All", "Added", "Removed", "Changed", "Regression"), listOf("All", "Added", "Removed", "Changed", "Regression").indexOf(state.diffStateFilter).coerceAtLeast(0)) { state.diffStateFilter = listOf("All", "Added", "Removed", "Changed", "Regression")[it] }
-                    ExpressiveSearchField(value = state.diffQuery, onValueChange = { state.diffQuery = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "Search evidence differences…")
+                    ExpressiveToggleRow("Show unchanged", "Include evidence rows whose canonical value is unchanged.", state.includeUnchanged) { state.includeUnchanged = it; state.contentPage = 0 }
+                    ExpressiveFilterBar(listOf("All", "Added", "Removed", "Changed", "Regression"), listOf("All", "Added", "Removed", "Changed", "Regression").indexOf(state.diffStateFilter).coerceAtLeast(0)) { state.diffStateFilter = listOf("All", "Added", "Removed", "Changed", "Regression")[it]; state.contentPage = 0 }
+                    ExpressiveSearchField(value = state.diffQuery, onValueChange = { state.diffQuery = it; state.contentPage = 0 }, modifier = Modifier.fillMaxWidth(), placeholderText = "Search evidence differences…")
                 }
             } }
             if (state.baseline != null) {
@@ -8315,7 +9190,8 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
                     ExpressiveMetric("Regression candidates", model.diffRows.count { it.state.contains("regression candidate") }.toString())
                     Text("Regression candidates are evidence changes only; VulkanScope does not declare a driver defect from a diff alone.", color = VulkanTextMuted, style = MaterialTheme.typography.bodySmall)
                 } }
-                items(model.diffRows, key = { it.key }) { row ->
+                analysisPager(model.diffRows.size)
+                items(analysisSlice(model.diffRows), key = { it.key }) { row ->
                     CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         CapabilityKeyValue(row.key, row.state)
                         row.baseline?.let { CapabilityKeyValue("Baseline", it) }
@@ -8328,12 +9204,13 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
         1 -> {
             item { CapabilitySectionCard("Global Vulkan report search") {
                 Text("Searches the completed current-device evidence model. Registry/reference symbols remain separate and can be opened in Encyclopedia from each result.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-                ExpressiveSearchField(value = state.globalQuery, onValueChange = { state.globalQuery = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "Search descriptorBuffer, maxImageDimension2D, HDR10…")
+                ExpressiveSearchField(value = state.globalQuery, onValueChange = { state.globalQuery = it; state.contentPage = 0 }, modifier = Modifier.fillMaxWidth(), placeholderText = "Search descriptorBuffer, maxImageDimension2D, HDR10…")
                 ExpressiveFilterBar(listOf("All", "extension", "feature", "property", "limit", "format", "surface", "display", "queue", "profile", "query"), listOf("All", "extension", "feature", "property", "limit", "format", "surface", "display", "queue", "profile", "query").indexOf(state.globalKindFilter).coerceAtLeast(0)) { state.globalKindFilter = listOf("All", "extension", "feature", "property", "limit", "format", "surface", "display", "queue", "profile", "query")[it] }
                 CapabilityKeyValue("Visible result bound", "$ANALYSIS_GLOBAL_SEARCH_VISIBLE_LIMIT")
             } }
             if (state.globalQuery.trim().length < 2) item { EmptyState("Type at least two characters to search the complete current report") }
-            items(model.globalResults, key = { it.first }) { result ->
+            analysisPager(model.globalResults.size)
+            items(analysisSlice(model.globalResults), key = { it.first }) { result ->
                 CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     CapabilityKeyValue(result.first, result.second)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { DetailAffordance { state.selectedEvidence = result } }
@@ -8360,7 +9237,9 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
                     ExpressiveMetric("Regression candidates", model.driverDiffRows.count { it.state.contains("regression candidate") }.toString())
                     Text("The baseline is the latest System session and the current side is the latest Turnip session. Differences are evidence changes, not performance or quality rankings.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
                 } }
-                items(model.driverDiffRows.take(ANALYSIS_GLOBAL_SEARCH_VISIBLE_LIMIT), key = { "ab:${it.key}" }) { row -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                val boundedDriverDiff = model.driverDiffRows.take(ANALYSIS_GLOBAL_SEARCH_VISIBLE_LIMIT)
+                analysisPager(boundedDriverDiff.size)
+                items(analysisSlice(boundedDriverDiff), key = { "ab:${it.key}" }) { row -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     CapabilityKeyValue(row.key, row.state)
                     row.baseline?.let { CapabilityKeyValue("System", it) }
                     row.current?.let { CapabilityKeyValue("Turnip", it) }
@@ -8387,7 +9266,8 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
                 ExpressiveMetric("Safety rejections", model.diagnostics.count { it.state == "SAFETY REJECTED" }.toString())
                 ExpressiveMetric("Incomplete", model.diagnostics.count { it.state == "INCOMPLETE" }.toString())
             } }
-            items(model.diagnostics, key = { "diag:${it.key}" }) { row -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            analysisPager(model.diagnostics.size)
+            items(analysisSlice(model.diagnostics), key = { "diag:${it.key}" }) { row -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 ExpressiveStatus(row.state)
                 CapabilityKeyValue(row.key, row.value)
                 CapabilityKeyValue("Per-query timing", row.timing)
@@ -8403,7 +9283,8 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
                     CapabilityKeyValue("Promoted to", ref.promotedTo.ifBlank { "Not promoted in checked-in reference" })
                 }
             } }
-            items(model.requirementEvaluations, key = { "req:${it.token}" }) { result -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            analysisPager(model.requirementEvaluations.size)
+            items(analysisSlice(model.requirementEvaluations), key = { "req:${it.token}" }) { result -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 ExpressiveStatus(result.state)
                 CapabilityKeyValue(result.token, result.evidence)
             } } }
@@ -8411,10 +9292,11 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
         5 -> {
             item { CapabilitySectionCard("Vulkan Profiles and custom minimums") {
                 Text("Official bundled Profile evaluation remains authoritative for included profiles. The custom builder is a separate local rule layer and never rewrites runtime evidence.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-                ExpressiveSearchField(value = state.profileQuery, onValueChange = { state.profileQuery = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "Search bundled profiles…")
+                ExpressiveSearchField(value = state.profileQuery, onValueChange = { state.profileQuery = it; state.contentPage = 0 }, modifier = Modifier.fillMaxWidth(), placeholderText = "Search bundled profiles…")
                 ExpressiveFilterBar(listOf("All", "FAIL", "UNKNOWN", "PASS"), listOf("All", "FAIL", "UNKNOWN", "PASS").indexOf(state.profileStatusFilter).coerceAtLeast(0)) { state.profileStatusFilter = listOf("All", "FAIL", "UNKNOWN", "PASS")[it] }
             } }
-            items(model.profileResults, key = { "profile:${it.name}" }) { result -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            analysisPager(model.profileResults.size)
+            items(analysisSlice(model.profileResults), key = { "profile:${it.name}" }) { result -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 CapabilityKeyValue(result.name, profileSummary(result))
                 CapabilityKeyValue("Mapped checks", result.checkedRequirementCount.toString())
                 result.failingLimits.takeIf { it.isNotEmpty() }?.let { CapabilityKeyValue("Verified property/limit failures", it.joinToString("; ")) }
@@ -8430,7 +9312,17 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
                 SharedStoragePermissionActionButton("Import profile JSON", "Open the in-app shared-storage browser · JSON · 256 KiB bound", R.drawable.ic_action_import) { model.importMinimumProfile() }
                 SharedStoragePermissionActionButton("Export profile JSON", "Choose a shared-storage folder and JSON file name", R.drawable.ic_export) { model.exportMinimumProfile() }
             } }
-            items(state.savedProfiles.toSortedMap().entries.toList(), key = { "saved:${it.key}" }) { entry -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            val savedProfileRows = state.savedProfiles.toSortedMap().entries.toList()
+            val savedProfilePageCount = maxOf(1, (savedProfileRows.size + COLLECTION_PAGE_SIZE - 1) / COLLECTION_PAGE_SIZE)
+            val savedProfilePage = state.savedProfilesPage.coerceIn(0, savedProfilePageCount - 1)
+            val pagedSavedProfiles = savedProfileRows.drop(savedProfilePage * COLLECTION_PAGE_SIZE).take(COLLECTION_PAGE_SIZE)
+            stickyCollectionPager(
+                totalItems = savedProfileRows.size,
+                currentPage = savedProfilePage,
+                onPageChange = { state.savedProfilesPage = it },
+                pagerKey = "analysis-saved-profiles"
+            )
+            items(pagedSavedProfiles, key = { "saved:${it.key}" }) { entry -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 CapabilityKeyValue(entry.key, "${entry.value.lineSequence().count { it.isNotBlank() }} rule(s)")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { ExpressiveTextButton("Load") { model.loadMinimumProfile(entry.key) }; ExpressiveTextButton("Delete") { model.deleteMinimumProfile(entry.key) } }
             } } }
@@ -8439,7 +9331,8 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
                 ExpressiveMetric("FAIL", model.customMinimumEvaluations.count { it.state == "FAIL" }.toString())
                 ExpressiveMetric("UNKNOWN", model.customMinimumEvaluations.count { it.state == "UNKNOWN" }.toString())
             } }
-            items(model.customMinimumEvaluations, key = { "minimum:${it.rule}" }) { evaluation -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            analysisPager(model.customMinimumEvaluations.size, "analysis-custom-minimums")
+            items(analysisSlice(model.customMinimumEvaluations), key = { "minimum:${it.rule}" }) { evaluation -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 ExpressiveStatus(evaluation.state)
                 CapabilityKeyValue(evaluation.rule, evaluation.evidence)
             } } }
@@ -8454,7 +9347,8 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
             } }
             if (model.graphRootRef != null) {
                 item { CapabilitySectionCard("Visual registry-reference graph") { VulkanDependencyGraph(model.visualGraphNodes, Modifier.fillMaxWidth()); CapabilityKeyValue("Bounded traversal", "${model.graphEntries.size} reference node(s)") } }
-                items(model.graphEntries, key = { "dep:${it.depth}:${it.token}" }) { entry -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                analysisPager(model.graphEntries.size)
+                items(analysisSlice(model.graphEntries), key = { "dep:${it.depth}:${it.token}" }) { entry -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     CapabilityKeyValue(entry.token, dependencyRuntimeEvidence(entry.token, report, device))
                     entry.parent?.let { CapabilityKeyValue("Registry edge", "$it → ${entry.token}") }
                 } } }
@@ -8464,7 +9358,8 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
             item { CapabilitySectionCard("Surface + Display presentation evidence") {
                 Text("These are compatible evidence paths, not end-to-end presentation guarantees. Vulkan® Surface color spaces and Android physical-display HDR/wide-gamut evidence remain separate sources.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
             } }
-            items(model.presentationPaths, key = { it.title }) { path -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            analysisPager(model.presentationPaths.size)
+            items(analysisSlice(model.presentationPaths), key = { it.title }) { path -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 ExpressiveStatus(path.state)
                 Text(path.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 CapabilityKeyValue("Vulkan® Surface", path.surfaceEvidence)
@@ -8475,11 +9370,12 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
         8 -> {
             item { CapabilitySectionCard("Raw structured technical Report") {
                 Text("Read-only tree leaves from the exact local schema-v3 technicalReport object used by Database submission. Values are searchable and exportable without changing the canonical report.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-                ExpressiveSearchField(value = state.rawQuery, onValueChange = { state.rawQuery = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "Search JSON path or value…")
+                ExpressiveSearchField(value = state.rawQuery, onValueChange = { state.rawQuery = it; state.contentPage = 0 }, modifier = Modifier.fillMaxWidth(), placeholderText = "Search JSON path or value…")
                 CapabilityKeyValue("Visible leaf bound", "$ANALYSIS_RAW_JSON_VISIBLE_LIMIT")
                 SharedStoragePermissionActionButton("Export technicalReport JSON", "Choose a shared-storage folder · exact schema-v3 JSON · 8 MiB bound", R.drawable.ic_export) { model.exportRawTechnicalReport() }
             } }
-            items(model.rawLeaves, key = { "raw:${it.path}" }) { leaf -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            analysisPager(model.rawLeaves.size)
+            items(analysisSlice(model.rawLeaves), key = { "raw:${it.path}" }) { leaf -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 CapabilityKeyValue(leaf.path, leaf.value)
                 Text(leaf.type, color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
                 ExpressiveContainedIconTextButton("Evidence actions", R.drawable.ic_evidence) { state.selectedEvidence = leaf.path to leaf.value }
@@ -8510,7 +9406,9 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
                     ExpressiveMetric("Missing locally", model.databaseDiff.count { it.state == "Removed" }.toString())
                     Text("A difference is a report-evidence difference only; it is not a device ranking or market-share statement.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
                 } }
-                items(model.databaseDiff.take(ANALYSIS_GLOBAL_SEARCH_VISIBLE_LIMIT), key = { "db:${it.key}" }) { row -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                val boundedDatabaseDiff = model.databaseDiff.take(ANALYSIS_GLOBAL_SEARCH_VISIBLE_LIMIT)
+                analysisPager(boundedDatabaseDiff.size)
+                items(analysisSlice(boundedDatabaseDiff), key = { "db:${it.key}" }) { row -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     CapabilityKeyValue(row.key, row.state)
                     row.baseline?.let { CapabilityKeyValue("Database", it) }
                     row.current?.let { CapabilityKeyValue("Current", it) }
@@ -8526,7 +9424,8 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
                     ExpressiveContainedIconTextButton("Clear all", R.drawable.ic_clear_all, modifier = Modifier.weight(1f), enabled = state.history.isNotEmpty()) { state.pendingHistoryDeleteAll = true }
                 }
             } }
-            items(state.history, key = { "history:${it.id}" }) { record -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            analysisPager(state.history.size)
+            items(analysisSlice(state.history), key = { "history:${it.id}" }) { record -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 CapabilityKeyValue(historyLabel(record), record.driverMode)
                 CapabilityKeyValue("GPU", record.deviceName)
                 CapabilityKeyValue("App version", record.applicationVersion)
@@ -8545,10 +9444,11 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
                     ExpressiveContainedIconTextButton("Add to watch list", R.drawable.ic_watch_add, modifier = Modifier.weight(1f), enabled = model.canAddWatch) { model.addWatched(state.watchInput); state.watchInput = "" }
                     ExpressiveContainedIconTextButton("Clear all", R.drawable.ic_clear_all, modifier = Modifier.weight(1f), enabled = state.watched.isNotEmpty()) { state.pendingWatchDeleteAll = true }
                 }
-                ExpressiveSearchField(value = state.watchQuery, onValueChange = { state.watchQuery = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "Filter watched entries…")
+                ExpressiveSearchField(value = state.watchQuery, onValueChange = { state.watchQuery = it; state.contentPage = 0 }, modifier = Modifier.fillMaxWidth(), placeholderText = "Filter watched entries…")
                 ExpressiveFilterBar(listOf("All", "Matched", "Missing"), listOf("All", "Matched", "Missing").indexOf(state.watchStateFilter).coerceAtLeast(0)) { state.watchStateFilter = listOf("All", "Matched", "Missing")[it] }
             } }
-            items(model.visibleWatched, key = { "watch:$it" }) { token ->
+            analysisPager(model.visibleWatched.size)
+            items(analysisSlice(model.visibleWatched), key = { "watch:$it" }) { token ->
                 val evidence = model.watchedEvidence[token] ?: (0 to emptyList())
                 CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     CapabilityKeyValue(token, if (evidence.first == 0) "Not present in current snapshot" else "${evidence.first} matching evidence item(s)")
@@ -8563,7 +9463,8 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
                 CapabilityKeyValue("Interpretation", model.driverHealth.level)
                 Text("This heuristic summarizes explicit collection/safety anomalies only. It is not Vulkan® conformance, a benchmark, GPU ranking, performance score or vendor-quality claim.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
             } }
-            items(model.driverHealth.factors, key = { "quality:$it" }) { factor -> CapabilityItemCard { Text(factor, modifier = Modifier.padding(14.dp)) } }
+            analysisPager(model.driverHealth.factors.size)
+            items(analysisSlice(model.driverHealth.factors), key = { "quality:$it" }) { factor -> CapabilityItemCard { Text(factor, modifier = Modifier.padding(14.dp)) } }
         }
         13 -> {
             item { CapabilitySectionCard("Database permalink & QR") {
@@ -8588,14 +9489,14 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
             item { CapabilitySectionCard("Optional active tests") {
                 Text("Active tests are isolated from capability collection. FAIL means the test failed; it does not rewrite the reported feature as Unsupported.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
                 CapabilityKeyValue("Target GPU", device?.let { "${it.name} · ${it.vendorId}:${it.deviceId}" } ?: "Unavailable")
-                ExpressiveActionButton("Run Vulkan self-tests", "Selected GPU only · minimal VkDevice, SPIR-V shader-module, pipeline-layout and compute-pipeline creation", R.drawable.ic_self_test, enabled = !state.testRunning && model.selfTestsAvailable) { model.runSelfTests() }
+                ExpressiveActionButton("Run Vulkan self-tests", "Selected GPU only · minimal VkDevice, SPIR-V™ shader-module, pipeline-layout and compute-pipeline creation", R.drawable.ic_self_test, enabled = !state.testRunning && model.selfTestsAvailable) { model.runSelfTests() }
                 if (state.testRunning) LoadingIndicator(color = VulkanAccentSoft, modifier = Modifier.size(32.dp))
             } }
             state.testResult?.let { result ->
                 item { CapabilitySectionCard("Self-test result") { CapabilityKeyValue("Status", result.optString("status", "unknown")); result.optString("reason").takeIf { it.isNotBlank() }?.let { CapabilityKeyValue("Reason", it) } } }
                 val tests = result.optJSONArray("tests")
                 if (tests != null) items((0 until tests.length()).mapNotNull { tests.optJSONObject(it) }) { test -> CapabilityItemCard { Column(Modifier.padding(14.dp)) {
-                    CapabilityKeyValue(test.optString("name", "Test"), test.optString("status", "unknown"))
+                    CapabilityKeyValue(trademarkSpirvDisplayText(test.optString("name", "Test")), test.optString("status", "unknown"))
                     test.optString("detail").takeIf { it.isNotBlank() }?.let { CapabilityKeyValue("Detail", it) }
                 } } }
             }
@@ -8646,6 +9547,7 @@ private fun ExpressiveDetailDialog(title: String, onDismiss: () -> Unit, content
                 modifier = Modifier.fillMaxWidth().widthIn(max = dialogWidth).height(dialogHeight),
                 shape = MaterialTheme.shapes.extraLarge,
                 color = VulkanSurfaceRaised,
+                border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.46f)),
                 tonalElevation = 4.dp,
                 shadowElevation = 8.dp
             ) {
@@ -8709,23 +9611,37 @@ private fun FormatsPage(device: DeviceReport?) {
     var query by remember { mutableStateOf("") }
     var selected by remember { mutableStateOf<FormatEntry?>(null) }
     var usageFilters by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var page by rememberSaveable { mutableIntStateOf(0) }
     val formats = remember(device) { device?.formats ?: emptyList() }
     val filtered = remember(query, formats, usageFilters) { formats.filter { matchesFormatExplorerQuery(it, query) && formatMatchesUsageFilters(it, usageFilters) } }
+    val pageCount = maxOf(1, (filtered.size + COLLECTION_PAGE_SIZE - 1) / COLLECTION_PAGE_SIZE)
+    LaunchedEffect(query, usageFilters) { page = 0 }
+    LaunchedEffect(filtered.size) { page = page.coerceIn(0, pageCount - 1) }
+    val pageStart = page * COLLECTION_PAGE_SIZE
+    val paged = filtered.drop(pageStart).take(COLLECTION_PAGE_SIZE)
     VulkanLazyPage(verticalSpacing = 8.dp) {
         item {
             CapabilitySectionCard("Format explorer") {
-            Text("Implementation-reported format capabilities. Bitmasks are expanded to canonical Vulkan® feature names; unknown bits remain visible in hexadecimal.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
-            ExpressiveSearchField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), placeholderText = "Search · supported:true feature:SAMPLED name:R16")
-            Text("Usage requirements · all selected filters must be present in collected format-feature evidence", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
-            ExpressiveMultiFilterBar(FORMAT_USAGE_FILTERS.keys.toList(), usageFilters) { label ->
-                usageFilters = if (label in usageFilters) usageFilters - label else usageFilters + label
-            }
-            if (usageFilters.isNotEmpty()) ExpressiveContainedIconTextButton("Clear usage filters", R.drawable.ic_clear_filters) { usageFilters = emptySet() }
-            ExpressiveMetricGrid(listOf("Visible formats" to filtered.size.toString(), "Active usage filters" to usageFilters.size.toString()), Modifier.padding(top = 4.dp))
-            Text("Use Details for full decoded/raw format evidence.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                Text("Implementation-reported format capabilities. Bitmasks are expanded to canonical Vulkan® feature names; unknown bits remain visible in hexadecimal.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
+                ExpressiveSearchField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), placeholderText = "Search · supported:true feature:SAMPLED name:R16")
+                Text("Usage requirements · all selected filters must be present in collected format-feature evidence", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                ExpressiveMultiFilterBar(FORMAT_USAGE_FILTERS.keys.toList(), usageFilters) { label ->
+                    usageFilters = if (label in usageFilters) usageFilters - label else usageFilters + label
+                }
+                if (usageFilters.isNotEmpty()) ExpressiveContainedIconTextButton("Clear usage filters", R.drawable.ic_clear_filters) { usageFilters = emptySet() }
+                ExpressiveMetricGrid(
+                    listOf(
+                        "Matching formats" to filtered.size.toString(),
+                        "Showing" to if (filtered.isEmpty()) "0" else "${pageStart + 1}-${pageStart + paged.size}",
+                        "Active usage filters" to usageFilters.size.toString()
+                    ),
+                    Modifier.padding(top = 4.dp)
+                )
+                Text("Use Details for full decoded/raw format evidence.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
             }
         }
-        itemsIndexed(filtered, key = { index, format -> "format:${format.name}:$index" }) { _, format ->
+        stickyCollectionPager(totalItems = filtered.size, currentPage = page, onPageChange = { page = it })
+        itemsIndexed(paged, key = { index, format -> "format:${format.name}:${pageStart + index}" }) { _, format ->
             CapabilityItemCard(containerColor = VulkanSurfaceRaised) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(format.name, fontWeight = FontWeight.Medium)
@@ -8737,6 +9653,7 @@ private fun FormatsPage(device: DeviceReport?) {
                 }
             }
         }
+        if (filtered.isEmpty()) item { EmptyState("No matching formats") }
     }
     selected?.let { format ->
         val imageProperties = remember(device?.detailedProperties, format.name) {
@@ -8749,28 +9666,28 @@ private fun FormatsPage(device: DeviceReport?) {
             title = format.name,
             onDismiss = { selected = null }
         ) {
-                CapabilityKeyValue("Runtime status", if (format.supported) "SUPPORTED" else "NOT SUPPORTED")
-                CapabilityKeyValue("Linear decoded", formatFeatureFlags(format.linear))
-                CapabilityKeyValue("Linear raw", "${java.lang.Long.toUnsignedString(format.linear)} · 0x${java.lang.Long.toUnsignedString(format.linear, 16).uppercase()}")
-                CapabilityKeyValue("Optimal decoded", formatFeatureFlags(format.optimal))
-                CapabilityKeyValue("Optimal raw", "${java.lang.Long.toUnsignedString(format.optimal)} · 0x${java.lang.Long.toUnsignedString(format.optimal, 16).uppercase()}")
-                CapabilityKeyValue("Buffer decoded", formatFeatureFlags(format.buffer))
-                CapabilityKeyValue("Buffer raw", "${java.lang.Long.toUnsignedString(format.buffer)} · 0x${java.lang.Long.toUnsignedString(format.buffer, 16).uppercase()}")
-                imageProperties.forEach { CapabilityKeyValue(it.name.removePrefix(format.name).removePrefix(" · ").ifBlank { "Image properties" }, it.value) }
-                if (imageProperties.isEmpty() && imageQueryOutcomes.isEmpty()) CapabilityKeyValue("Image Format Properties2", "Unavailable or not yet queried")
-                imageQueryOutcomes.forEach { outcome ->
-                    CapabilityKeyValue(
-                        outcome.name.removePrefix(format.name).removePrefix(" · ").ifBlank { "Base query" },
-                        when (outcome.status) {
-                            "available" -> "Available · ${vkResultText(0)}"
-                            "unsupported" -> "Unsupported · ${vkResultText(-11)}"
-                            "unavailable" -> "Unavailable · ${outcome.vkResult?.let(::vkResultText) ?: "VkResult unavailable"}"
-                            "not_applicable" -> "Not applicable · ${outcome.reason}"
-                            else -> "Unknown"
-                        }
-                    )
-                }
-                Text("VkFormatProperties3 64-bit Flags2 evidence is authoritative when available; legacy 32-bit values are fallback-only. Image Format Properties2 uses a fixed VulkanScope query recipe: VK_IMAGE_TYPE_2D, TRANSFER_SRC | TRANSFER_DST | SAMPLED usage and flags=0. Successful property payloads remain in normal detailed-property evidence. A separate exact tuple-state ledger records Available, Unsupported, Unavailable and Not applicable query outcomes without inflating the Properties & Limits totals. Missing prerequisite external-memory extensions are represented as Not applicable rather than ambiguous Not reported evidence.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+            CapabilityKeyValue("Runtime status", if (format.supported) "SUPPORTED" else "NOT SUPPORTED")
+            CapabilityKeyValue("Linear decoded", formatFeatureFlags(format.linear))
+            CapabilityKeyValue("Linear raw", "${java.lang.Long.toUnsignedString(format.linear)} · 0x${java.lang.Long.toUnsignedString(format.linear, 16).uppercase()}")
+            CapabilityKeyValue("Optimal decoded", formatFeatureFlags(format.optimal))
+            CapabilityKeyValue("Optimal raw", "${java.lang.Long.toUnsignedString(format.optimal)} · 0x${java.lang.Long.toUnsignedString(format.optimal, 16).uppercase()}")
+            CapabilityKeyValue("Buffer decoded", formatFeatureFlags(format.buffer))
+            CapabilityKeyValue("Buffer raw", "${java.lang.Long.toUnsignedString(format.buffer)} · 0x${java.lang.Long.toUnsignedString(format.buffer, 16).uppercase()}")
+            imageProperties.forEach { CapabilityKeyValue(it.name.removePrefix(format.name).removePrefix(" · ").ifBlank { "Image properties" }, it.value) }
+            if (imageProperties.isEmpty() && imageQueryOutcomes.isEmpty()) CapabilityKeyValue("Image Format Properties2", "Unavailable or not yet queried")
+            imageQueryOutcomes.forEach { outcome ->
+                CapabilityKeyValue(
+                    outcome.name.removePrefix(format.name).removePrefix(" · ").ifBlank { "Base query" },
+                    when (outcome.status) {
+                        "available" -> "Available · ${vkResultText(0)}"
+                        "unsupported" -> "Unsupported · ${vkResultText(-11)}"
+                        "unavailable" -> "Unavailable · ${outcome.vkResult?.let(::vkResultText) ?: "VkResult unavailable"}"
+                        "not_applicable" -> "Not applicable · ${outcome.reason}"
+                        else -> "Unknown"
+                    }
+                )
+            }
+            Text("VkFormatProperties3 64-bit Flags2 evidence is authoritative when available; legacy 32-bit values are fallback-only. Image Format Properties2 uses a fixed VulkanScope query recipe: VK_IMAGE_TYPE_2D, TRANSFER_SRC | TRANSFER_DST | SAMPLED usage and flags=0. Successful property payloads remain in normal detailed-property evidence. A separate exact tuple-state ledger records Available, Unsupported, Unavailable and Not applicable query outcomes without inflating the Properties & Limits totals. Missing prerequisite external-memory extensions are represented as Not applicable rather than ambiguous Not reported evidence.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -8779,8 +9696,8 @@ private fun FormatsPage(device: DeviceReport?) {
 private fun PropertiesPage(device: DeviceReport?, onRequestQuery: (String) -> Unit) {
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf("All") }
+    var page by rememberSaveable { mutableIntStateOf(0) }
     val properties = remember(device) { device?.detailedProperties ?: emptyList() }
-    val limitGroups = remember(device?.limits) { (device?.limits ?: emptyList()).groupBy { limitCategory(it.first) } }
     val sections = remember(properties, device?.apiVersion, device?.vulkan14Status) {
         val base = listOf("All", "Limits") + properties.map { it.section }.distinct()
         if (apiAtLeast(device?.apiVersion ?: "", 1, 4) && !base.contains("Core 1.4")) base + "Core 1.4" else base
@@ -8805,12 +9722,26 @@ private fun PropertiesPage(device: DeviceReport?, onRequestQuery: (String) -> Un
     val uniquePropertyNames = filtered.asSequence().filterNot { it.section == "Vulkan Query Safety" }.map { it.name }.distinct().count()
     val uniqueSafetyNames = filtered.asSequence().filter { it.section == "Vulkan Query Safety" }.map { it.name }.distinct().count()
     val limitResultCount = visibleLimits.size
+    val pagedLimitSource = if (filter == "Limits" || filter == "All") visibleLimits else emptyList()
+    val pagedPropertySource = if (filter == "Limits") emptyList() else filtered
+    val totalRows = pagedLimitSource.size + pagedPropertySource.size
+    val pageCount = maxOf(1, (totalRows + COLLECTION_PAGE_SIZE - 1) / COLLECTION_PAGE_SIZE)
+    LaunchedEffect(query, filter) { page = 0 }
+    LaunchedEffect(totalRows) { page = page.coerceIn(0, pageCount - 1) }
+    val pageStart = page * COLLECTION_PAGE_SIZE
+    val pageEnd = minOf(pageStart + COLLECTION_PAGE_SIZE, totalRows)
+    val limitStart = pageStart.coerceAtMost(pagedLimitSource.size)
+    val limitEnd = pageEnd.coerceAtMost(pagedLimitSource.size)
+    val propertyStart = (pageStart - pagedLimitSource.size).coerceAtLeast(0).coerceAtMost(pagedPropertySource.size)
+    val propertyEnd = (pageEnd - pagedLimitSource.size).coerceAtLeast(0).coerceAtMost(pagedPropertySource.size)
+    val pageLimits = if (limitEnd > limitStart) pagedLimitSource.subList(limitStart, limitEnd) else emptyList()
+    val pageProperties = if (propertyEnd > propertyStart) pagedPropertySource.subList(propertyStart, propertyEnd) else emptyList()
     VulkanLazyPage(verticalSpacing = 10.dp) {
         item {
             CapabilitySectionCard("Properties & limits explorer") {
-            Text("Physical-device properties and limits are shown only from runtime Vulkan® queries. Advanced query groups keep their explicit availability state.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
-            ExpressiveSearchField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), placeholderText = "Search properties and limits…")
-            ExpressiveFilterBar(sections, sections.indexOf(filter).coerceAtLeast(0)) { filter = sections[it] }
+                Text("Physical-device properties and limits are shown only from runtime Vulkan® queries. Advanced query groups keep their explicit availability state.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
+                ExpressiveSearchField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), placeholderText = "Search properties and limits…")
+                ExpressiveFilterBar(sections, sections.indexOf(filter).coerceAtLeast(0)) { filter = sections[it] }
             }
         }
         item {
@@ -8825,20 +9756,19 @@ private fun PropertiesPage(device: DeviceReport?, onRequestQuery: (String) -> Un
                 )
                 "Vulkan Query Safety" -> listOf("Safety diagnostics" to safetyEvidenceCount.toString(), "Unique diagnostics" to uniqueSafetyNames.toString())
                 else -> listOf("Property / query" to propertyResultCount.toString(), "Unique names" to uniquePropertyNames.toString())
-            }
+            } + listOf("Showing" to if (totalRows == 0) "0" else "${pageStart + 1}-$pageEnd")
             ExpressiveMetricGrid(metrics)
         }
-        if (filter == "Limits" || filter == "All") {
-            limitGroups.toSortedMap().forEach { (category, entries) ->
-                item { CapabilitySectionCard(category) {
-                    val visible = entries.filter { it in visibleLimits }
-                    if (visible.isEmpty()) Text("No matching limits", color = ComposeColor(0xFF9E9E9E))
-                    visible.forEach { (name, value) -> CapabilityKeyValue(name, value) }
-                } }
+        stickyCollectionPager(totalItems = totalRows, currentPage = page, onPageChange = { page = it })
+        pageLimits.groupBy { limitCategory(it.first) }.forEach { (category, entries) ->
+            item {
+                CapabilitySectionCard(category) {
+                    entries.forEach { (name, value) -> CapabilityKeyValue(name, value) }
+                }
             }
         }
         if (filter != "Limits") {
-                if (filter == "Core 1.4") {
+            if (filter == "Core 1.4") {
                 val status = device?.vulkan14Status ?: "unavailable"
                 val message = when (status) {
                     "not_applicable" -> "Vulkan 1.4 is not exposed by this physical device. Device API: ${device?.apiVersion ?: "Unknown"}."
@@ -8849,7 +9779,7 @@ private fun PropertiesPage(device: DeviceReport?, onRequestQuery: (String) -> Un
                     item { CapabilitySectionCard("Vulkan® 1.4 status") { Text(message, color = evidenceStateAccent(status)) } }
                 }
             }
-            itemsIndexed(filtered, key = { index, property -> "${property.section}:${property.name}:$index" }) { _, property ->
+            itemsIndexed(pageProperties, key = { index, property -> "${property.section}:${property.name}:${propertyStart + index}" }) { _, property ->
                 CapabilityItemCard {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text(property.name, fontWeight = FontWeight.Medium)
@@ -8858,8 +9788,8 @@ private fun PropertiesPage(device: DeviceReport?, onRequestQuery: (String) -> Un
                     }
                 }
             }
-            if (filtered.isEmpty()) item { EmptyState("No matching properties") }
         }
+        if (totalRows == 0) item { EmptyState("No matching properties or limits") }
     }
 }
 
@@ -9825,8 +10755,14 @@ private fun ProfileCheckBreakdown(result: ProfileResult) {
 @Composable
 private fun ProfilesPage(report: VulkanReport, device: DeviceReport?) {
     var query by remember { mutableStateOf("") }
+    var page by rememberSaveable { mutableIntStateOf(0) }
     val results = remember(report, device) { vulkanProfileEvaluations(report, device) }
     val filtered = results.filter { it.name.contains(query, true) }
+    val pageCount = maxOf(1, (filtered.size + COLLECTION_PAGE_SIZE - 1) / COLLECTION_PAGE_SIZE)
+    LaunchedEffect(query) { page = 0 }
+    LaunchedEffect(filtered.size) { page = page.coerceIn(0, pageCount - 1) }
+    val pageStart = page * COLLECTION_PAGE_SIZE
+    val paged = filtered.drop(pageStart).take(COLLECTION_PAGE_SIZE)
     val visibleMappedChecks = filtered.sumOf { it.checkedRequirementCount }
     val visibleMetChecks = filtered.sumOf { it.metRequirementCount }
     val visibleFailedChecks = filtered.sumOf { it.failedRequirementCount }
@@ -9855,7 +10791,8 @@ private fun ProfilesPage(report: VulkanReport, device: DeviceReport?) {
                 Text("Each profile separates mapped checks that are met, verified unmet, or unknown. Category rows show the same split for extensions, features, properties/limits, formats and inherited-profile checks without turning missing evidence into an unsupported claim.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
             }
         }
-        items(filtered) { result ->
+        stickyCollectionPager(totalItems = filtered.size, currentPage = page, onPageChange = { page = it })
+        items(paged, key = { it.name }) { result ->
             CapabilityItemCard {
                 Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -9919,6 +10856,7 @@ private fun LibraryLicenseDialog(library: LibraryVersionInfo, onDismiss: () -> U
                 modifier = Modifier.fillMaxWidth().widthIn(max = 620.dp).heightIn(max = dialogMaxHeight),
                 shape = MaterialTheme.shapes.extraLarge,
                 color = VulkanSurfaceRaised,
+                border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.46f)),
                 tonalElevation = 4.dp,
                 shadowElevation = 8.dp
             ) {
@@ -10225,7 +11163,40 @@ private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverM
                 Text(submissionState, color = ComposeColor(0xFFAAAAAA), style = MaterialTheme.typography.bodySmall)
                 submissionSuccessId?.let { reportId ->
                     Text("Report ID", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
-                    Text(reportId, color = VulkanTextPrimary, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                    Surface(
+                        shape = RoundedCornerShape(18.dp),
+                        color = VulkanSurfaceLow,
+                        contentColor = VulkanTextPrimary,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                reportId,
+                                modifier = Modifier.weight(1f),
+                                color = VulkanTextPrimary,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            IconButton(
+                                onClick = { copyEvidenceText(context, "VulkanScope report ID", reportId) },
+                                colors = IconButtonDefaults.iconButtonColors(containerColor = VulkanAccentContainer, contentColor = VulkanAccentSoft)
+                            ) {
+                                Icon(painterResource(R.drawable.ic_copy), contentDescription = "Copy report ID", modifier = Modifier.size(19.dp))
+                            }
+                        }
+                    }
+                    ExpressiveContainedIconTextButton(
+                        "Open report",
+                        R.drawable.ic_open_external,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = networkAvailable
+                    ) { uriHandler.openUri(databaseReportUrl(reportId)) }
                 }
                 if (!completeReportReady && !networkAvailable) {
                     Text("Database submission is locked for two independent reasons: Vulkan® collection is incomplete and Android does not report a validated internet connection.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
@@ -10280,6 +11251,7 @@ private fun DatabaseSubmissionFailureDialog(log: String, onDismiss: () -> Unit) 
     val context = androidx.compose.ui.platform.LocalContext.current
     val scrollState = rememberScrollState()
     AlertDialog(
+            modifier = Modifier.border(1.dp, VulkanAccentSoft.copy(alpha = 0.46f), MaterialTheme.shapes.extraLarge),
         onDismissRequest = onDismiss,
         shape = MaterialTheme.shapes.extraLarge,
         containerColor = VulkanSurfaceRaised,
@@ -10629,6 +11601,7 @@ private fun DriverUpdatePreferencesPage(
     }
     removeDriver?.let { driver ->
         AlertDialog(
+            modifier = Modifier.border(1.dp, VulkanAccentSoft.copy(alpha = 0.46f), MaterialTheme.shapes.extraLarge),
             onDismissRequest = { if (!turnipManagerBusy) removeDriver = null },
             title = { QuestionDialogTitle("Delete Turnip driver?") },
             text = { Text((if (driver.selected) "This slot is active. Removing it will deactivate Turnip, switch VulkanScope to the System driver, and delete the private package. " else "") + "Slot %02d · %s will be deleted from VulkanScope private storage. This cannot be undone.".format(java.util.Locale.ROOT, driver.slot, driver.info.zipName ?: driver.info.driverName ?: "Imported driver")) },
@@ -10652,7 +11625,8 @@ private fun TurnipFileManagerDialog(
     onNavigate: (String) -> Unit,
     onUp: () -> Unit,
     onToggleSelection: (String) -> Unit,
-    onViewMode: (TurnipFileManagerViewMode) -> Unit,
+    onViewMode: (FileManagerViewMode) -> Unit,
+    onSortMode: (FileManagerSortMode) -> Unit,
     onDetails: (TurnipArchiveCandidate) -> Unit,
     onDismissDetails: () -> Unit,
     onImport: () -> Unit
@@ -10668,47 +11642,51 @@ private fun TurnipFileManagerDialog(
     }
     val atRoot = state.directoryPath == state.rootPath
     val expandedTextLayout = preferExpandedTextLayout()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val suppressDesktopSecondaryInput = remember(context) { isChromeOsRuntime(context) || isAndroidPcFormFactor(context) }
     Dialog(
         onDismissRequest = { if (!state.importing) onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = !state.importing, dismissOnClickOutside = false)
     ) {
         Surface(
-            modifier = Modifier.fillMaxSize().padding(10.dp),
+            modifier = Modifier.fillMaxSize().padding(10.dp).consumeDesktopSecondaryMouseInput(suppressDesktopSecondaryInput),
             shape = MaterialTheme.shapes.extraLarge,
             color = VulkanSurfaceRaised,
             contentColor = VulkanTextPrimary,
-            border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant),
+            border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.46f)),
             tonalElevation = 8.dp,
             shadowElevation = 10.dp
         ) {
             Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    IconButton(
+                    AnimatedHeaderActionButton(
+                        visible = !atRoot,
+                        icon = R.drawable.ic_back,
+                        contentDescription = "Parent folder",
                         onClick = onUp,
-                        enabled = !atRoot && !state.loading && !state.importing,
-                        colors = IconButtonDefaults.iconButtonColors(containerColor = VulkanSurfaceLow, contentColor = VulkanTextPrimary, disabledContainerColor = VulkanSurfaceLow, disabledContentColor = VulkanTextMuted)
-                    ) { Icon(painterResource(R.drawable.ic_back), contentDescription = "Parent folder") }
+                        enabled = !state.loading && !state.importing,
+                        buttonSize = 42.dp,
+                        slotSize = 50.dp
+                    )
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text("Turnip file manager", color = VulkanTextPrimary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         Text(state.directoryPath, color = VulkanTextSecondary, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
-                    IconButton(
-                        onClick = onDismiss,
-                        enabled = !state.importing,
-                        colors = IconButtonDefaults.iconButtonColors(containerColor = VulkanSurfaceLow, contentColor = VulkanTextPrimary, disabledContainerColor = VulkanSurfaceLow, disabledContentColor = VulkanTextMuted)
-                    ) { Icon(painterResource(R.drawable.ic_close), contentDescription = "Close") }
+                    HeaderActionButton(icon = R.drawable.ic_close, contentDescription = "Close", onClick = onDismiss, enabled = !state.importing)
                 }
 
                 Surface(shape = MaterialTheme.shapes.extraLarge, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant)) {
                     if (expandedTextLayout) {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             TurnipFileManagerSelectionSummary(state)
-                            TurnipFileManagerViewModeButtons(state, onViewMode, Modifier.fillMaxWidth())
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                                FileManagerOptionsChooser(state.viewMode, state.sortMode, onViewMode, onSortMode, enabled = !state.importing, modifier = Modifier.width(50.dp))
+                            }
                         }
                     } else {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Box(Modifier.weight(0.85f)) { TurnipFileManagerSelectionSummary(state) }
-                            TurnipFileManagerViewModeButtons(state, onViewMode, Modifier.weight(1.15f))
+                            Box(Modifier.weight(1f)) { TurnipFileManagerSelectionSummary(state) }
+                            FileManagerOptionsChooser(state.viewMode, state.sortMode, onViewMode, onSortMode, enabled = !state.importing, modifier = Modifier.width(50.dp))
                         }
                     }
                 }
@@ -10739,19 +11717,27 @@ private fun TurnipFileManagerDialog(
                         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             LoadingIndicator(color = VulkanAccentSoft)
                             Text("Scanning folders and validating Turnip ZIPs…", color = VulkanTextSecondary, textAlign = TextAlign.Center)
-                        }
-                    } else if (state.viewMode == TurnipFileManagerViewMode.GRID) {
+                        }                    } else if (state.viewMode in setOf(FileManagerViewMode.GRID, FileManagerViewMode.DENSE_GRID, FileManagerViewMode.LARGE_GRID)) {
                         val gridState = rememberLazyGridState()
+                        val denseGrid = state.viewMode == FileManagerViewMode.DENSE_GRID
+                        val largeGrid = state.viewMode == FileManagerViewMode.LARGE_GRID
+                        val showTopFade by remember(gridState) { derivedStateOf { gridState.canScrollBackward } }
+                        val showBottomFade by remember(gridState) { derivedStateOf { gridState.canScrollForward } }
+                        val minimumCellWidth = when (state.viewMode) {
+                            FileManagerViewMode.DENSE_GRID -> 92.dp
+                            FileManagerViewMode.LARGE_GRID -> 228.dp
+                            else -> 156.dp
+                        }
                         LazyVerticalGrid(
-                            columns = GridCells.Adaptive(156.dp),
+                            columns = GridCells.Adaptive(minimumCellWidth),
                             state = gridState,
                             modifier = Modifier.fillMaxSize().desktopVerticalPointerScroll(gridState),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(if (denseGrid) 6.dp else 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(if (denseGrid) 6.dp else if (largeGrid) 10.dp else 8.dp),
                             contentPadding = PaddingValues(bottom = 8.dp)
                         ) {
                             gridItems(filteredFolders, key = { "folder:$it" }) { path ->
-                                TurnipFileManagerFolderGridCard(path = path, enabled = !state.importing) { onNavigate(path) }
+                                TurnipFileManagerFolderGridCard(path = path, enabled = !state.importing, dense = denseGrid, large = largeGrid) { onNavigate(path) }
                             }
                             gridItems(filteredCandidates, key = { "zip:${it.path}" }) { candidate ->
                                 val alreadyImported = turnipImportedSourceKey(candidate.path, candidate.name) in state.importedSourceKeys
@@ -10760,6 +11746,8 @@ private fun TurnipFileManagerDialog(
                                     selected = !alreadyImported && candidate.path in state.selectedPaths,
                                     alreadyImported = alreadyImported,
                                     enabled = !state.importing && !alreadyImported,
+                                    dense = denseGrid,
+                                    large = largeGrid,
                                     onSelectedChange = { onToggleSelection(candidate.path) },
                                     onDetails = { onDetails(candidate) }
                                 )
@@ -10770,11 +11758,14 @@ private fun TurnipFileManagerDialog(
                                 }
                             }
                         }
+                        SoftScrollIntersectionShadows(showTopFade, showBottomFade, Modifier.fillMaxSize(), edgeColor = VulkanSurfaceRaised)
                         ExpressiveScrollHints(gridState, Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 6.dp))
                     } else {
                         val listState = rememberLazyListState()
-                        val compact = state.viewMode == TurnipFileManagerViewMode.COMPACT
-                        val details = state.viewMode == TurnipFileManagerViewMode.DETAILS
+                        val compact = state.viewMode == FileManagerViewMode.COMPACT
+                        val details = state.viewMode == FileManagerViewMode.DETAILS
+                        val showTopFade by remember(listState) { derivedStateOf { listState.canScrollBackward } }
+                        val showBottomFade by remember(listState) { derivedStateOf { listState.canScrollForward } }
                         LazyColumn(
                             state = listState,
                             modifier = Modifier.fillMaxSize().desktopVerticalPointerScroll(listState),
@@ -10801,6 +11792,7 @@ private fun TurnipFileManagerDialog(
                                 item { EmptyState(if (search.isBlank()) "No folders or validated Turnip ZIPs in this location" else "No matching folders or validated Turnip ZIPs") }
                             }
                         }
+                        SoftScrollIntersectionShadows(showTopFade, showBottomFade, Modifier.fillMaxSize(), edgeColor = VulkanSurfaceRaised)
                         ExpressiveScrollHints(listState, Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 6.dp))
                     }
                 }
@@ -10844,37 +11836,155 @@ private fun TurnipFileManagerSelectionSummary(state: TurnipFileManagerState) {
 }
 
 @Composable
-private fun TurnipFileManagerViewModeButtons(state: TurnipFileManagerState, onViewMode: (TurnipFileManagerViewMode) -> Unit, modifier: Modifier = Modifier) {
-    val outerShape = RoundedCornerShape(22.dp)
-    Surface(modifier = modifier.clip(outerShape), shape = outerShape, color = VulkanSurfaceLow, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant)) {
-        Row(Modifier.fillMaxWidth().padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            TurnipFileManagerViewModeButton(R.drawable.ic_view_list, "List view", state.viewMode == TurnipFileManagerViewMode.LIST, !state.importing, Modifier.weight(1f)) { onViewMode(TurnipFileManagerViewMode.LIST) }
-            TurnipFileManagerViewModeButton(R.drawable.ic_view_compact, "Compact view", state.viewMode == TurnipFileManagerViewMode.COMPACT, !state.importing, Modifier.weight(1f)) { onViewMode(TurnipFileManagerViewMode.COMPACT) }
-            TurnipFileManagerViewModeButton(R.drawable.ic_view_grid, "Grid view", state.viewMode == TurnipFileManagerViewMode.GRID, !state.importing, Modifier.weight(1f)) { onViewMode(TurnipFileManagerViewMode.GRID) }
-            TurnipFileManagerViewModeButton(R.drawable.ic_view_details, "Details view", state.viewMode == TurnipFileManagerViewMode.DETAILS, !state.importing, Modifier.weight(1f)) { onViewMode(TurnipFileManagerViewMode.DETAILS) }
+private fun FileManagerOptionsChooser(
+    viewMode: FileManagerViewMode,
+    sortMode: FileManagerSortMode,
+    onViewMode: (FileManagerViewMode) -> Unit,
+    onSortMode: (FileManagerSortMode) -> Unit,
+    enabled: Boolean,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier, contentAlignment = Alignment.CenterEnd) {
+        Box(Modifier.size(50.dp), contentAlignment = Alignment.Center) {
+            HeaderActionButton(
+                icon = fileManagerViewModeIcon(viewMode),
+                contentDescription = "View and sort files and folders",
+                onClick = { if (enabled) expanded = true },
+                modifier = Modifier.size(48.dp),
+                enabled = enabled,
+                size = 48.dp
+            )
+            Surface(
+                shape = CircleShape,
+                color = VulkanAccentContainer,
+                contentColor = VulkanAccentSoft,
+                border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.38f)),
+                modifier = Modifier.align(Alignment.BottomEnd).size(20.dp)
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(painterResource(fileManagerSortModeIcon(sortMode)), contentDescription = null, modifier = Modifier.size(12.dp))
+                }
+            }
         }
-    }
-}
-
-@Composable
-private fun TurnipFileManagerViewModeButton(icon: Int, description: String, selected: Boolean, enabled: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(17.dp)
-    val scale by animateFloatAsState(if (selected) 1f else 0.96f, animationSpec = tween(160), label = "turnipViewModeScale")
-    Surface(
-        modifier = modifier.graphicsLayer(scaleX = scale, scaleY = scale).clip(shape).clickable(enabled = enabled, role = Role.RadioButton, onClick = onClick),
-        shape = shape,
-        color = if (selected) VulkanAccentContainer else ComposeColor.Transparent,
-        contentColor = if (selected) VulkanAccentSoft else VulkanTextSecondary
-    ) {
-        Box(Modifier.fillMaxWidth().heightIn(min = 44.dp), contentAlignment = Alignment.Center) {
-            Icon(painterResource(icon), contentDescription = description, modifier = Modifier.size(21.dp))
-            AnimatedVisibility(visible = selected, enter = fadeIn(tween(120)) + scaleIn(tween(140), initialScale = 0.7f), exit = fadeOut(tween(90)) + scaleOut(tween(110), targetScale = 0.7f), modifier = Modifier.align(Alignment.TopEnd)) {
-                Surface(shape = RoundedCornerShape(999.dp), color = VulkanAccentSoft, contentColor = VulkanSurface, modifier = Modifier.padding(4.dp)) {
-                    Icon(painterResource(R.drawable.ic_check), contentDescription = null, modifier = Modifier.padding(2.dp).size(8.dp))
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            containerColor = VulkanSurfaceRaised,
+            tonalElevation = 8.dp,
+            shadowElevation = 14.dp,
+            shape = RoundedCornerShape(22.dp),
+            modifier = Modifier.widthIn(min = 292.dp, max = 340.dp)
+        ) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    HeaderActionButton(
+                        icon = R.drawable.ic_close,
+                        contentDescription = "Close view and sort menu",
+                        onClick = { expanded = false },
+                        enabled = true,
+                        size = 36.dp
+                    )
+                    Text(fileManagerViewModeLabel(viewMode), color = VulkanAccentSoft, style = MaterialTheme.typography.labelMedium)
+                }
+                HorizontalDivider(color = VulkanOutlineVariant)
+                FileManagerViewMode.entries.chunked(3).forEach { rowModes ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        rowModes.forEach { mode ->
+                            val selected = mode == viewMode
+                            val tileShape = RoundedCornerShape(16.dp)
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(tileShape)
+                                    .background(if (selected) VulkanAccentContainer else ComposeColor.Transparent)
+                                    .clickable(enabled = enabled, role = Role.Button) { onViewMode(mode) }
+                                    .padding(horizontal = 6.dp, vertical = 9.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    painterResource(fileManagerViewModeIcon(mode)),
+                                    contentDescription = fileManagerViewModeLabel(mode),
+                                    tint = if (selected) VulkanAccentSoft else VulkanTextPrimary,
+                                    modifier = Modifier.size(27.dp)
+                                )
+                                Text(
+                                    fileManagerViewModeLabel(mode),
+                                    color = if (selected) VulkanTextPrimary else VulkanTextSecondary,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Box(Modifier.width(34.dp).height(3.dp).clip(RoundedCornerShape(99.dp)).background(if (selected) VulkanAccentSoft else ComposeColor.Transparent))
+                            }
+                        }
+                        repeat(3 - rowModes.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                }
+                HorizontalDivider(color = VulkanOutlineVariant)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Sort", color = VulkanTextPrimary, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(fileManagerSortLabel(sortMode), color = VulkanAccentSoft, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                FileManagerSortMode.entries.forEach { candidate ->
+                    val selected = candidate == sortMode
+                    val rowShape = RoundedCornerShape(14.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(rowShape)
+                            .background(if (selected) VulkanAccentContainer.copy(alpha = 0.72f) else ComposeColor.Transparent)
+                            .clickable(enabled = enabled, role = Role.Button) { onSortMode(candidate) }
+                            .padding(horizontal = 10.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            painterResource(fileManagerSortModeIcon(candidate)),
+                            contentDescription = fileManagerSortLabel(candidate),
+                            tint = if (selected) VulkanAccentSoft else VulkanTextSecondary,
+                            modifier = Modifier.size(19.dp)
+                        )
+                        Text(fileManagerSortLabel(candidate), color = if (selected) VulkanAccentSoft else VulkanTextPrimary, modifier = Modifier.weight(1f), fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+                        if (selected) {
+                            Icon(painterResource(R.drawable.ic_check), contentDescription = null, tint = VulkanAccentSoft, modifier = Modifier.size(17.dp))
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+private fun fileManagerViewModeIcon(mode: FileManagerViewMode): Int = when (mode) {
+    FileManagerViewMode.LIST -> R.drawable.ic_view_list
+    FileManagerViewMode.COMPACT -> R.drawable.ic_view_compact
+    FileManagerViewMode.DETAILS -> R.drawable.ic_view_details
+    FileManagerViewMode.GRID -> R.drawable.ic_view_grid
+    FileManagerViewMode.DENSE_GRID -> R.drawable.ic_view_grid_dense
+    FileManagerViewMode.LARGE_GRID -> R.drawable.ic_view_tiles_large
+}
+
+private fun fileManagerViewModeLabel(mode: FileManagerViewMode): String = when (mode) {
+    FileManagerViewMode.LIST -> "List"
+    FileManagerViewMode.COMPACT -> "Compact list"
+    FileManagerViewMode.DETAILS -> "Detailed list"
+    FileManagerViewMode.GRID -> "Grid"
+    FileManagerViewMode.DENSE_GRID -> "Dense grid"
+    FileManagerViewMode.LARGE_GRID -> "Large tiles"
+}
+
+private fun fileManagerSortModeIcon(mode: FileManagerSortMode): Int = when (mode) {
+    FileManagerSortMode.NAME_ASC -> R.drawable.ic_sort_name_asc
+    FileManagerSortMode.NAME_DESC -> R.drawable.ic_sort_name_desc
+    FileManagerSortMode.MODIFIED_NEWEST -> R.drawable.ic_sort_modified_newest
+    FileManagerSortMode.MODIFIED_OLDEST -> R.drawable.ic_sort_modified_oldest
+    FileManagerSortMode.CREATED_NEWEST -> R.drawable.ic_sort_created_newest
+    FileManagerSortMode.CREATED_OLDEST -> R.drawable.ic_sort_created_oldest
 }
 
 @Composable
@@ -10898,12 +12008,13 @@ private fun MesaOfficialLogoBadge(size: Dp, muted: Boolean = false, modifier: Mo
 
 @Composable
 private fun FileManagerNavigateArrow(enabled: Boolean, description: String, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(18.dp)
     Surface(
         shape = shape,
-        color = if (enabled) VulkanAccentContainer else VulkanSurfaceLow,
+        color = if (enabled) ComposeColor(0xFF31181B) else VulkanSurfaceLow,
         contentColor = if (enabled) VulkanAccentSoft else VulkanTextMuted,
-        modifier = Modifier.size(44.dp).clip(shape).clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (enabled) VulkanAccentSoft.copy(alpha = 0.24f) else VulkanOutlineVariant),
+        modifier = Modifier.size(46.dp).clip(shape).clickable(enabled = enabled, role = Role.Button, onClick = onClick)
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = description, modifier = Modifier.size(21.dp))
@@ -10958,37 +12069,84 @@ private fun TurnipFileManagerCandidateRow(candidate: TurnipArchiveCandidate, sel
 }
 
 @Composable
-private fun TurnipFileManagerFolderGridCard(path: String, enabled: Boolean, onOpen: () -> Unit) {
+private fun TurnipFileManagerFolderGridCard(path: String, enabled: Boolean, dense: Boolean, large: Boolean, onOpen: () -> Unit) {
     val shape = MaterialTheme.shapes.large
+    if (large) {
+        Surface(shape = shape, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant), modifier = Modifier.fillMaxWidth()) {
+            Row(
+                Modifier.fillMaxWidth().padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Surface(shape = RoundedCornerShape(18.dp), color = ComposeColor(0xFF2A2418), contentColor = ComposeColor(0xFFFFC857)) {
+                    Icon(painterResource(R.drawable.ic_folder), contentDescription = null, modifier = Modifier.padding(10.dp).size(38.dp))
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(File(path).name.ifBlank { path }, color = VulkanTextPrimary, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text("Folder", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                }
+                FileManagerNavigateArrow(enabled = enabled, description = "Open folder") { onOpen() }
+            }
+        }
+        return
+    }
+    val padding = if (dense) 6.dp else 12.dp
+    val iconSize = if (dense) 18.dp else 30.dp
+    val titleStyle = if (dense) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge
     Surface(shape = shape, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.fillMaxWidth().padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Surface(shape = RoundedCornerShape(18.dp), color = ComposeColor(0xFF2A2418), contentColor = ComposeColor(0xFFFFC857)) { Icon(painterResource(R.drawable.ic_folder), contentDescription = null, modifier = Modifier.padding(10.dp).size(30.dp)) }
-            Text(File(path).name.ifBlank { path }, color = VulkanTextPrimary, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text("Folder", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
-            FileManagerNavigateArrow(enabled = enabled, description = "Open folder") { onOpen() }
+        Column(
+            Modifier.fillMaxWidth().padding(padding),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(if (dense) 5.dp else 8.dp)
+        ) {
+            Surface(shape = RoundedCornerShape(if (dense) 12.dp else 18.dp), color = ComposeColor(0xFF2A2418), contentColor = ComposeColor(0xFFFFC857)) {
+                Icon(painterResource(R.drawable.ic_folder), contentDescription = null, modifier = Modifier.padding(if (dense) 6.dp else 10.dp).size(iconSize))
+            }
+            Text(File(path).name.ifBlank { path }, color = VulkanTextPrimary, fontWeight = FontWeight.SemiBold, style = titleStyle, textAlign = TextAlign.Center, maxLines = if (dense) 1 else 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
+            if (!dense) Text("Folder", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                FileManagerNavigateArrow(enabled = enabled, description = "Open folder") { onOpen() }
+            }
         }
     }
 }
 
 @Composable
-private fun TurnipFileManagerCandidateGridCard(candidate: TurnipArchiveCandidate, selected: Boolean, alreadyImported: Boolean, enabled: Boolean, onSelectedChange: () -> Unit, onDetails: () -> Unit) {
+private fun TurnipFileManagerCandidateGridCard(candidate: TurnipArchiveCandidate, selected: Boolean, alreadyImported: Boolean, enabled: Boolean, dense: Boolean, large: Boolean, onSelectedChange: () -> Unit, onDetails: () -> Unit) {
     val shape = MaterialTheme.shapes.large
-    Surface(
-        modifier = Modifier.fillMaxWidth().alpha(if (alreadyImported) 0.56f else 1f).clip(shape).clickable(enabled = enabled, role = Role.Checkbox) { onSelectedChange() },
-        shape = shape,
-        color = if (alreadyImported) VulkanSurfaceLow else if (selected) VulkanAccentContainer else VulkanSurfaceTonal,
-        contentColor = if (alreadyImported) VulkanTextMuted else VulkanTextPrimary,
-        border = androidx.compose.foundation.BorderStroke(1.dp, if (selected && !alreadyImported) VulkanAccentSoft.copy(alpha = 0.58f) else VulkanOutlineVariant)
-    ) {
-        Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    val surfaceModifier = Modifier.fillMaxWidth().alpha(if (alreadyImported) 0.56f else 1f).clip(shape).clickable(enabled = enabled, role = Role.Checkbox) { onSelectedChange() }
+    if (large) {
+        Surface(modifier = surfaceModifier, shape = shape, color = if (alreadyImported) VulkanSurfaceLow else if (selected) VulkanAccentContainer else VulkanSurfaceTonal, contentColor = if (alreadyImported) VulkanTextMuted else VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, if (selected && !alreadyImported) VulkanAccentSoft.copy(alpha = 0.58f) else VulkanOutlineVariant)) {
+            Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                MesaOfficialLogoBadge(size = 44.dp, muted = alreadyImported)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(candidate.name, color = if (alreadyImported) VulkanTextMuted else ComposeColor(0xFF72DE91), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(candidate.driverVersion ?: candidate.packageVersion ?: "Version not exposed", color = VulkanTextSecondary, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(candidate.driverName ?: candidate.libraryName, color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    if (alreadyImported) Text("Already imported", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Checkbox(checked = selected, onCheckedChange = { onSelectedChange() }, enabled = enabled, colors = CheckboxDefaults.colors(checkedColor = VulkanAccent, checkmarkColor = VulkanTextPrimary, uncheckedColor = VulkanOutline, disabledUncheckedColor = VulkanOutlineVariant))
+                    IconButton(onClick = onDetails, enabled = enabled, colors = IconButtonDefaults.iconButtonColors(containerColor = VulkanSurfaceLow, contentColor = VulkanAccentSoft, disabledContainerColor = VulkanSurfaceLow, disabledContentColor = VulkanTextMuted), modifier = Modifier.size(42.dp)) {
+                        Icon(painterResource(R.drawable.ic_info), contentDescription = "Turnip package info", modifier = Modifier.size(20.dp))
+                    }
+                }
+            }
+        }
+        return
+    }
+    val padding = if (dense) 6.dp else 10.dp
+    val titleStyle = if (dense) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge
+    Surface(modifier = surfaceModifier, shape = shape, color = if (alreadyImported) VulkanSurfaceLow else if (selected) VulkanAccentContainer else VulkanSurfaceTonal, contentColor = if (alreadyImported) VulkanTextMuted else VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, if (selected && !alreadyImported) VulkanAccentSoft.copy(alpha = 0.58f) else VulkanOutlineVariant)) {
+        Column(Modifier.fillMaxWidth().padding(padding), verticalArrangement = Arrangement.spacedBy(if (dense) 5.dp else 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 Checkbox(checked = selected, onCheckedChange = { onSelectedChange() }, enabled = enabled, colors = CheckboxDefaults.colors(checkedColor = VulkanAccent, checkmarkColor = VulkanTextPrimary, uncheckedColor = VulkanOutline, disabledUncheckedColor = VulkanOutlineVariant))
-                IconButton(onClick = onDetails, enabled = enabled, colors = IconButtonDefaults.iconButtonColors(containerColor = VulkanSurfaceLow, contentColor = VulkanAccentSoft, disabledContainerColor = VulkanSurfaceLow, disabledContentColor = VulkanTextMuted), modifier = Modifier.size(42.dp)) { Icon(painterResource(R.drawable.ic_info), contentDescription = "Turnip package info", modifier = Modifier.size(20.dp)) }
+                IconButton(onClick = onDetails, enabled = enabled, colors = IconButtonDefaults.iconButtonColors(containerColor = VulkanSurfaceLow, contentColor = VulkanAccentSoft, disabledContainerColor = VulkanSurfaceLow, disabledContentColor = VulkanTextMuted), modifier = Modifier.size(if (dense) 36.dp else 42.dp)) { Icon(painterResource(R.drawable.ic_info), contentDescription = "Turnip package info", modifier = Modifier.size(if (dense) 17.dp else 20.dp)) }
             }
-            MesaOfficialLogoBadge(size = 38.dp, muted = alreadyImported, modifier = Modifier.align(Alignment.CenterHorizontally))
-            Text(candidate.name, color = if (alreadyImported) VulkanTextMuted else ComposeColor(0xFF72DE91), fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
+            MesaOfficialLogoBadge(size = if (dense) 24.dp else 38.dp, muted = alreadyImported)
+            Text(candidate.name, color = if (alreadyImported) VulkanTextMuted else ComposeColor(0xFF72DE91), fontWeight = FontWeight.Bold, style = titleStyle, textAlign = TextAlign.Center, maxLines = if (dense) 1 else 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
             if (alreadyImported) Text("Already imported", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-            Text(candidate.driverVersion ?: candidate.packageVersion ?: "Version not exposed", color = VulkanTextSecondary, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
+            if (!dense) Text(candidate.driverVersion ?: candidate.packageVersion ?: "Version not exposed", color = VulkanTextSecondary, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
         }
     }
 }
@@ -10997,6 +12155,7 @@ private fun TurnipFileManagerCandidateGridCard(candidate: TurnipArchiveCandidate
 @Composable
 private fun TurnipArchiveCandidateDetailsDialog(candidate: TurnipArchiveCandidate, onDismiss: () -> Unit) {
     AlertDialog(
+            modifier = Modifier.border(1.dp, VulkanAccentSoft.copy(alpha = 0.46f), MaterialTheme.shapes.extraLarge),
         onDismissRequest = onDismiss,
         containerColor = VulkanSurfaceRaised,
         titleContentColor = VulkanTextPrimary,
@@ -11092,12 +12251,25 @@ private fun SharedStorageBrowserDialog(
 ) {
     val root = remember { runCatching { sharedStorageRoot() }.getOrNull() }
     val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val suppressDesktopSecondaryInput = remember(context) { isChromeOsRuntime(context) || isAndroidPcFormFactor(context) }
+    val browserPrefs = remember(context) { context.getSharedPreferences("file_manager_ui", Context.MODE_PRIVATE) }
     var directoryPath by remember(request.title) { mutableStateOf(root?.path.orEmpty()) }
     var listing by remember(request.title) { mutableStateOf(SharedStorageDirectoryListing(emptyList(), emptyList(), false)) }
     var loading by remember(request.title) { mutableStateOf(root != null) }
     var busy by remember(request.title) { mutableStateOf(false) }
     var status by remember(request.title) { mutableStateOf<String?>(if (root == null) "Shared storage is unavailable" else null) }
     var search by remember(request.title, directoryPath) { mutableStateOf("") }
+    var viewMode by remember {
+        mutableStateOf(runCatching {
+            FileManagerViewMode.valueOf(browserPrefs.getString("shared_storage_file_manager_view_mode", FileManagerViewMode.LIST.name) ?: FileManagerViewMode.LIST.name)
+        }.getOrDefault(FileManagerViewMode.LIST))
+    }
+    var sortMode by remember {
+        mutableStateOf(runCatching {
+            FileManagerSortMode.valueOf(browserPrefs.getString("shared_storage_file_manager_sort_mode", FileManagerSortMode.NAME_ASC.name) ?: FileManagerSortMode.NAME_ASC.name)
+        }.getOrDefault(FileManagerSortMode.NAME_ASC))
+    }
     val exportExtension = remember(request.mode, request.allowedExtensions) {
         if (request.mode == SharedStorageBrowserMode.EXPORT) request.allowedExtensions.singleOrNull()?.lowercase(java.util.Locale.ROOT) else null
     }
@@ -11116,14 +12288,14 @@ private fun SharedStorageBrowserDialog(
     val density = LocalDensity.current
     val imeVisible = WindowInsets.ime.getBottom(density) > 0
 
-    LaunchedEffect(directoryPath, request.mode, request.allowedExtensions) {
+    LaunchedEffect(directoryPath, request.mode, request.allowedExtensions, sortMode) {
         val scanRoot = root ?: return@LaunchedEffect
         val target = directory ?: return@LaunchedEffect
         loading = true
         status = null
         listing = SharedStorageDirectoryListing(emptyList(), emptyList(), false)
         try {
-            val scanned = withContext(Dispatchers.IO) { scanSharedStorageDirectory(scanRoot, target, request.allowedExtensions, request.mode == SharedStorageBrowserMode.IMPORT) }
+            val scanned = withContext(Dispatchers.IO) { scanSharedStorageDirectory(scanRoot, target, request.allowedExtensions, request.mode == SharedStorageBrowserMode.IMPORT, sortMode) }
             listing = scanned
             if (scanned.entryLimitReached) status = "This folder reached the bounded 4096-entry scan limit."
         } catch (cancelled: CancellationException) {
@@ -11156,128 +12328,203 @@ private fun SharedStorageBrowserDialog(
         }
     }
 
+    fun runImport(entry: SharedStorageFileEntry) {
+        if (busy) return
+        busy = true
+        status = "Validating ${entry.name}…"
+        scope.launch {
+            val result = try { onImport(File(entry.path)) }
+            catch (cancelled: CancellationException) { busy = false; throw cancelled }
+            catch (error: Throwable) { Result.failure(error) }
+            busy = false
+            result.onSuccess { status = it; onDismiss() }.onFailure { status = it.message ?: "Import failed" }
+        }
+    }
+
     BackHandler(enabled = !busy) {
         if (imeVisible) focusManager.clearFocus(force = true)
         else if (!atRoot) navigateUp()
         else onDismiss()
     }
+
+    val headerContent: @Composable () -> Unit = {
+        Surface(shape = MaterialTheme.shapes.extraLarge, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant)) {
+            Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AnimatedHeaderActionButton(
+                    visible = !atRoot,
+                    icon = R.drawable.ic_back,
+                    contentDescription = "Parent folder",
+                    onClick = ::navigateUp,
+                    enabled = !loading && !busy,
+                    buttonSize = 42.dp,
+                    slotSize = 50.dp
+                )
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(request.title, color = VulkanTextPrimary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(directoryPath.ifBlank { "Shared storage unavailable" }, color = VulkanTextSecondary, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                HeaderActionButton(icon = R.drawable.ic_close, contentDescription = "Close", onClick = onDismiss, enabled = !busy)
+            }
+        }
+    }
+
+    val descriptionContent: @Composable () -> Unit = {
+        Surface(shape = MaterialTheme.shapes.large, color = VulkanSurfaceLow, contentColor = VulkanTextSecondary) {
+            Text(request.description, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+
+    val searchContent: @Composable () -> Unit = {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ExpressiveSearchField(
+                value = search,
+                onValueChange = { search = it.take(120) },
+                modifier = Modifier.weight(1f),
+                enabled = !busy,
+                labelText = if (request.mode == SharedStorageBrowserMode.IMPORT) "Search folders and files" else "Search folders",
+                placeholderText = if (request.mode == SharedStorageBrowserMode.IMPORT) "Folders and supported files" else "Folders"
+            )
+            FileManagerOptionsChooser(
+                viewMode = viewMode,
+                sortMode = sortMode,
+                onViewMode = { mode ->
+                    viewMode = mode
+                    browserPrefs.edit().putString("shared_storage_file_manager_view_mode", mode.name).apply()
+                },
+                onSortMode = { mode ->
+                    sortMode = mode
+                    browserPrefs.edit().putString("shared_storage_file_manager_sort_mode", mode.name).apply()
+                },
+                enabled = !busy,
+                modifier = Modifier.width(50.dp)
+            )
+        }
+    }
+
+    val exportNameContent: @Composable () -> Unit = {
+        if (request.mode == SharedStorageBrowserMode.EXPORT) {
+            Surface(shape = MaterialTheme.shapes.large, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant)) {
+                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("File name", color = VulkanTextSecondary, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = filenameBase,
+                            onValueChange = { value -> filenameBase = value.take(160).filterNot { it == '/' || it == '\\' || it.code < 0x20 } },
+                            modifier = Modifier.weight(1f),
+                            enabled = !busy,
+                            singleLine = true,
+                            label = { Text("Name") },
+                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = VulkanAccentSoft, unfocusedBorderColor = VulkanOutline, focusedTextColor = VulkanTextPrimary, unfocusedTextColor = VulkanTextPrimary, cursorColor = VulkanAccentSoft)
+                        )
+                        Surface(shape = RoundedCornerShape(16.dp), color = VulkanAccentContainer, contentColor = VulkanAccentSoft, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.35f))) {
+                            Text(exportExtension?.let { ".$it" } ?: "type", modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp), color = VulkanAccentSoft, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+                        }
+                    }
+                    Text("The file type is fixed for this export; only the name can be changed.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+    }
+
+    val statusContent: @Composable () -> Unit = {
+        status?.let { message ->
+            val warning = message.contains("failed", true) || message.contains("invalid", true) || message.contains("unavailable", true) || message.contains("limit", true)
+            Surface(shape = MaterialTheme.shapes.medium, color = if (warning) ComposeColor(0xFF2A2115) else VulkanSurfaceTonal, contentColor = if (warning) ComposeColor(0xFFFFC857) else VulkanTextSecondary, border = androidx.compose.foundation.BorderStroke(1.dp, if (warning) ComposeColor(0xFF55401E) else VulkanOutlineVariant)) {
+                Text(message, modifier = Modifier.fillMaxWidth().padding(10.dp), color = if (warning) ComposeColor(0xFFFFC857) else VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+
+    val footerContent: @Composable () -> Unit = {
+        Surface(shape = MaterialTheme.shapes.extraLarge, color = VulkanSurfaceLow, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant)) {
+            Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    if (request.mode == SharedStorageBrowserMode.IMPORT) "Only ${request.allowedExtensions.joinToString { ".$it" }} files are shown. Selection is revalidated before import." else "Choose a folder and name. Saving uses an atomic temporary write and asks before replacing an existing file.",
+                    modifier = Modifier.weight(1f), color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall
+                )
+                if (busy) LoadingIndicator(color = VulkanAccentSoft, modifier = Modifier.size(30.dp))
+                else if (request.mode == SharedStorageBrowserMode.EXPORT) {
+                    ExpressiveContainedIconTextButton("Save", R.drawable.ic_save, enabled = root != null && directory != null && filenameBase.trim().isNotBlank() && exportExtension != null) {
+                        val extension = exportExtension ?: return@ExpressiveContainedIconTextButton
+                        val fixedName = "${filenameBase.trim()}.$extension"
+                        val target = try { validatedSharedStorageDestination(directory ?: return@ExpressiveContainedIconTextButton, fixedName, setOf(extension)) }
+                        catch (error: Throwable) { status = error.message ?: "Invalid destination"; return@ExpressiveContainedIconTextButton }
+                        if (target.exists()) pendingOverwrite = target else runExport(target)
+                    }
+                }
+            }
+        }
+    }
+
     Dialog(onDismissRequest = { if (!busy) onDismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = false, dismissOnClickOutside = false)) {
         Surface(
-            modifier = Modifier.fillMaxSize().padding(10.dp),
+            modifier = Modifier.fillMaxSize().padding(10.dp).consumeDesktopSecondaryMouseInput(suppressDesktopSecondaryInput),
             shape = MaterialTheme.shapes.extraLarge,
             color = VulkanSurfaceRaised,
             contentColor = VulkanTextPrimary,
-            border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant),
+            border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.46f)),
             tonalElevation = 8.dp,
             shadowElevation = 10.dp
         ) {
-            Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Surface(shape = MaterialTheme.shapes.extraLarge, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant)) {
-                    Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        IconButton(onClick = ::navigateUp, enabled = !atRoot && !loading && !busy, colors = IconButtonDefaults.iconButtonColors(containerColor = VulkanSurfaceLow, contentColor = VulkanTextPrimary, disabledContainerColor = VulkanSurfaceLow, disabledContentColor = VulkanTextMuted)) {
-                            Icon(painterResource(R.drawable.ic_back), contentDescription = "Parent folder")
+            BoxWithConstraints(Modifier.fillMaxSize().padding(16.dp)) {
+                val landscapeLayout = maxWidth > maxHeight && maxWidth >= 700.dp
+                if (landscapeLayout) {
+                    val controlsScrollState = rememberScrollState()
+                    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(
+                            Modifier
+                                .weight(0.42f)
+                                .fillMaxHeight()
+                                .desktopVerticalPointerScroll(controlsScrollState)
+                                .verticalScroll(controlsScrollState),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            headerContent()
+                            descriptionContent()
+                            searchContent()
+                            exportNameContent()
+                            statusContent()
+                            footerContent()
                         }
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(request.title, color = VulkanTextPrimary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                            Text(directoryPath.ifBlank { "Shared storage unavailable" }, color = VulkanTextSecondary, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        }
-                        IconButton(onClick = onDismiss, enabled = !busy, colors = IconButtonDefaults.iconButtonColors(containerColor = VulkanSurfaceLow, contentColor = VulkanTextPrimary, disabledContainerColor = VulkanSurfaceLow, disabledContentColor = VulkanTextMuted)) {
-                            Icon(painterResource(R.drawable.ic_close), contentDescription = "Close")
-                        }
-                    }
-                }
-
-                Surface(shape = MaterialTheme.shapes.large, color = VulkanSurfaceLow, contentColor = VulkanTextSecondary) {
-                    Text(request.description, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-                }
-
-                ExpressiveSearchField(
-                    value = search,
-                    onValueChange = { search = it.take(120) },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !busy,
-                    labelText = if (request.mode == SharedStorageBrowserMode.IMPORT) "Search folders and files" else "Search folders",
-                    placeholderText = if (request.mode == SharedStorageBrowserMode.IMPORT) "Folders and supported files" else "Folders"
-                )
-
-                if (request.mode == SharedStorageBrowserMode.EXPORT) {
-                    Surface(shape = MaterialTheme.shapes.large, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant)) {
-                        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("File name", color = VulkanTextSecondary, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedTextField(
-                                    value = filenameBase,
-                                    onValueChange = { value -> filenameBase = value.take(160).filterNot { it == '/' || it == '\\' || it.code < 0x20 } },
-                                    modifier = Modifier.weight(1f),
-                                    enabled = !busy,
-                                    singleLine = true,
-                                    label = { Text("Name") },
-                                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = VulkanAccentSoft, unfocusedBorderColor = VulkanOutline, focusedTextColor = VulkanTextPrimary, unfocusedTextColor = VulkanTextPrimary, cursorColor = VulkanAccentSoft)
-                                )
-                                Surface(shape = RoundedCornerShape(16.dp), color = VulkanAccentContainer, contentColor = VulkanAccentSoft, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.35f))) {
-                                    Text(exportExtension?.let { ".$it" } ?: "type", modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp), color = VulkanAccentSoft, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
-                                }
-                            }
-                            Text("The file type is fixed for this export; only the name can be changed.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                        Surface(
+                            modifier = Modifier.weight(0.58f).fillMaxHeight(),
+                            shape = MaterialTheme.shapes.extraLarge,
+                            color = VulkanSurfaceLow,
+                            contentColor = VulkanTextPrimary,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant)
+                        ) {
+                            SharedStorageBrowserListing(
+                                loading = loading,
+                                viewMode = viewMode,
+                                filteredFolders = filteredFolders,
+                                filteredFiles = filteredFiles,
+                                mode = request.mode,
+                                busy = busy,
+                                onNavigate = { directoryPath = it },
+                                onImport = ::runImport,
+                                modifier = Modifier.fillMaxSize().padding(8.dp)
+                            )
                         }
                     }
-                }
-
-                status?.let { message ->
-                    val warning = message.contains("failed", true) || message.contains("invalid", true) || message.contains("unavailable", true) || message.contains("limit", true)
-                    Surface(shape = MaterialTheme.shapes.medium, color = if (warning) ComposeColor(0xFF2A2115) else VulkanSurfaceTonal, contentColor = if (warning) ComposeColor(0xFFFFC857) else VulkanTextSecondary, border = androidx.compose.foundation.BorderStroke(1.dp, if (warning) ComposeColor(0xFF55401E) else VulkanOutlineVariant)) {
-                        Text(message, modifier = Modifier.fillMaxWidth().padding(10.dp), color = if (warning) ComposeColor(0xFFFFC857) else VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-
-                Box(Modifier.weight(1f).fillMaxWidth()) {
-                    if (loading) {
-                        Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            LoadingIndicator(color = VulkanAccentSoft)
-                            Text("Reading shared storage…", color = VulkanTextSecondary)
-                        }
-                    } else {
-                        val listState = rememberLazyListState()
-                        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().desktopVerticalPointerScroll(listState), verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 8.dp)) {
-                            items(filteredFolders, key = { "shared-folder:$it" }) { path -> SharedStorageFolderRow(path = path, enabled = !busy) { directoryPath = path } }
-                            if (request.mode == SharedStorageBrowserMode.IMPORT) {
-                                items(filteredFiles, key = { "shared-file:${it.path}" }) { entry ->
-                                    SharedStorageFileRow(entry = entry, enabled = !busy) {
-                                        if (busy) return@SharedStorageFileRow
-                                        busy = true
-                                        status = "Validating ${entry.name}…"
-                                        scope.launch {
-                                            val result = try { onImport(File(entry.path)) }
-                                            catch (cancelled: CancellationException) { busy = false; throw cancelled }
-                                            catch (error: Throwable) { Result.failure(error) }
-                                            busy = false
-                                            result.onSuccess { status = it; onDismiss() }.onFailure { status = it.message ?: "Import failed" }
-                                        }
-                                    }
-                                }
-                            }
-                            if (filteredFolders.isEmpty() && (request.mode == SharedStorageBrowserMode.EXPORT || filteredFiles.isEmpty())) item { EmptyState(if (search.isBlank()) "No matching folders or files in this location" else "No matching results") }
-                        }
-                        ExpressiveScrollHints(listState, Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 6.dp))
-                    }
-                }
-
-                Surface(shape = MaterialTheme.shapes.extraLarge, color = VulkanSurfaceLow, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant)) {
-                    Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            if (request.mode == SharedStorageBrowserMode.IMPORT) "Only ${request.allowedExtensions.joinToString { ".$it" }} files are shown. Selection is revalidated before import." else "Choose a folder and name. Saving uses an atomic temporary write and asks before replacing an existing file.",
-                            modifier = Modifier.weight(1f), color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall
+                } else {
+                    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        headerContent()
+                        descriptionContent()
+                        searchContent()
+                        exportNameContent()
+                        statusContent()
+                        SharedStorageBrowserListing(
+                            loading = loading,
+                            viewMode = viewMode,
+                            filteredFolders = filteredFolders,
+                            filteredFiles = filteredFiles,
+                            mode = request.mode,
+                            busy = busy,
+                            onNavigate = { directoryPath = it },
+                            onImport = ::runImport,
+                            modifier = Modifier.weight(1f).fillMaxWidth()
                         )
-                        if (busy) LoadingIndicator(color = VulkanAccentSoft, modifier = Modifier.size(30.dp))
-                        else if (request.mode == SharedStorageBrowserMode.EXPORT) {
-                            ExpressiveContainedIconTextButton("Save", R.drawable.ic_save, enabled = root != null && directory != null && filenameBase.trim().isNotBlank() && exportExtension != null) {
-                                val extension = exportExtension ?: return@ExpressiveContainedIconTextButton
-                                val fixedName = "${filenameBase.trim()}.$extension"
-                                val target = try { validatedSharedStorageDestination(directory ?: return@ExpressiveContainedIconTextButton, fixedName, setOf(extension)) }
-                                catch (error: Throwable) { status = error.message ?: "Invalid destination"; return@ExpressiveContainedIconTextButton }
-                                if (target.exists()) pendingOverwrite = target else runExport(target)
-                            }
-                        }
+                        footerContent()
                     }
                 }
             }
@@ -11286,6 +12533,7 @@ private fun SharedStorageBrowserDialog(
 
     pendingOverwrite?.let { target ->
         AlertDialog(
+            modifier = Modifier.border(1.dp, VulkanAccentSoft.copy(alpha = 0.46f), MaterialTheme.shapes.extraLarge),
             onDismissRequest = { if (!busy) pendingOverwrite = null },
             containerColor = VulkanSurfaceRaised,
             titleContentColor = VulkanTextPrimary,
@@ -11298,8 +12546,88 @@ private fun SharedStorageBrowserDialog(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun SharedStorageFolderRow(path: String, enabled: Boolean, onOpen: () -> Unit) {
+private fun SharedStorageBrowserListing(
+    loading: Boolean,
+    viewMode: FileManagerViewMode,
+    filteredFolders: List<String>,
+    filteredFiles: List<SharedStorageFileEntry>,
+    mode: SharedStorageBrowserMode,
+    busy: Boolean,
+    onNavigate: (String) -> Unit,
+    onImport: (SharedStorageFileEntry) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier) {
+        if (loading) {
+            Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                LoadingIndicator(color = VulkanAccentSoft)
+                Text("Reading shared storage…", color = VulkanTextSecondary)
+            }
+        } else if (viewMode in setOf(FileManagerViewMode.GRID, FileManagerViewMode.DENSE_GRID, FileManagerViewMode.LARGE_GRID)) {
+            val gridState = rememberLazyGridState()
+            val denseGrid = viewMode == FileManagerViewMode.DENSE_GRID
+            val largeGrid = viewMode == FileManagerViewMode.LARGE_GRID
+            val showTopFade by remember(gridState) { derivedStateOf { gridState.canScrollBackward } }
+            val showBottomFade by remember(gridState) { derivedStateOf { gridState.canScrollForward } }
+            val minimumCellWidth = when (viewMode) {
+                FileManagerViewMode.DENSE_GRID -> 92.dp
+                FileManagerViewMode.LARGE_GRID -> 228.dp
+                else -> 156.dp
+            }
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minimumCellWidth),
+                state = gridState,
+                modifier = Modifier.fillMaxSize().desktopVerticalPointerScroll(gridState),
+                horizontalArrangement = Arrangement.spacedBy(if (denseGrid) 6.dp else 8.dp),
+                verticalArrangement = Arrangement.spacedBy(if (denseGrid) 6.dp else if (largeGrid) 10.dp else 8.dp),
+                contentPadding = PaddingValues(bottom = 8.dp)
+            ) {
+                gridItems(filteredFolders, key = { "shared-folder:$it" }) { path ->
+                    SharedStorageFolderGridCard(path = path, enabled = !busy, dense = denseGrid, large = largeGrid) { onNavigate(path) }
+                }
+                if (mode == SharedStorageBrowserMode.IMPORT) {
+                    gridItems(filteredFiles, key = { "shared-file:${it.path}" }) { entry ->
+                        SharedStorageFileGridCard(entry = entry, enabled = !busy, dense = denseGrid, large = largeGrid) { onImport(entry) }
+                    }
+                }
+                if (filteredFolders.isEmpty() && (mode == SharedStorageBrowserMode.EXPORT || filteredFiles.isEmpty())) {
+                    item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) { EmptyState("No matching folders or files in this location") }
+                }
+            }
+            SoftScrollIntersectionShadows(showTopFade, showBottomFade, Modifier.fillMaxSize(), edgeColor = VulkanSurfaceRaised)
+            ExpressiveScrollHints(gridState, Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 6.dp))
+        } else {
+            val listState = rememberLazyListState()
+            val compact = viewMode == FileManagerViewMode.COMPACT
+            val details = viewMode == FileManagerViewMode.DETAILS
+            val showTopFade by remember(listState) { derivedStateOf { listState.canScrollBackward } }
+            val showBottomFade by remember(listState) { derivedStateOf { listState.canScrollForward } }
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize().desktopVerticalPointerScroll(listState),
+                verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp),
+                contentPadding = PaddingValues(bottom = 8.dp)
+            ) {
+                items(filteredFolders, key = { "shared-folder:$it" }) { path ->
+                    SharedStorageFolderRow(path = path, compact = compact, details = details, enabled = !busy) { onNavigate(path) }
+                }
+                if (mode == SharedStorageBrowserMode.IMPORT) {
+                    items(filteredFiles, key = { "shared-file:${it.path}" }) { entry ->
+                        SharedStorageFileRow(entry = entry, compact = compact, details = details, enabled = !busy) { onImport(entry) }
+                    }
+                }
+                if (filteredFolders.isEmpty() && (mode == SharedStorageBrowserMode.EXPORT || filteredFiles.isEmpty())) item { EmptyState("No matching folders or files in this location") }
+            }
+            SoftScrollIntersectionShadows(showTopFade, showBottomFade, Modifier.fillMaxSize(), edgeColor = VulkanSurfaceRaised)
+            ExpressiveScrollHints(listState, Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 6.dp))
+        }
+    }
+}
+
+@Composable
+private fun SharedStorageFolderRow(path: String, compact: Boolean, details: Boolean, enabled: Boolean, onOpen: () -> Unit) {
     val shape = MaterialTheme.shapes.large
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -11307,28 +12635,29 @@ private fun SharedStorageFolderRow(path: String, enabled: Boolean, onOpen: () ->
         color = VulkanSurfaceTonal,
         contentColor = VulkanTextPrimary,
         border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant),
-        tonalElevation = 1.dp
+        tonalElevation = if (compact) 0.dp else 1.dp
     ) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = if (compact) 8.dp else 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Surface(shape = RoundedCornerShape(14.dp), color = ComposeColor(0xFF2A2418), contentColor = ComposeColor(0xFFFFC857)) {
-                Icon(painterResource(R.drawable.ic_folder), contentDescription = null, modifier = Modifier.padding(8.dp).size(24.dp))
+                Icon(painterResource(R.drawable.ic_folder), contentDescription = null, modifier = Modifier.padding(if (compact) 7.dp else 8.dp).size(if (compact) 22.dp else 24.dp))
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(File(path).name.ifBlank { path }, color = VulkanTextPrimary, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text("Folder", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                Text(File(path).name.ifBlank { path }, color = VulkanTextPrimary, fontWeight = FontWeight.SemiBold, maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis)
+                if (!compact) Text(if (details) path else "Folder", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall, maxLines = if (details) 2 else 1, overflow = TextOverflow.Ellipsis)
             }
             FileManagerNavigateArrow(enabled = enabled, description = "Open folder", onClick = onOpen)
         }
     }
 }
 
+private fun sharedStorageFileIcon(entry: SharedStorageFileEntry): Int = when (entry.name.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)) {
+    "html", "htm" -> R.drawable.ic_action_html
+    "txt" -> R.drawable.ic_action_text
+    else -> R.drawable.ic_export
+}
+
 @Composable
-private fun SharedStorageFileRow(entry: SharedStorageFileEntry, enabled: Boolean, onSelect: () -> Unit) {
-    val icon = when (entry.name.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)) {
-        "html", "htm" -> R.drawable.ic_action_html
-        "txt" -> R.drawable.ic_action_text
-        else -> R.drawable.ic_export
-    }
+private fun SharedStorageFileRow(entry: SharedStorageFileEntry, compact: Boolean, details: Boolean, enabled: Boolean, onSelect: () -> Unit) {
     val shape = MaterialTheme.shapes.large
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -11336,17 +12665,77 @@ private fun SharedStorageFileRow(entry: SharedStorageFileEntry, enabled: Boolean
         color = VulkanSurfaceTonal,
         contentColor = VulkanTextPrimary,
         border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant),
-        tonalElevation = 1.dp
+        tonalElevation = if (compact) 0.dp else 1.dp
     ) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = if (compact) 8.dp else 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Surface(shape = RoundedCornerShape(14.dp), color = VulkanAccentContainer, contentColor = VulkanAccentSoft) {
-                Icon(painterResource(icon), contentDescription = null, modifier = Modifier.padding(8.dp).size(24.dp))
+                Icon(painterResource(sharedStorageFileIcon(entry)), contentDescription = null, modifier = Modifier.padding(if (compact) 7.dp else 8.dp).size(if (compact) 22.dp else 24.dp))
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(entry.name, color = VulkanTextPrimary, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text("${formatBytes(entry.sizeBytes)} · ${formatTimestampOrUnavailable(entry.modifiedAtMillis.takeIf { it > 0L })}", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(entry.name, color = VulkanTextPrimary, fontWeight = FontWeight.SemiBold, maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis)
+                if (!compact) Text("${formatBytes(entry.sizeBytes)} · ${formatTimestampOrUnavailable(entry.modifiedAtMillis.takeIf { it > 0L })}", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (details) Text("Created ${formatTimestampOrUnavailable(entry.createdAtMillis.takeIf { it > 0L })} · ${entry.path}", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
             }
             FileManagerNavigateArrow(enabled = enabled, description = "Select ${entry.name}", onClick = onSelect)
+        }
+    }
+}
+
+@Composable
+private fun SharedStorageFolderGridCard(path: String, enabled: Boolean, dense: Boolean, large: Boolean, onOpen: () -> Unit) {
+    val shape = MaterialTheme.shapes.large
+    if (large) {
+        Surface(shape = shape, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant), modifier = Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Surface(shape = RoundedCornerShape(18.dp), color = ComposeColor(0xFF2A2418), contentColor = ComposeColor(0xFFFFC857)) {
+                    Icon(painterResource(R.drawable.ic_folder), contentDescription = null, modifier = Modifier.padding(10.dp).size(38.dp))
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(File(path).name.ifBlank { path }, color = VulkanTextPrimary, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text("Folder", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                }
+                FileManagerNavigateArrow(enabled = enabled, description = "Open folder", onClick = onOpen)
+            }
+        }
+    } else {
+        Surface(shape = shape, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth().padding(if (dense) 8.dp else 11.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(if (dense) 5.dp else 8.dp)) {
+                Surface(shape = RoundedCornerShape(if (dense) 12.dp else 16.dp), color = ComposeColor(0xFF2A2418), contentColor = ComposeColor(0xFFFFC857)) {
+                    Icon(painterResource(R.drawable.ic_folder), contentDescription = null, modifier = Modifier.padding(if (dense) 7.dp else 9.dp).size(if (dense) 25.dp else 32.dp))
+                }
+                Text(File(path).name.ifBlank { path }, color = VulkanTextPrimary, fontWeight = FontWeight.SemiBold, style = if (dense) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
+                FileManagerNavigateArrow(enabled = enabled, description = "Open folder", onClick = onOpen)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SharedStorageFileGridCard(entry: SharedStorageFileEntry, enabled: Boolean, dense: Boolean, large: Boolean, onSelect: () -> Unit) {
+    val shape = MaterialTheme.shapes.large
+    if (large) {
+        Surface(shape = shape, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant), modifier = Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Surface(shape = RoundedCornerShape(18.dp), color = VulkanAccentContainer, contentColor = VulkanAccentSoft) {
+                    Icon(painterResource(sharedStorageFileIcon(entry)), contentDescription = null, modifier = Modifier.padding(10.dp).size(36.dp))
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(entry.name, color = VulkanTextPrimary, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text("${formatBytes(entry.sizeBytes)} · ${formatTimestampOrUnavailable(entry.modifiedAtMillis.takeIf { it > 0L })}", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                FileManagerNavigateArrow(enabled = enabled, description = "Select ${entry.name}", onClick = onSelect)
+            }
+        }
+    } else {
+        Surface(shape = shape, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth().padding(if (dense) 8.dp else 11.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(if (dense) 5.dp else 8.dp)) {
+                Surface(shape = RoundedCornerShape(if (dense) 12.dp else 16.dp), color = VulkanAccentContainer, contentColor = VulkanAccentSoft) {
+                    Icon(painterResource(sharedStorageFileIcon(entry)), contentDescription = null, modifier = Modifier.padding(if (dense) 7.dp else 9.dp).size(if (dense) 25.dp else 32.dp))
+                }
+                Text(entry.name, color = VulkanTextPrimary, fontWeight = FontWeight.SemiBold, style = if (dense) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
+                if (!dense) Text(formatBytes(entry.sizeBytes), color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                FileManagerNavigateArrow(enabled = enabled, description = "Select ${entry.name}", onClick = onSelect)
+            }
         }
     }
 }
@@ -11646,6 +13035,7 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
     val networkAvailable = LocalValidatedNetwork.current
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf("All") }
+    var page by rememberSaveable { mutableIntStateOf(0) }
     var selectedSupported by remember { mutableStateOf<ExtensionEntry?>(null) }
     var selectedCatalog by remember { mutableStateOf<String?>(null) }
     val supported = remember(report, device) {
@@ -11664,23 +13054,42 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
         if (filter == "Supported") emptyList() else catalog.filter { matchesExtensionExplorerQuery(it, "registry", false, query) }
     }
     val total = filteredSupported.size + filteredCatalog.size
+    val pageCount = maxOf(1, (total + COLLECTION_PAGE_SIZE - 1) / COLLECTION_PAGE_SIZE)
+    LaunchedEffect(query, filter) { page = 0 }
+    LaunchedEffect(total) { page = page.coerceIn(0, pageCount - 1) }
+    val pageStart = page * COLLECTION_PAGE_SIZE
+    val pageEnd = minOf(pageStart + COLLECTION_PAGE_SIZE, total)
+    val supportedStart = pageStart.coerceAtMost(filteredSupported.size)
+    val supportedEnd = pageEnd.coerceAtMost(filteredSupported.size)
+    val catalogStart = (pageStart - filteredSupported.size).coerceAtLeast(0).coerceAtMost(filteredCatalog.size)
+    val catalogEnd = (pageEnd - filteredSupported.size).coerceAtLeast(0).coerceAtMost(filteredCatalog.size)
+    val pageSupported = if (supportedEnd > supportedStart) filteredSupported.subList(supportedStart, supportedEnd) else emptyList()
+    val pageCatalog = if (catalogEnd > catalogStart) filteredCatalog.subList(catalogStart, catalogEnd) else emptyList()
     VulkanLazyPage(verticalSpacing = 7.dp) {
         item {
             CapabilitySectionCard("Extension explorer") {
-            Text("Runtime-enumerated extensions are shown exactly as reported. The checked-in registry-reference subset is supplementary and is never labeled unsupported.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
-            if (report.instanceExtensionStatus != "available") {
-                Text("Instance extension enumeration: ${report.instanceExtensionStatus.uppercase()}${if (report.instanceExtensionReason.isBlank()) "" else " — ${report.instanceExtensionReason}"}", color = evidenceStateAccent(report.instanceExtensionStatus), style = MaterialTheme.typography.bodySmall)
-            }
-            if (device != null && device.deviceExtensionStatus != "available") {
-                Text("Device extension enumeration: ${device.deviceExtensionStatus.uppercase()}${if (device.deviceExtensionReason.isBlank()) "" else " — ${device.deviceExtensionReason}"}", color = evidenceStateAccent(device.deviceExtensionStatus), style = MaterialTheme.typography.bodySmall)
-            }
-            ExpressiveSearchField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), placeholderText = "Search · vendor:KHR promoted:1.3 depends:VK_KHR command:vkGet enum:STRUCTURE handler:true")
-            val extensionFilters = listOf("All", "Supported", "Not enumerated")
-            ExpressiveFilterBar(extensionFilters, extensionFilters.indexOf(filter).coerceAtLeast(0)) { filter = extensionFilters[it] }
-            ExpressiveMetricGrid(listOf("Visible entries" to total.toString(), "Embedded reference subset" to EMBEDDED_EXTENSION_REFERENCE_NAMES.size.toString()), Modifier.padding(top = 4.dp))
+                Text("Runtime-enumerated extensions are shown exactly as reported. The checked-in registry-reference subset is supplementary and is never labeled unsupported.", color = ComposeColor(0xFFB6ACAE), style = MaterialTheme.typography.bodySmall)
+                if (report.instanceExtensionStatus != "available") {
+                    Text("Instance extension enumeration: ${report.instanceExtensionStatus.uppercase()}${if (report.instanceExtensionReason.isBlank()) "" else " — ${report.instanceExtensionReason}"}", color = evidenceStateAccent(report.instanceExtensionStatus), style = MaterialTheme.typography.bodySmall)
+                }
+                if (device != null && device.deviceExtensionStatus != "available") {
+                    Text("Device extension enumeration: ${device.deviceExtensionStatus.uppercase()}${if (device.deviceExtensionReason.isBlank()) "" else " — ${device.deviceExtensionReason}"}", color = evidenceStateAccent(device.deviceExtensionStatus), style = MaterialTheme.typography.bodySmall)
+                }
+                ExpressiveSearchField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), placeholderText = "Search · vendor:KHR promoted:1.3 depends:VK_KHR command:vkGet enum:STRUCTURE handler:true")
+                val extensionFilters = listOf("All", "Supported", "Not enumerated")
+                ExpressiveFilterBar(extensionFilters, extensionFilters.indexOf(filter).coerceAtLeast(0)) { filter = extensionFilters[it] }
+                ExpressiveMetricGrid(
+                    listOf(
+                        "Matching entries" to total.toString(),
+                        "Showing" to if (total == 0) "0" else "${pageStart + 1}-$pageEnd",
+                        "Embedded reference subset" to EMBEDDED_EXTENSION_REFERENCE_NAMES.size.toString()
+                    ),
+                    Modifier.padding(top = 4.dp)
+                )
             }
         }
-        items(filteredSupported, key = { "supported:${it.scope}:${it.name}:${it.specVersion}" }) { extension ->
+        stickyCollectionPager(totalItems = total, currentPage = page, onPageChange = { page = it })
+        itemsIndexed(pageSupported, key = { index, extension -> "supported:${extension.scope}:${extension.name}:${extension.specVersion}:${supportedStart + index}" }) { _, extension ->
             CapabilityItemCard(containerColor = VulkanSurfaceRaised) {
                 Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(extension.name, fontWeight = FontWeight.SemiBold)
@@ -11689,7 +13098,7 @@ private fun ExtensionsPage(report: VulkanReport, device: DeviceReport?) {
                 }
             }
         }
-        items(filteredCatalog, key = { "catalog:$it" }) { name ->
+        itemsIndexed(pageCatalog, key = { index, name -> "catalog:$name:${catalogStart + index}" }) { _, name ->
             CapabilityItemCard(containerColor = ComposeColor(0xFF211B12)) {
                 Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(name, fontWeight = FontWeight.SemiBold)
@@ -12252,7 +13661,7 @@ private fun reportToHtml(context: Context, report: VulkanReport, display: Displa
     val applicationAbi = detectInstalledAbi(context)
     val supportedDeviceAbis = Build.SUPPORTED_ABIS.joinToString(", ")
     val logoData = runCatching {
-        context.resources.openRawResource(R.drawable.vulkanscope_logo_horizontal).use { input ->
+        context.resources.openRawResource(R.drawable.vulkanscope_logo_horizontal_aligned).use { input ->
             Base64.encodeToString(input.readBytes(), Base64.NO_WRAP)
         }
     }.getOrNull()
@@ -12750,6 +14159,7 @@ private fun UpdateDialogKeyValue(key: String, value: String) {
 @Composable
 private fun DirectUpdatesConsentDialog(appName: String, releaseSource: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     AlertDialog(
+            modifier = Modifier.border(1.dp, VulkanAccentSoft.copy(alpha = 0.46f), MaterialTheme.shapes.extraLarge),
         onDismissRequest = onDismiss,
         shape = MaterialTheme.shapes.extraLarge,
         containerColor = VulkanSurfaceRaised,
@@ -12773,6 +14183,7 @@ private fun UpdateConfirmationDialog(update: AppUpdate, networkAvailable: Boolea
     val expandedTextLayout = preferExpandedTextLayout()
     val releaseNotesMaxHeight = if (expandedTextLayout) 220.dp else 360.dp
     AlertDialog(
+            modifier = Modifier.border(1.dp, VulkanAccentSoft.copy(alpha = 0.46f), MaterialTheme.shapes.extraLarge),
         onDismissRequest = onDismiss,
         shape = MaterialTheme.shapes.extraLarge,
         containerColor = VulkanSurfaceRaised,
@@ -12826,6 +14237,43 @@ private fun formatUpdateSpeedDisplay(bytesPerSecond: Long): String =
     if (bytesPerSecond <= 0L) "—" else "${formatUpdateBytesDisplay(bytesPerSecond)}/s"
 
 @Composable
+private fun ExpressiveDeterminateDownloadProgress(progress: Float, modifier: Modifier = Modifier) {
+    val target = progress.coerceIn(0f, 1f)
+    val animatedProgress by animateFloatAsState(targetValue = target, animationSpec = tween(180, easing = FastOutSlowInEasing), label = "updateDownloadProgress")
+    val shape = RoundedCornerShape(999.dp)
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(14.dp)
+                .clip(shape)
+                .background(ComposeColor(0xFF2A2022))
+        ) {
+            if (animatedProgress > 0f) {
+                Box(
+                    Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(animatedProgress)
+                        .clip(shape)
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(ComposeColor(0xFF7A171B), VulkanAccentSoft, ComposeColor(0xFFE2676A))
+                            )
+                        )
+                )
+            }
+        }
+        Text(
+            "${"%.1f".format(java.util.Locale.US, target * 100f)}%",
+            color = VulkanTextSecondary,
+            style = MaterialTheme.typography.labelMedium,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.align(Alignment.End)
+        )
+    }
+}
+
+@Composable
 private fun UpdateTransferDialog(
     state: UpdateTransferState,
     networkAvailable: Boolean,
@@ -12859,8 +14307,14 @@ private fun UpdateTransferDialog(
         !networkAvailable && state.phase in setOf(UpdateTransferPhase.CONNECTING, UpdateTransferPhase.DOWNLOADING) -> "Connection unavailable"
         else -> state.connectionStatus
     }
-    val progressText = state.totalBytes?.takeIf { it > 0L }?.let { total ->
-        val percent = ((state.bytesDownloaded.toDouble() / total.toDouble()) * 100.0).coerceIn(0.0, 100.0)
+    val progressTotal = state.totalBytes?.takeIf { it > 0L } ?: state.update.assetSizeBytes?.takeIf { it > 0L }
+    val progressFraction = when {
+        state.phase == UpdateTransferPhase.COMPLETED || state.phase == UpdateTransferPhase.VERIFYING -> 1f
+        progressTotal != null -> (state.bytesDownloaded.toDouble() / progressTotal.toDouble()).coerceIn(0.0, 1.0).toFloat()
+        else -> 0f
+    }
+    val progressText = progressTotal?.let { total ->
+        val percent = progressFraction * 100f
         "${formatUpdateBytesDisplay(state.bytesDownloaded)} / ${formatUpdateBytesDisplay(total)} (${"%.1f".format(java.util.Locale.US, percent)}%)"
     } ?: formatUpdateBytesDisplay(state.bytesDownloaded)
     val logState = rememberLazyListState()
@@ -12868,6 +14322,7 @@ private fun UpdateTransferDialog(
         if (state.log.isNotEmpty()) logState.animateScrollToItem(state.log.lastIndex)
     }
     AlertDialog(
+            modifier = Modifier.border(1.dp, VulkanAccentSoft.copy(alpha = 0.46f), MaterialTheme.shapes.extraLarge),
         onDismissRequest = { if (terminal) onClose() },
         shape = MaterialTheme.shapes.extraLarge,
         containerColor = VulkanSurfaceRaised,
@@ -12877,8 +14332,8 @@ private fun UpdateTransferDialog(
         title = { SemanticDialogTitle(title, titleIcon) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (state.phase in setOf(UpdateTransferPhase.CONNECTING, UpdateTransferPhase.DOWNLOADING, UpdateTransferPhase.VERIFYING)) {
-                    ExpressiveLinearProgressIndicator(Modifier.fillMaxWidth())
+                if (state.phase !in setOf(UpdateTransferPhase.CANCELED, UpdateTransferPhase.FAILED)) {
+                    ExpressiveDeterminateDownloadProgress(progressFraction, Modifier.fillMaxWidth())
                 }
                 Surface(shape = MaterialTheme.shapes.medium, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary) {
                     Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -12935,6 +14390,7 @@ private fun UpdateTransferDialog(
 @Composable
 private fun UpdateCancelConfirmationDialog(onResume: () -> Unit, onConfirmCancel: () -> Unit) {
     AlertDialog(
+            modifier = Modifier.border(1.dp, VulkanAccentSoft.copy(alpha = 0.46f), MaterialTheme.shapes.extraLarge),
         onDismissRequest = onResume,
         shape = MaterialTheme.shapes.extraLarge,
         containerColor = VulkanSurfaceRaised,
@@ -13241,51 +14697,86 @@ private fun ExpressiveSearchField(
     enabled: Boolean = true,
     placeholderText: String? = null
 ) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        modifier = modifier,
-        enabled = enabled,
-        singleLine = true,
-        shape = RoundedCornerShape(24.dp),
-        leadingIcon = {
-            Icon(
-                painter = painterResource(R.drawable.ic_search),
-                contentDescription = null,
-                modifier = Modifier.size(20.dp)
+    var focused by remember { mutableStateOf(false) }
+    val containerColor = if (focused) VulkanSurfaceTonal else VulkanSurfaceLow
+    val density = LocalDensity.current
+    BoxWithConstraints(modifier) {
+        val fontPx = with(density) { MaterialTheme.typography.bodyLarge.fontSize.toPx() }
+        val availableTextPx = with(density) { (maxWidth - 112.dp).coerceAtLeast(24.dp).toPx() }
+        val measuredTextPx = remember(value, fontPx) {
+            android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { textSize = fontPx }.measureText(value)
+        }
+        val textOverflows = value.isNotBlank() && measuredTextPx > availableTextPx
+        val showLeadingFade = focused && textOverflows
+        val showTrailingFade = textOverflows
+        Box(Modifier.fillMaxWidth()) {
+            OutlinedTextField(
+                value = value,
+                onValueChange = onValueChange,
+                modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
+                enabled = enabled,
+                singleLine = true,
+                shape = RoundedCornerShape(24.dp),
+                leadingIcon = { Icon(painter = painterResource(R.drawable.ic_search), contentDescription = null, modifier = Modifier.size(20.dp)) },
+                trailingIcon = {
+                    AnimatedVisibility(
+                        visible = value.isNotEmpty(),
+                        enter = fadeIn(tween(150)) + slideInHorizontally(tween(150)) { it / 2 },
+                        exit = fadeOut(tween(120)) + slideOutHorizontally(tween(120)) { it / 2 }
+                    ) {
+                        IconButton(onClick = { onValueChange("") }, enabled = enabled, modifier = Modifier.size(40.dp)) {
+                            Icon(painterResource(R.drawable.ic_close), contentDescription = "Clear search", modifier = Modifier.size(18.dp))
+                        }
+                    }
+                },
+                label = if (labelText == null) null else { { Text(labelText) } },
+                placeholder = if (placeholderText == null) null else { { Text(placeholderText) } },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = VulkanTextPrimary,
+                    unfocusedTextColor = VulkanTextPrimary,
+                    focusedContainerColor = VulkanSurfaceTonal,
+                    unfocusedContainerColor = VulkanSurfaceLow,
+                    cursorColor = VulkanAccentSoft,
+                    focusedBorderColor = VulkanAccentSoft,
+                    unfocusedBorderColor = VulkanOutline,
+                    focusedLeadingIconColor = VulkanAccentSoft,
+                    unfocusedLeadingIconColor = VulkanTextMuted,
+                    focusedTrailingIconColor = VulkanAccentSoft,
+                    unfocusedTrailingIconColor = VulkanTextSecondary,
+                    focusedLabelColor = VulkanAccentSoft,
+                    unfocusedLabelColor = VulkanTextSecondary,
+                    focusedPlaceholderColor = VulkanTextSecondary,
+                    unfocusedPlaceholderColor = VulkanTextMuted
+                )
             )
-        },
-        trailingIcon = {
             AnimatedVisibility(
-                visible = value.isNotEmpty(),
-                enter = fadeIn(tween(150)) + slideInHorizontally(tween(150)) { it / 2 },
-                exit = fadeOut(tween(120)) + slideOutHorizontally(tween(120)) { it / 2 }
+                visible = showLeadingFade,
+                enter = fadeIn(tween(150)),
+                exit = fadeOut(tween(120)),
+                modifier = Modifier.align(Alignment.CenterStart).padding(start = 44.dp)
             ) {
-                IconButton(onClick = { onValueChange("") }, enabled = enabled, modifier = Modifier.size(40.dp)) {
-                    Icon(painterResource(R.drawable.ic_close), contentDescription = "Clear search", modifier = Modifier.size(18.dp))
-                }
+                Box(
+                    Modifier
+                        .width(24.dp)
+                        .height(34.dp)
+                        .background(Brush.horizontalGradient(listOf(containerColor.copy(alpha = 0.92f), containerColor.copy(alpha = 0.54f), ComposeColor.Transparent)))
+                )
             }
-        },
-        label = if (labelText == null) null else { { Text(labelText) } },
-        placeholder = if (placeholderText == null) null else { { Text(placeholderText) } },
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedTextColor = VulkanTextPrimary,
-            unfocusedTextColor = VulkanTextPrimary,
-            focusedContainerColor = VulkanSurfaceTonal,
-            unfocusedContainerColor = VulkanSurfaceLow,
-            cursorColor = VulkanAccentSoft,
-            focusedBorderColor = VulkanAccentSoft,
-            unfocusedBorderColor = VulkanOutline,
-            focusedLeadingIconColor = VulkanAccentSoft,
-            unfocusedLeadingIconColor = VulkanTextMuted,
-            focusedTrailingIconColor = VulkanAccentSoft,
-            unfocusedTrailingIconColor = VulkanTextSecondary,
-            focusedLabelColor = VulkanAccentSoft,
-            unfocusedLabelColor = VulkanTextSecondary,
-            focusedPlaceholderColor = VulkanTextSecondary,
-            unfocusedPlaceholderColor = VulkanTextMuted
-        )
-    )
+            AnimatedVisibility(
+                visible = showTrailingFade,
+                enter = fadeIn(tween(150)),
+                exit = fadeOut(tween(120)),
+                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 43.dp)
+            ) {
+                Box(
+                    Modifier
+                        .width(28.dp)
+                        .height(34.dp)
+                        .background(Brush.horizontalGradient(listOf(ComposeColor.Transparent, containerColor.copy(alpha = 0.48f), containerColor.copy(alpha = 0.88f))))
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -13836,7 +15327,9 @@ private fun ExpressiveSingleFilterSelector(
     var query by rememberSaveable { mutableStateOf("") }
     var page by rememberSaveable { mutableIntStateOf(0) }
     var pageField by remember { mutableStateOf(TextFieldValue("1")) }
-    val pageSize = 50
+    var pageFieldFocused by remember { mutableStateOf(false) }
+    var suppressFilterPageCommit by remember { mutableStateOf(false) }
+    val pageSize = COLLECTION_PAGE_SIZE
     val showSearch = labels.size >= 5
     val indexed = remember(labels, query) {
         labels.mapIndexed { index, label -> index to label }
@@ -13873,13 +15366,27 @@ private fun ExpressiveSingleFilterSelector(
             dropdownMounted = false
         }
     }
+    fun commitFilterPage() {
+        val requested = pageField.text.toIntOrNull()?.coerceIn(1, pageCount) ?: (page + 1).coerceIn(1, pageCount)
+        page = requested - 1
+        pageField = TextFieldValue(requested.toString())
+    }
+    fun requestFilterPageChange(targetPage: Int) {
+        val bounded = targetPage.coerceIn(0, pageCount - 1)
+        suppressFilterPageCommit = true
+        pageField = TextFieldValue((bounded + 1).toString())
+        focusManager.clearFocus(force = true)
+        pageFieldFocused = false
+        suppressFilterPageCommit = false
+        page = bounded
+    }
     LaunchedEffect(query, pageCount) {
         page = page.coerceIn(0, pageCount - 1)
-        if (pageField.text.isNotEmpty()) pageField = TextFieldValue((page + 1).toString())
+        if (!pageFieldFocused) pageField = TextFieldValue((page + 1).toString())
     }
-    LaunchedEffect(page, pageCount) {
+    LaunchedEffect(page, pageCount, pageFieldFocused) {
         page = page.coerceIn(0, pageCount - 1)
-        if (pageField.text.isNotEmpty()) pageField = TextFieldValue((page + 1).toString())
+        if (!pageFieldFocused) pageField = TextFieldValue((page + 1).toString())
     }
 
     BoxWithConstraints(Modifier.fillMaxWidth()) {
@@ -14063,7 +15570,7 @@ private fun ExpressiveSingleFilterSelector(
                                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         IconButton(
-                                            onClick = { if (page > 0) page -= 1 },
+                                            onClick = { if (page > 0) requestFilterPageChange(page - 1) },
                                             enabled = page > 0,
                                             colors = IconButtonDefaults.iconButtonColors(
                                                 containerColor = VulkanAccentContainer,
@@ -14074,43 +15581,56 @@ private fun ExpressiveSingleFilterSelector(
                                         ) {
                                             Icon(painterResource(R.drawable.ic_chevron_left), contentDescription = "Previous filter page")
                                         }
-                                        OutlinedTextField(
-                                            value = pageField,
-                                            onValueChange = { value ->
-                                                val candidate = value.text
-                                                when {
-                                                    candidate.isEmpty() -> pageField = value
-                                                    candidate.length <= pageCount.toString().length && candidate.all { it.isDigit() } && !(candidate.length > 1 && candidate.startsWith('0')) -> {
-                                                        val requested = candidate.toIntOrNull()
-                                                        if (requested != null && requested in 1..pageCount) {
-                                                            pageField = value
-                                                            page = requested - 1
-                                                        }
+                                        Box(Modifier.width(72.dp), contentAlignment = Alignment.Center) {
+                                            OutlinedTextField(
+                                                value = pageField,
+                                                onValueChange = { value ->
+                                                    val candidate = value.text
+                                                    when {
+                                                        candidate.isEmpty() -> pageField = value
+                                                        candidate.all { it.isDigit() } && !(candidate.length > 1 && candidate.startsWith('0')) && (candidate.toIntOrNull() ?: 0) in 1..pageCount -> pageField = value
+                                                    }
+                                                },
+                                                modifier = Modifier.fillMaxWidth().onFocusChanged { focus ->
+                                                    val wasFocused = pageFieldFocused
+                                                    pageFieldFocused = focus.isFocused
+                                                    if (focus.isFocused) {
+                                                        pageField = pageField.copy(selection = TextRange(0, pageField.text.length))
+                                                    } else if (wasFocused && !suppressFilterPageCommit) {
+                                                        commitFilterPage()
+                                                    }
+                                                },
+                                                singleLine = true,
+                                                label = { Text("Page") },
+                                                textStyle = MaterialTheme.typography.bodyMedium.copy(textAlign = TextAlign.Center),
+                                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                                                keyboardActions = KeyboardActions(onDone = {
+                                                    commitFilterPage()
+                                                    focusManager.clearFocus(force = true)
+                                                }),
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    focusedBorderColor = VulkanAccentSoft,
+                                                    unfocusedBorderColor = VulkanOutline,
+                                                    focusedTextColor = VulkanTextPrimary,
+                                                    unfocusedTextColor = ComposeColor.Transparent,
+                                                    cursorColor = VulkanAccentSoft
+                                                )
+                                            )
+                                            if (!pageFieldFocused) {
+                                                Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
+                                                    AnimatedContent(
+                                                        targetState = (page + 1).coerceIn(1, pageCount),
+                                                        transitionSpec = { fadeIn(tween(150)) togetherWith fadeOut(tween(130)) },
+                                                        label = "filterPageNumberTransition"
+                                                    ) { animatedNumber ->
+                                                        Text(animatedNumber.toString(), color = VulkanTextPrimary, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, modifier = Modifier.offset(y = 4.dp))
                                                     }
                                                 }
-                                            },
-                                            modifier = Modifier.width(72.dp).onFocusChanged { focus ->
-                                                if (focus.isFocused) {
-                                                    pageField = pageField.copy(selection = TextRange(0, pageField.text.length))
-                                                } else if (pageField.text.isBlank()) {
-                                                    pageField = TextFieldValue((page + 1).toString())
-                                                }
-                                            },
-                                            singleLine = true,
-                                            label = { Text("Page") },
-                                            textStyle = MaterialTheme.typography.bodyMedium.copy(textAlign = TextAlign.Center),
-                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                            colors = OutlinedTextFieldDefaults.colors(
-                                                focusedBorderColor = VulkanAccentSoft,
-                                                unfocusedBorderColor = VulkanOutline,
-                                                focusedTextColor = VulkanTextPrimary,
-                                                unfocusedTextColor = VulkanTextPrimary,
-                                                cursorColor = VulkanAccentSoft
-                                            )
-                                        )
+                                            }
+                                        }
                                         Text("/ $pageCount", color = VulkanTextSecondary, style = MaterialTheme.typography.bodyMedium)
                                         IconButton(
-                                            onClick = { if (page + 1 < pageCount) page += 1 },
+                                            onClick = { if (page + 1 < pageCount) requestFilterPageChange(page + 1) },
                                             enabled = page + 1 < pageCount,
                                             colors = IconButtonDefaults.iconButtonColors(
                                                 containerColor = VulkanAccentContainer,
@@ -14462,11 +15982,14 @@ private fun CapabilityKeyValue(key: String, value: String) {
     var pressed by remember(key, value) { mutableStateOf(false) }
     val pressScale by animateFloatAsState(if (pressed) 0.985f else 1f, tween(110), label = "evidenceHoldScale")
     val pressHighlightAlpha by animateFloatAsState(if (pressed) 0.58f else 0f, tween(110), label = "evidenceHoldHighlight")
+    val pressBorderAlpha by animateFloatAsState(if (pressed) 0.46f else 0f, tween(140, easing = FastOutSlowInEasing), label = "evidenceHoldBorder")
     Box {
         Box(
             Modifier.fillMaxWidth()
                 .graphicsLayer(scaleX = pressScale, scaleY = pressScale)
                 .background(VulkanAccentContainer.copy(alpha = pressHighlightAlpha), RoundedCornerShape(14.dp))
+                .border(1.dp, VulkanAccentSoft.copy(alpha = pressBorderAlpha), RoundedCornerShape(14.dp))
+                .consumeDesktopSecondaryMouseInput(suppressDesktopQuickMenu)
                 .onPreviewKeyEvent { event ->
                     if (!isTelevision) return@onPreviewKeyEvent false
                     val nativeKeyCode = event.key.nativeKeyCode

@@ -1,0 +1,16 @@
+{
+  "versionName": "2.1.5",
+  "versionCode": 2105,
+  "predecessor": {
+    "filename": "VulkanScope-2.1.4.zip",
+    "sha256": "1c2c52c4e9dda5852701b0328ae0e7b8be89476ec5bd99e1613aead535dc9605",
+    "fileCount": 724,
+    "mainActivitySha256": "96f56e7dd74cbadfd239ec09a0918d28ddc7139a256a87bba824d843a038ff91",
+    "balancedLogoSha256": "a764480b2789f748de0ba8a772a7899b18edf33982347300d969d68f41ca9d82"
+  },
+  "protected": {
+    "manifestSha256": "f89dab96d5c123cecb227d6a44f4deef5b8b92d2688e46fb55df9bd1c54f18a8",
+    "nativeCollectorSha256": "fa2d5aea65b493138aa7c0cdbfa25bd715fa6e2265daa4c5c6b70b777e62f3ff",
+    "registryLockSha256": "79c46ebb498997b31c56b3171296ff672d229c8434a31ac77c8a17f86e4f9d0a"
+  }
+}

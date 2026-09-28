@@ -1,3 +1,135 @@
+## 3.0.2
+- Fixes the release Kotlin compilation failure in the extracted shared-storage listing by explicitly opting that top-level composable into the Material 3 Expressive loading API it already uses.
+- Preserves the 3.0.1 file-manager layout, loading presentation, page/header spacing, desktop input behavior, opening animation, Vulkan collection and report semantics unchanged.
+
+## 3.0.1
+- Keeps the opening accent rule at full width after it completes instead of shrinking just before the opening surface fades.
+- Reflows the shared-storage file manager into a full-height two-pane landscape layout so folders/files keep substantial browsing space while controls stay in a bounded scrollable side pane.
+- Makes secondary mouse clicks a no-op on ChromeOS ARC and Android PC-form-factor environments before long-press or quick-menu handlers can react.
+- Adds a smooth file-manager-red border to the existing press-and-hold evidence-row press-in feedback.
+- Replaces the top-page underlap with a 12 dp live header separation so the first page surface no longer touches or enters the top chrome in portrait, landscape or freeform layouts.
+- Keeps Vulkan/native collection, reports, Database/export semantics, Turnip behavior, permissions, endpoints, ABI targets, dependencies and registry data unchanged.
+
+## 3.0.0
+- Extends the existing retained glass treatment behind Android navigation controls with live bottom/side navigation insets while keeping application controls inset from system UI.
+- Moves page content slightly beneath the translucent top chrome so rounded page surfaces no longer terminate exactly against the header edge.
+- Simplifies the opening accent animation to one continuous red rule without endpoint dots.
+- Starts pager/status/scroll-indicator collision avoidance earlier and uses prompt coordinated motion so overlays cross scrolling search/content surfaces without delayed overlap.
+- Keeps Vulkan collection, reports, Database, Turnip, registry, ABI, permission and network semantics unchanged.
+
+## 2.1.16
+- Fixes the collection pager's lazy-to-overlay coordinate mapping by subtracting the live lazy viewport start offset before positioning the single page-level pager, so it occupies the exact permanent spacer instead of landing one top-content inset too high.
+- Applies the same viewport conversion to both adjacent-item bridge paths, keeping reverse landing correct through lazy composition gaps in portrait, landscape, freeform and transient-overlay layouts without fixed header corrections.
+- Preserves the 2.1.15 single pager, shared 24 dp retained-glass source/tint, overlay ordering, Vulkan/report/Database semantics, Turnip behavior, permissions, dependencies and registry data unchanged.
+
+## 2.1.15
+- Replaces pager ownership handoffs with one page-level `CollectionPager` for the pager's entire visible/pinned lifetime; the lazy list always owns only the exact-height anchor spacer, so reverse scrolling returns the same pager to the anchor coordinates without swapping composables.
+- Uses the live `LazyListItemInfo.offset` as the pager's authoritative Y coordinate whenever the anchor is visible and only clamps that single pager at the live app-header boundary after the anchor reaches it; adjacent-item reconstruction is retained only for the narrow lazy-composition gap.
+- Registers the page's retained 24 dp blurred backdrop as the shared chrome source so the app header, compact bottom navigation and pager-join extension sample the same blur layer with the same `VulkanGlassTint`, removing the disconnected blur/tone seam.
+- Restores scroll-coupled full-width glass growth from the header boundary while keeping ordinary page content crisp, preserving portrait/landscape system insets, transient-status ordering and smooth scroll-indicator movement.
+- Keeps Vulkan/native collection, reports, Database/export semantics, Turnip handling, manifest, permissions, endpoints, ABI targets, dependencies and registry data unchanged.
+
+## 2.1.14
+- Returns the shared collection pager to its real lazy-list item outside the bounded header join region, while keeping one mutually exclusive overlay only during join/pinned ownership so reverse scrolling lands at the list position instead of remaining detached.
+- Retains measured pager height outside lazy-item lifetime and reconstructs the natural pager position from an immediately adjacent visible item when needed, preventing disposal/recomposition landing jumps in portrait and landscape.
+- Matches the pager-join backdrop to the 24 dp app-header/navigation blur radius and the same uniform glass tint, with the bounded glass extension reaching the moving pager bottom while ordinary page content remains crisp.
+- Keeps Vulkan/native collection, reports, Database/export semantics, Turnip handling, manifest, permissions, endpoints, ABI targets, dependencies and registry data unchanged.
+
+## 2.1.13
+- Tightens the single sticky pager so the header handoff uses one moving instance only, removes the duplicate box illusion, and lets the pager settle flush when it reaches or leaves the header.
+- Re-bounds the retained glass region to the live header-plus-pager stack so list cards stay crisp while the top glass expands and contracts smoothly in portrait and landscape.
+- Restores the frosted treatment on the header, pager chrome and compact bottom navigation while keeping the joined glass tone visually uniform through the handoff.
+- Preserves the 2.1.12 page-number focus behavior, Vulkan/report/database behavior, storage/export semantics and SPIR-V™ presentation.
+
+## 2.1.11
+
+### Fixed
+- Fixed the release Kotlin compile regression in the retained glass implementation by importing `rememberGraphicsLayer` and `drawLayer` from their actual Compose UI 1.12.0 packages.
+- Preserved the complete 2.1.10 progressive pager-to-glass handoff, bounded blur/tint rendering, portrait/landscape overlay geometry and Vulkan/report behavior unchanged.
+
+## 2.1.10
+
+### Changed
+- Replaced the abrupt pinned-pager handoff with a scroll-coupled progressive handoff: the normal-flow pager and overlay crossfade at the same geometry, the overlay follows the live pager position until it reaches the header boundary, and the reverse path restores the pager continuously.
+- Extended the top glass backing continuously as the pager approaches the header so the full-width frosted region grows around the pager only during the join and shrinks in reverse during return.
+- Reworked the top glass treatment around a retained graphics-layer blur plus dense dark plum/rose tinting, avoiding checker/mosaic cells, framebuffer readback and per-frame bitmap allocation.
+- Preserved the ordered header → pager → transient-status → scroll-indicator lanes, page-number-only transitions, numeric-field focus behavior and portrait/landscape system-navigation insets.
+
+## 2.1.9
+
+### Fixed
+- Reworked collection-pager pinning so the pinned visual is rendered outside the lazy-list clipping boundary and remains visible after its anchor leaves ordinary list visibility.
+- Made pin/unpin tracking derive from the live header boundary and current system-navigation insets for both portrait and landscape window layouts.
+- Kept the coordinated header → pager → transient-status → scroll-indicator lanes, number-only page transitions and focused page-edit arrow behavior unchanged.
+
+## 2.1.8
+
+### Fixed
+- Fixed the Kotlin release compilation regression in the pinned-pager state reporter by forcing the remembered callback to return `Unit` after its map update/remove side effect.
+- Preserved all 2.1.7 glass-header, pinned-pager, file-manager icon, page-editing and SPIR-V™ presentation behavior unchanged.
+
+## 2.1.7
+
+### Changed
+- Replaced the block-pattern header treatment with a smooth dense translucent glass surface matching the supplied top-bar reference while keeping moving page content faintly visible beneath it.
+- Gave every shared file-manager sort mode its own semantic icon and made the combined trigger reflect both the active layout and active sort.
+- Reordered pinned paging overlays so the app header is followed by the pinned pager, transient status surfaces and the top scroll hint without intersections; the pager now joins and leaves the header glass smoothly.
+- Made collection and filter pagination arrows discard active numeric-field editing, clear focus and transition the displayed destination page number softly.
+- Applied the official SPIR-V™ trademark presentation to Vulkan self-test UI labels without changing canonical registry data or native query semantics.
+
+## 2.1.6
+
+### Changed
+- Reworked the translucent app header into a denser frosted/mosaic glass treatment while keeping page content visible beneath it.
+- Replaced the combined file-manager menu heading with a circular VulkanScope-red close action at the upper-left.
+- Kept sticky page controls present after they pass the lazy-list visibility boundary and coordinated their pinned position with transient status banners and the top scroll indicator.
+- Removed whole-pager page-change motion so only the displayed page number transitions softly while the pager surface stays fixed.
+- Smoothed live top-overlay inset changes for lazy pages and the Surface destination chooser so status/scroll/pager lanes move together instead of intersecting.
+
+## 2.1.5
+
+### Changed
+- Made the full-width app header substantially translucent so page content can scroll visibly behind it, while preserving initial content clearance and adding side-system-navigation safe insets for landscape.
+- Re-aligned only the SCOPE glyph group in the horizontal VulkanScope wordmark and switched header/opening uses to the aligned local asset.
+- Unified file-manager layout and sorting into one View & sort menu and extended all six layouts to the shared-storage browser used by TXT/HTML/JSON and Analysis import/export flows.
+- Restored overflow-gated soft search-edge fades without shading empty or short leading text.
+- Made sticky pagination overlays transparent outside the pager card, made the pager card translucent, and added smooth pinned positioning below the top scroll indicator.
+- Reduced the primary app-page Back circle while retaining its stable reserved slot.
+
+## 2.1.4
+
+### Fixed
+- Restored Kotlin compilation after the 2.1.3 paging expansion by using `stickyHeader` as the `LazyListScope` member API instead of a nonexistent top-level import.
+- Restored the Vulkan Video evidence model/parser/state-label helpers accidentally removed during 2.1.3 pagination work.
+- Restored queue-family Vulkan Video codec-query and codec-operation evidence rows.
+
+## 2.1.3
+- Reworked the shared top bar into a full-width translucent status/header surface with a balanced horizontal VulkanScope logo, restrained destination typography and a smaller circular animated Back action.
+- Removed main-page edge fade masks, protected compact bottom navigation from landscape system-navigation side insets and limited search fading to genuinely overflowing, unfocused trailing text.
+- Reduced shared collection pagination to 25 visible rows, rejected nonexistent page input, made page controls sticky immediately above result rows and added bounded directional page-change motion across list-heavy Vulkan, Surface, Video, queue and Analysis views.
+- Added A–Z/Z–A, modified newest/oldest and created newest/oldest sorting to the Turnip File Manager and the shared-storage browser reused by TXT/HTML/JSON and Analysis import/export workflows.
+- Applied the selected-Turnip Vulkan-red outline family to Material and custom dialog containers while preserving native/JNI, Vulkan 1.4.364 registry, report/Database/export semantics, permissions, endpoints, ABI targets and dependency/build pins.
+
+## 2.1.2
+- Moved the floating VulkanScope header below the Android status/cutout area, tightened its rounded geometry and made its left/right action slots symmetrical.
+- Replaced the old section-label stack with a compact accent section pill beside the VulkanScope logo; Back and Settings now use matching animated red action capsules.
+- Fixed collection page-number editing so digits do not navigate/rebuild the page until IME Done or focus loss.
+- Reworked the File Manager layout popup into a ZArchiver-inspired 3×2 icon selector, made Dense grid materially denser than Grid and corrected Large tiles to horizontal icon/text alignment.
+- Applied the same animated root-aware Back action to Turnip/shared-storage file browsers and strengthened soft fades for long search text plus scrolling file/folder boundaries.
+
+## 2.1.1
+- Fixed the 2.1.0 Kotlin compile regression in the shared 50-item collection pager by passing `onPageChange` explicitly at all four Features, Formats, Properties & Limits and Extensions call sites.
+- Preserved the 50-item presentation-only pagination behavior and all 2.1.0 translucent UI, File Manager layout, determinate updater and Database report-result features unchanged.
+- Kept Vulkan 1.4.364 native/query coverage, report/Database semantics, permissions, endpoints, ABI set and build-chain pins unchanged.
+
+## 2.1.0
+- Reworked the shared top header into a rounded translucent surface and added soft shared scroll-edge fades so cards, text and search controls transition cleanly at viewport intersections.
+- Replaced the Turnip file-manager layout button row with one active-layout icon and a compact six-layout selector that remembers the last choice.
+- Added 50-item UI pagination to Features, Formats, Properties & Limits and Extensions without truncating collected, exported or submitted report data.
+- Made update download progress determinate from trusted release asset/transfer byte counts with a full-width percentage bar and completed-size validation.
+- Added a boxed copyable Database report ID and an `Open report` action after validated successful submission.
+- Preserved Vulkan 1.4.364 collection/query coverage, report and Database payload semantics, permissions, endpoints, ABI/dependency/build-chain pins and 2.0.6 probe/scheduler behavior.
+
 ## 2.0.6
 - Made the Surface landing chooser vertically scrollable when its destination cards do not fit the available viewport, including compact landscape and system-navigation-constrained windows.
 - Reused the existing dynamic transient-overlay, bottom-navigation and horizontal system-navigation insets while adding shared scroll-boundary hints, so the third Surface destination and its action remain fully reachable above the floating tab bar.

@@ -16,6 +16,26 @@ parser.add_argument('--fetch-locked-upstream', action='store_true')
 args = parser.parse_args()
 lock = json.loads((root / 'registry/registry_lock.json').read_text(encoding='utf-8'))
 gradle_text = (root / 'app/build.gradle.kts').read_text(encoding='utf-8')
+release_3002_expressive_loading_compile_fix = 'versionCode = 3002' in gradle_text and 'versionName = "3.0.2"' in gradle_text
+release_3001_ui_input_layout = 'versionCode = 3001' in gradle_text and 'versionName = "3.0.1"' in gradle_text
+release_3000_edge_to_edge_chrome_overlay = 'versionCode = 3000' in gradle_text and 'versionName = "3.0.0"' in gradle_text
+release_2116_lazy_viewport_pager_alignment = 'versionCode = 2116' in gradle_text and 'versionName = "2.1.16"' in gradle_text
+release_2115_single_pager_continuous_glass = 'versionCode = 2115' in gradle_text and 'versionName = "2.1.15"' in gradle_text
+release_2114_pager_landing_unified_glass = 'versionCode = 2114' in gradle_text and 'versionName = "2.1.14"' in gradle_text
+release_2113_unified_pager_frosted_blur = 'versionCode = 2113' in gradle_text and 'versionName = "2.1.13"' in gradle_text
+release_2112_single_pager_clipped_glass = 'versionCode = 2112' in gradle_text and 'versionName = "2.1.12"' in gradle_text
+release_2111_graphics_layer_import_compile_fix = 'versionCode = 2111' in gradle_text and 'versionName = "2.1.11"' in gradle_text
+release_2110_progressive_glass_handoff = 'versionCode = 2110' in gradle_text and 'versionName = "2.1.10"' in gradle_text
+release_2109_pinned_pager_overlay = 'versionCode = 2109' in gradle_text and 'versionName = "2.1.9"' in gradle_text
+release_2108_sticky_reporter_compile_fix = 'versionCode = 2108' in gradle_text and 'versionName = "2.1.8"' in gradle_text
+release_2107_glass_pager_file_icons_trademark = 'versionCode = 2107' in gradle_text and 'versionName = "2.1.7"' in gradle_text
+release_2106_frosted_header_overlay_coordination = 'versionCode = 2106' in gradle_text and 'versionName = "2.1.6"' in gradle_text
+release_2105_transparent_header_file_manager_pager = 'versionCode = 2105' in gradle_text and 'versionName = "2.1.5"' in gradle_text
+release_2104_kotlin_compile_restoration = 'versionCode = 2104' in gradle_text and 'versionName = "2.1.4"' in gradle_text
+release_2103_telegram_paging_sort_dialog = 'versionCode = 2103' in gradle_text and 'versionName = "2.1.3"' in gradle_text
+release_2102_header_layout_scroll_refinement = 'versionCode = 2102' in gradle_text and 'versionName = "2.1.2"' in gradle_text
+release_2101_collection_pager_compile_fix = 'versionCode = 2101' in gradle_text and 'versionName = "2.1.1"' in gradle_text
+release_2100_ui_pagination_transfer_database = 'versionCode = 2100' in gradle_text and 'versionName = "2.1.0"' in gradle_text
 release_2006_surface_scroll = 'versionCode = 2006' in gradle_text and 'versionName = "2.0.6"' in gradle_text
 release_2005_tv_key_compile_fix = 'versionCode = 2005' in gradle_text and 'versionName = \"2.0.5\"' in gradle_text
 release_2004_six_lane_tv = 'versionCode = 2004' in gradle_text and 'versionName = \"2.0.4\"' in gradle_text
@@ -51,6 +71,766 @@ def run_legacy_storage_gate(command):
     if not release_1303_storage_removal and not release_1304_file_manager:
         run(command)
 
+
+
+
+
+def run_3002_quality_gate():
+    commands = [
+        [sys.executable, 'tools/verify_release_3002.py'],
+        [sys.executable, 'tools/test_release_3002_state_machine.py'],
+        [sys.executable, 'tools/test_release_3002_negative_mutations.py'],
+        [sys.executable, 'tools/test_release_3001_state_machine.py'],
+        [sys.executable, 'tools/verify_cmake_registry_lock.py'],
+        [sys.executable, 'tools/verify_registry_snapshot.py'],
+        [sys.executable, 'tools/verify_compile_regressions.py'],
+        [sys.executable, 'tools/verify_spec_regressions.py'],
+        [sys.executable, 'tools/verify_probe_publication_handshake.py'],
+        [sys.executable, 'tools/verify_probe_terminal_ownership.py'],
+        [sys.executable, 'tools/verify_probe_lifecycle_regressions.py'],
+        [sys.executable, 'tools/verify_probe_timeout_recovery.py'],
+        [sys.executable, 'tools/verify_probe_cancellation_recovery.py'],
+        [sys.executable, 'tools/verify_report_semantics_04140.py'],
+        [sys.executable, 'tools/verify_report_surface_integrity_04141.py'],
+        [sys.executable, 'tools/verify_profile_requirements_04144.py'],
+        [sys.executable, 'tools/verify_video_registry_04145.py'],
+        [sys.executable, 'tools/verify_concurrency_resource_contracts.py'],
+        [sys.executable, 'tools/verify_package_reproducibility.py'],
+    ]
+    for command in commands:
+        run(command)
+    if args.strict_upstream and not args.header:
+        raise SystemExit('strict upstream header gate requires --header')
+    if args.header:
+        header_path = Path(args.header).resolve()
+        registry_path = Path(args.registry).resolve() if args.registry else (root / lock['bundledRegistryPath']).resolve()
+        run([sys.executable, 'tools/verify_canonical_vulkan_headers.py', str(header_path)])
+        run([sys.executable, 'tools/verify_registry_catalog.py', 'registry/generated/registry_query_manifest.json', str(header_path), 'app/src/main/cpp/registry_query_catalog.h'])
+        run([sys.executable, 'tools/verify_extension_field_coverage.py', '--registry', str(registry_path), '--header', str(header_path)])
+        run([sys.executable, 'tools/verify_upstream_registry.py', '--registry', str(registry_path), '--header', str(header_path)])
+        print('PASS strict locked-header verification')
+    else:
+        print('INFO strict canonical Vulkan header byte-level verification NOT EXECUTED; byte-locked registry/header metadata and bundled registry snapshot were verified')
+    print('VulkanScope quality gate 3.0.2: PASS')
+
+
+def run_3001_quality_gate():
+    commands = [
+        [sys.executable, 'tools/verify_release_3001.py'],
+        [sys.executable, 'tools/test_release_3001_state_machine.py'],
+        [sys.executable, 'tools/test_release_3001_negative_mutations.py'],
+        [sys.executable, 'tools/verify_cmake_registry_lock.py'],
+        [sys.executable, 'tools/verify_registry_snapshot.py'],
+        [sys.executable, 'tools/verify_compile_regressions.py'],
+        [sys.executable, 'tools/verify_spec_regressions.py'],
+        [sys.executable, 'tools/verify_probe_publication_handshake.py'],
+        [sys.executable, 'tools/verify_probe_terminal_ownership.py'],
+        [sys.executable, 'tools/verify_probe_lifecycle_regressions.py'],
+        [sys.executable, 'tools/verify_probe_timeout_recovery.py'],
+        [sys.executable, 'tools/verify_probe_cancellation_recovery.py'],
+        [sys.executable, 'tools/verify_report_semantics_04140.py'],
+        [sys.executable, 'tools/verify_report_surface_integrity_04141.py'],
+        [sys.executable, 'tools/verify_profile_requirements_04144.py'],
+        [sys.executable, 'tools/verify_video_registry_04145.py'],
+        [sys.executable, 'tools/verify_concurrency_resource_contracts.py'],
+        [sys.executable, 'tools/verify_package_reproducibility.py'],
+    ]
+    for command in commands:
+        run(command)
+    if args.strict_upstream and not args.header:
+        raise SystemExit('strict upstream header gate requires --header')
+    if args.header:
+        header_path = Path(args.header).resolve()
+        registry_path = Path(args.registry).resolve() if args.registry else (root / lock['bundledRegistryPath']).resolve()
+        run([sys.executable, 'tools/verify_canonical_vulkan_headers.py', str(header_path)])
+        run([sys.executable, 'tools/verify_registry_catalog.py', 'registry/generated/registry_query_manifest.json', str(header_path), 'app/src/main/cpp/registry_query_catalog.h'])
+        run([sys.executable, 'tools/verify_extension_field_coverage.py', '--registry', str(registry_path), '--header', str(header_path)])
+        run([sys.executable, 'tools/verify_upstream_registry.py', '--registry', str(registry_path), '--header', str(header_path)])
+        print('PASS strict locked-header verification')
+    else:
+        print('INFO strict canonical Vulkan header byte-level verification NOT EXECUTED; byte-locked registry/header metadata and bundled registry snapshot were verified')
+    print('VulkanScope quality gate 3.0.1: PASS')
+
+
+def run_3000_quality_gate():
+    commands = [
+        [sys.executable, 'tools/verify_release_3000.py'],
+        [sys.executable, 'tools/test_release_3000_state_machine.py'],
+        [sys.executable, 'tools/test_release_3000_negative_mutations.py'],
+        [sys.executable, 'tools/verify_cmake_registry_lock.py'],
+        [sys.executable, 'tools/verify_registry_snapshot.py'],
+        [sys.executable, 'tools/verify_compile_regressions.py'],
+        [sys.executable, 'tools/verify_spec_regressions.py'],
+        [sys.executable, 'tools/verify_probe_publication_handshake.py'],
+        [sys.executable, 'tools/verify_probe_terminal_ownership.py'],
+        [sys.executable, 'tools/verify_probe_lifecycle_regressions.py'],
+        [sys.executable, 'tools/verify_probe_timeout_recovery.py'],
+        [sys.executable, 'tools/verify_probe_cancellation_recovery.py'],
+        [sys.executable, 'tools/verify_report_semantics_04140.py'],
+        [sys.executable, 'tools/verify_report_surface_integrity_04141.py'],
+        [sys.executable, 'tools/verify_profile_requirements_04144.py'],
+        [sys.executable, 'tools/verify_video_registry_04145.py'],
+        [sys.executable, 'tools/verify_concurrency_resource_contracts.py'],
+        [sys.executable, 'tools/verify_package_reproducibility.py'],
+    ]
+    for command in commands:
+        run(command)
+    if args.strict_upstream and not args.header:
+        raise SystemExit('strict upstream header gate requires --header')
+    if args.header:
+        header_path = Path(args.header).resolve()
+        registry_path = Path(args.registry).resolve() if args.registry else (root / lock['bundledRegistryPath']).resolve()
+        run([sys.executable, 'tools/verify_canonical_vulkan_headers.py', str(header_path)])
+        run([sys.executable, 'tools/verify_registry_catalog.py', 'registry/generated/registry_query_manifest.json', str(header_path), 'app/src/main/cpp/registry_query_catalog.h'])
+        run([sys.executable, 'tools/verify_extension_field_coverage.py', '--registry', str(registry_path), '--header', str(header_path)])
+        run([sys.executable, 'tools/verify_upstream_registry.py', '--registry', str(registry_path), '--header', str(header_path)])
+        print('PASS strict locked-header verification')
+    else:
+        print('INFO strict canonical Vulkan header byte-level verification NOT EXECUTED; byte-locked registry/header metadata and bundled registry snapshot were verified')
+    print('VulkanScope quality gate 3.0.0: PASS')
+
+
+def run_2116_quality_gate():
+    commands = [
+        [sys.executable, 'tools/verify_release_2116.py'],
+        [sys.executable, 'tools/test_release_2116_state_machine.py'],
+        [sys.executable, 'tools/test_release_2116_negative_mutations.py'],
+        [sys.executable, 'tools/verify_cmake_registry_lock.py'],
+        [sys.executable, 'tools/verify_registry_snapshot.py'],
+        [sys.executable, 'tools/verify_compile_regressions.py'],
+        [sys.executable, 'tools/verify_spec_regressions.py'],
+        [sys.executable, 'tools/verify_probe_publication_handshake.py'],
+        [sys.executable, 'tools/verify_probe_terminal_ownership.py'],
+        [sys.executable, 'tools/verify_probe_lifecycle_regressions.py'],
+        [sys.executable, 'tools/verify_probe_timeout_recovery.py'],
+        [sys.executable, 'tools/verify_probe_cancellation_recovery.py'],
+        [sys.executable, 'tools/verify_report_semantics_04140.py'],
+        [sys.executable, 'tools/verify_report_surface_integrity_04141.py'],
+        [sys.executable, 'tools/verify_profile_requirements_04144.py'],
+        [sys.executable, 'tools/verify_video_registry_04145.py'],
+        [sys.executable, 'tools/verify_concurrency_resource_contracts.py'],
+        [sys.executable, 'tools/verify_package_reproducibility.py'],
+    ]
+    for command in commands:
+        run(command)
+    if args.strict_upstream and not args.header:
+        raise SystemExit('strict upstream header gate requires --header')
+    if args.header:
+        header_path = Path(args.header).resolve()
+        registry_path = Path(args.registry).resolve() if args.registry else (root / lock['bundledRegistryPath']).resolve()
+        run([sys.executable, 'tools/verify_canonical_vulkan_headers.py', str(header_path)])
+        run([sys.executable, 'tools/verify_registry_catalog.py', 'registry/generated/registry_query_manifest.json', str(header_path), 'app/src/main/cpp/registry_query_catalog.h'])
+        run([sys.executable, 'tools/verify_extension_field_coverage.py', '--registry', str(registry_path), '--header', str(header_path)])
+        run([sys.executable, 'tools/verify_upstream_registry.py', '--registry', str(registry_path), '--header', str(header_path)])
+        print('PASS strict locked-header verification')
+    else:
+        print('INFO strict canonical Vulkan header byte-level verification NOT EXECUTED; byte-locked registry/header metadata and bundled registry snapshot were verified')
+    print('VulkanScope quality gate 2.1.16: PASS')
+
+
+def run_2115_quality_gate():
+    commands = [
+        [sys.executable, 'tools/verify_release_2115.py'],
+        [sys.executable, 'tools/test_release_2115_state_machine.py'],
+        [sys.executable, 'tools/test_release_2115_negative_mutations.py'],
+        [sys.executable, 'tools/verify_cmake_registry_lock.py'],
+        [sys.executable, 'tools/verify_registry_snapshot.py'],
+        [sys.executable, 'tools/verify_compile_regressions.py'],
+        [sys.executable, 'tools/verify_spec_regressions.py'],
+        [sys.executable, 'tools/verify_probe_publication_handshake.py'],
+        [sys.executable, 'tools/verify_probe_terminal_ownership.py'],
+        [sys.executable, 'tools/verify_probe_lifecycle_regressions.py'],
+        [sys.executable, 'tools/verify_probe_timeout_recovery.py'],
+        [sys.executable, 'tools/verify_probe_cancellation_recovery.py'],
+        [sys.executable, 'tools/verify_report_semantics_04140.py'],
+        [sys.executable, 'tools/verify_report_surface_integrity_04141.py'],
+        [sys.executable, 'tools/verify_profile_requirements_04144.py'],
+        [sys.executable, 'tools/verify_video_registry_04145.py'],
+        [sys.executable, 'tools/verify_concurrency_resource_contracts.py'],
+        [sys.executable, 'tools/verify_package_reproducibility.py'],
+    ]
+    for command in commands:
+        run(command)
+    if args.strict_upstream and not args.header:
+        raise SystemExit('strict upstream header gate requires --header')
+    if args.header:
+        header_path = Path(args.header).resolve()
+        registry_path = Path(args.registry).resolve() if args.registry else (root / lock['bundledRegistryPath']).resolve()
+        run([sys.executable, 'tools/verify_canonical_vulkan_headers.py', str(header_path)])
+        run([sys.executable, 'tools/verify_registry_catalog.py', 'registry/generated/registry_query_manifest.json', str(header_path), 'app/src/main/cpp/registry_query_catalog.h'])
+        run([sys.executable, 'tools/verify_extension_field_coverage.py', '--registry', str(registry_path), '--header', str(header_path)])
+        run([sys.executable, 'tools/verify_upstream_registry.py', '--registry', str(registry_path), '--header', str(header_path)])
+        print('PASS strict locked-header verification')
+    else:
+        print('INFO strict canonical Vulkan header byte-level verification NOT EXECUTED; byte-locked registry/header metadata and bundled registry snapshot were verified')
+    print('VulkanScope quality gate 2.1.15: PASS')
+
+def run_2114_quality_gate():
+    commands = [
+        [sys.executable, 'tools/verify_release_2114.py'],
+        [sys.executable, 'tools/test_release_2114_state_machine.py'],
+        [sys.executable, 'tools/test_release_2114_negative_mutations.py'],
+        [sys.executable, 'tools/verify_cmake_registry_lock.py'],
+        [sys.executable, 'tools/verify_registry_snapshot.py'],
+        [sys.executable, 'tools/verify_compile_regressions.py'],
+        [sys.executable, 'tools/verify_spec_regressions.py'],
+        [sys.executable, 'tools/verify_probe_publication_handshake.py'],
+        [sys.executable, 'tools/verify_probe_terminal_ownership.py'],
+        [sys.executable, 'tools/verify_probe_lifecycle_regressions.py'],
+        [sys.executable, 'tools/verify_probe_timeout_recovery.py'],
+        [sys.executable, 'tools/verify_probe_cancellation_recovery.py'],
+        [sys.executable, 'tools/verify_report_semantics_04140.py'],
+        [sys.executable, 'tools/verify_report_surface_integrity_04141.py'],
+        [sys.executable, 'tools/verify_profile_requirements_04144.py'],
+        [sys.executable, 'tools/verify_video_registry_04145.py'],
+        [sys.executable, 'tools/verify_concurrency_resource_contracts.py'],
+        [sys.executable, 'tools/verify_package_reproducibility.py'],
+    ]
+    for command in commands:
+        run(command)
+    if args.strict_upstream and not args.header:
+        raise SystemExit('strict upstream header gate requires --header')
+    if args.header:
+        header_path = Path(args.header).resolve()
+        registry_path = Path(args.registry).resolve() if args.registry else (root / lock['bundledRegistryPath']).resolve()
+        run([sys.executable, 'tools/verify_canonical_vulkan_headers.py', str(header_path)])
+        run([sys.executable, 'tools/verify_registry_catalog.py', 'registry/generated/registry_query_manifest.json', str(header_path), 'app/src/main/cpp/registry_query_catalog.h'])
+        run([sys.executable, 'tools/verify_extension_field_coverage.py', '--registry', str(registry_path), '--header', str(header_path)])
+        run([sys.executable, 'tools/verify_upstream_registry.py', '--registry', str(registry_path), '--header', str(header_path)])
+        print('PASS strict locked-header verification')
+    else:
+        print('INFO strict canonical Vulkan header byte-level verification NOT EXECUTED; byte-locked registry/header metadata and bundled registry snapshot were verified')
+    print('VulkanScope quality gate 2.1.14: PASS')
+
+def run_2113_quality_gate():
+    commands = [
+        [sys.executable, 'tools/verify_release_2113.py'],
+        [sys.executable, 'tools/test_release_2113_state_machine.py'],
+        [sys.executable, 'tools/test_release_2113_negative_mutations.py'],
+        [sys.executable, 'tools/verify_cmake_registry_lock.py'],
+        [sys.executable, 'tools/verify_registry_snapshot.py'],
+        [sys.executable, 'tools/verify_compile_regressions.py'],
+        [sys.executable, 'tools/verify_spec_regressions.py'],
+        [sys.executable, 'tools/verify_probe_publication_handshake.py'],
+        [sys.executable, 'tools/verify_probe_terminal_ownership.py'],
+        [sys.executable, 'tools/verify_probe_lifecycle_regressions.py'],
+        [sys.executable, 'tools/verify_probe_timeout_recovery.py'],
+        [sys.executable, 'tools/verify_probe_cancellation_recovery.py'],
+        [sys.executable, 'tools/verify_report_semantics_04140.py'],
+        [sys.executable, 'tools/verify_report_surface_integrity_04141.py'],
+        [sys.executable, 'tools/verify_profile_requirements_04144.py'],
+        [sys.executable, 'tools/verify_video_registry_04145.py'],
+        [sys.executable, 'tools/verify_concurrency_resource_contracts.py'],
+        [sys.executable, 'tools/verify_package_reproducibility.py'],
+    ]
+    for command in commands:
+        run(command)
+    if args.strict_upstream and not args.header:
+        raise SystemExit('strict upstream header gate requires --header')
+    if args.header:
+        header_path = Path(args.header).resolve()
+        registry_path = Path(args.registry).resolve() if args.registry else (root / lock['bundledRegistryPath']).resolve()
+        run([sys.executable, 'tools/verify_canonical_vulkan_headers.py', str(header_path)])
+        run([sys.executable, 'tools/verify_registry_catalog.py', 'registry/generated/registry_query_manifest.json', str(header_path), 'app/src/main/cpp/registry_query_catalog.h'])
+        run([sys.executable, 'tools/verify_extension_field_coverage.py', '--registry', str(registry_path), '--header', str(header_path)])
+        run([sys.executable, 'tools/verify_upstream_registry.py', '--registry', str(registry_path), '--header', str(header_path)])
+        print('PASS strict locked-header verification')
+    else:
+        print('INFO strict canonical Vulkan header byte-level verification NOT EXECUTED; byte-locked registry/header metadata and bundled registry snapshot were verified')
+    print('VulkanScope quality gate 2.1.13: PASS')
+
+def run_2112_quality_gate():
+    commands = [
+        [sys.executable, 'tools/verify_release_2112.py'],
+        [sys.executable, 'tools/test_release_2112_state_machine.py'],
+        [sys.executable, 'tools/test_release_2112_negative_mutations.py'],
+        [sys.executable, 'tools/verify_cmake_registry_lock.py'],
+        [sys.executable, 'tools/verify_registry_snapshot.py'],
+        [sys.executable, 'tools/verify_compile_regressions.py'],
+        [sys.executable, 'tools/verify_spec_regressions.py'],
+        [sys.executable, 'tools/verify_probe_publication_handshake.py'],
+        [sys.executable, 'tools/verify_probe_terminal_ownership.py'],
+        [sys.executable, 'tools/verify_probe_lifecycle_regressions.py'],
+        [sys.executable, 'tools/verify_probe_timeout_recovery.py'],
+        [sys.executable, 'tools/verify_probe_cancellation_recovery.py'],
+        [sys.executable, 'tools/verify_report_semantics_04140.py'],
+        [sys.executable, 'tools/verify_report_surface_integrity_04141.py'],
+        [sys.executable, 'tools/verify_profile_requirements_04144.py'],
+        [sys.executable, 'tools/verify_video_registry_04145.py'],
+        [sys.executable, 'tools/verify_concurrency_resource_contracts.py'],
+        [sys.executable, 'tools/verify_package_reproducibility.py'],
+    ]
+    for command in commands:
+        run(command)
+    if args.strict_upstream and not args.header:
+        raise SystemExit('strict upstream header gate requires --header')
+    if args.header:
+        header_path = Path(args.header).resolve()
+        registry_path = Path(args.registry).resolve() if args.registry else (root / lock['bundledRegistryPath']).resolve()
+        run([sys.executable, 'tools/verify_canonical_vulkan_headers.py', str(header_path)])
+        run([sys.executable, 'tools/verify_registry_catalog.py', 'registry/generated/registry_query_manifest.json', str(header_path), 'app/src/main/cpp/registry_query_catalog.h'])
+        run([sys.executable, 'tools/verify_extension_field_coverage.py', '--registry', str(registry_path), '--header', str(header_path)])
+        run([sys.executable, 'tools/verify_upstream_registry.py', '--registry', str(registry_path), '--header', str(header_path)])
+        print('PASS strict locked-header verification')
+    else:
+        print('INFO strict canonical Vulkan header byte-level verification NOT EXECUTED; byte-locked registry/header metadata and bundled registry snapshot were verified')
+    print('VulkanScope quality gate 2.1.12: PASS')
+
+def run_2111_quality_gate():
+    commands = [
+        [sys.executable, 'tools/verify_release_2111.py'],
+        [sys.executable, 'tools/test_release_2111_negative_mutations.py'],
+        [sys.executable, 'tools/test_release_2110_state_machine.py'],
+        [sys.executable, 'tools/verify_cmake_registry_lock.py'],
+        [sys.executable, 'tools/verify_registry_snapshot.py'],
+        [sys.executable, 'tools/verify_compile_regressions.py'],
+        [sys.executable, 'tools/verify_spec_regressions.py'],
+        [sys.executable, 'tools/verify_probe_publication_handshake.py'],
+        [sys.executable, 'tools/verify_probe_terminal_ownership.py'],
+        [sys.executable, 'tools/verify_probe_lifecycle_regressions.py'],
+        [sys.executable, 'tools/verify_probe_timeout_recovery.py'],
+        [sys.executable, 'tools/verify_probe_cancellation_recovery.py'],
+        [sys.executable, 'tools/verify_report_semantics_04140.py'],
+        [sys.executable, 'tools/verify_report_surface_integrity_04141.py'],
+        [sys.executable, 'tools/verify_profile_requirements_04144.py'],
+        [sys.executable, 'tools/verify_video_registry_04145.py'],
+        [sys.executable, 'tools/verify_concurrency_resource_contracts.py'],
+        [sys.executable, 'tools/verify_package_reproducibility.py'],
+    ]
+    for command in commands:
+        run(command)
+    if args.strict_upstream and not args.header:
+        raise SystemExit('strict upstream header gate requires --header')
+    if args.header:
+        header_path = Path(args.header).resolve()
+        registry_path = Path(args.registry).resolve() if args.registry else (root / lock['bundledRegistryPath']).resolve()
+        run([sys.executable, 'tools/verify_canonical_vulkan_headers.py', str(header_path)])
+        run([sys.executable, 'tools/verify_registry_catalog.py', 'registry/generated/registry_query_manifest.json', str(header_path), 'app/src/main/cpp/registry_query_catalog.h'])
+        run([sys.executable, 'tools/verify_extension_field_coverage.py', '--registry', str(registry_path), '--header', str(header_path)])
+        run([sys.executable, 'tools/verify_upstream_registry.py', '--registry', str(registry_path), '--header', str(header_path)])
+        print('PASS strict locked-header verification')
+    else:
+        print('INFO strict canonical Vulkan header byte-level verification NOT EXECUTED; byte-locked registry/header metadata and bundled registry snapshot were verified')
+    print('VulkanScope quality gate 2.1.11: PASS')
+
+def run_2110_quality_gate():
+    commands = [
+        [sys.executable, 'tools/verify_release_2110.py'],
+        [sys.executable, 'tools/test_release_2110_state_machine.py'],
+        [sys.executable, 'tools/test_release_2110_negative_mutations.py'],
+        [sys.executable, 'tools/verify_cmake_registry_lock.py'],
+        [sys.executable, 'tools/verify_registry_snapshot.py'],
+        [sys.executable, 'tools/verify_compile_regressions.py'],
+        [sys.executable, 'tools/verify_spec_regressions.py'],
+        [sys.executable, 'tools/verify_probe_publication_handshake.py'],
+        [sys.executable, 'tools/verify_probe_terminal_ownership.py'],
+        [sys.executable, 'tools/verify_probe_lifecycle_regressions.py'],
+        [sys.executable, 'tools/verify_probe_timeout_recovery.py'],
+        [sys.executable, 'tools/verify_probe_cancellation_recovery.py'],
+        [sys.executable, 'tools/verify_report_semantics_04140.py'],
+        [sys.executable, 'tools/verify_report_surface_integrity_04141.py'],
+        [sys.executable, 'tools/verify_profile_requirements_04144.py'],
+        [sys.executable, 'tools/verify_video_registry_04145.py'],
+        [sys.executable, 'tools/verify_concurrency_resource_contracts.py'],
+        [sys.executable, 'tools/verify_package_reproducibility.py'],
+    ]
+    for command in commands:
+        run(command)
+    if args.strict_upstream and not args.header:
+        raise SystemExit('strict upstream header gate requires --header')
+    if args.header:
+        header_path = Path(args.header).resolve()
+        registry_path = Path(args.registry).resolve() if args.registry else (root / lock['bundledRegistryPath']).resolve()
+        run([sys.executable, 'tools/verify_canonical_vulkan_headers.py', str(header_path)])
+        run([sys.executable, 'tools/verify_registry_catalog.py', 'registry/generated/registry_query_manifest.json', str(header_path), 'app/src/main/cpp/registry_query_catalog.h'])
+        run([sys.executable, 'tools/verify_extension_field_coverage.py', '--registry', str(registry_path), '--header', str(header_path)])
+        run([sys.executable, 'tools/verify_upstream_registry.py', '--registry', str(registry_path), '--header', str(header_path)])
+        print('PASS strict locked-header verification')
+    else:
+        print('INFO strict canonical Vulkan header byte-level verification NOT EXECUTED; byte-locked registry/header metadata and bundled registry snapshot were verified')
+    print('VulkanScope quality gate 2.1.10: PASS')
+
+def run_2109_quality_gate():
+    commands = [
+        [sys.executable, 'tools/verify_release_2109.py'],
+        [sys.executable, 'tools/test_release_2109_state_machine.py'],
+        [sys.executable, 'tools/test_release_2109_negative_mutations.py'],
+        [sys.executable, 'tools/verify_cmake_registry_lock.py'],
+        [sys.executable, 'tools/verify_registry_snapshot.py'],
+        [sys.executable, 'tools/verify_compile_regressions.py'],
+        [sys.executable, 'tools/verify_spec_regressions.py'],
+        [sys.executable, 'tools/verify_probe_publication_handshake.py'],
+        [sys.executable, 'tools/verify_probe_terminal_ownership.py'],
+        [sys.executable, 'tools/verify_probe_lifecycle_regressions.py'],
+        [sys.executable, 'tools/verify_probe_timeout_recovery.py'],
+        [sys.executable, 'tools/verify_probe_cancellation_recovery.py'],
+        [sys.executable, 'tools/verify_report_semantics_04140.py'],
+        [sys.executable, 'tools/verify_report_surface_integrity_04141.py'],
+        [sys.executable, 'tools/verify_profile_requirements_04144.py'],
+        [sys.executable, 'tools/verify_video_registry_04145.py'],
+        [sys.executable, 'tools/verify_concurrency_resource_contracts.py'],
+        [sys.executable, 'tools/verify_package_reproducibility.py'],
+    ]
+    for command in commands:
+        run(command)
+    if args.strict_upstream and not args.header:
+        raise SystemExit('strict upstream header gate requires --header')
+    if args.header:
+        header_path = Path(args.header).resolve()
+        registry_path = Path(args.registry).resolve() if args.registry else (root / lock['bundledRegistryPath']).resolve()
+        run([sys.executable, 'tools/verify_canonical_vulkan_headers.py', str(header_path)])
+        run([sys.executable, 'tools/verify_registry_catalog.py', 'registry/generated/registry_query_manifest.json', str(header_path), 'app/src/main/cpp/registry_query_catalog.h'])
+        run([sys.executable, 'tools/verify_extension_field_coverage.py', '--registry', str(registry_path), '--header', str(header_path)])
+        run([sys.executable, 'tools/verify_upstream_registry.py', '--registry', str(registry_path), '--header', str(header_path)])
+        print('PASS strict locked-header verification')
+    else:
+        print('INFO strict canonical Vulkan header byte-level verification NOT EXECUTED; byte-locked registry/header metadata and bundled registry snapshot were verified')
+    print('VulkanScope quality gate 2.1.9: PASS')
+
+
+def run_2108_quality_gate():
+    commands = [
+        [sys.executable, 'tools/verify_release_2108.py'],
+        [sys.executable, 'tools/test_release_2108_negative_mutations.py'],
+        [sys.executable, 'tools/verify_cmake_registry_lock.py'],
+        [sys.executable, 'tools/verify_registry_snapshot.py'],
+        [sys.executable, 'tools/verify_compile_regressions.py'],
+        [sys.executable, 'tools/verify_spec_regressions.py'],
+        [sys.executable, 'tools/verify_probe_publication_handshake.py'],
+        [sys.executable, 'tools/verify_probe_terminal_ownership.py'],
+        [sys.executable, 'tools/verify_probe_lifecycle_regressions.py'],
+        [sys.executable, 'tools/verify_probe_timeout_recovery.py'],
+        [sys.executable, 'tools/verify_probe_cancellation_recovery.py'],
+        [sys.executable, 'tools/verify_report_semantics_04140.py'],
+        [sys.executable, 'tools/verify_report_surface_integrity_04141.py'],
+        [sys.executable, 'tools/verify_profile_requirements_04144.py'],
+        [sys.executable, 'tools/verify_video_registry_04145.py'],
+        [sys.executable, 'tools/verify_concurrency_resource_contracts.py'],
+        [sys.executable, 'tools/verify_package_reproducibility.py'],
+    ]
+    for command in commands:
+        run(command)
+    if args.strict_upstream and not args.header:
+        raise SystemExit('strict upstream header gate requires --header')
+    if args.header:
+        header_path = Path(args.header).resolve()
+        registry_path = Path(args.registry).resolve() if args.registry else (root / lock['bundledRegistryPath']).resolve()
+        run([sys.executable, 'tools/verify_canonical_vulkan_headers.py', str(header_path)])
+        run([sys.executable, 'tools/verify_registry_catalog.py', 'registry/generated/registry_query_manifest.json', str(header_path), 'app/src/main/cpp/registry_query_catalog.h'])
+        run([sys.executable, 'tools/verify_extension_field_coverage.py', '--registry', str(registry_path), '--header', str(header_path)])
+        run([sys.executable, 'tools/verify_upstream_registry.py', '--registry', str(registry_path), '--header', str(header_path)])
+        print('PASS strict locked-header verification')
+    else:
+        print('INFO strict canonical Vulkan header byte-level verification NOT EXECUTED; byte-locked registry/header metadata and bundled registry snapshot were verified')
+    print('VulkanScope quality gate 2.1.8: PASS')
+
+
+def run_2107_quality_gate():
+    commands = [
+        [sys.executable, 'tools/verify_release_2107.py'],
+        [sys.executable, 'tools/test_release_2107_state_machine.py'],
+        [sys.executable, 'tools/test_release_2107_negative_mutations.py'],
+        [sys.executable, 'tools/verify_cmake_registry_lock.py'],
+        [sys.executable, 'tools/verify_registry_snapshot.py'],
+        [sys.executable, 'tools/verify_compile_regressions.py'],
+        [sys.executable, 'tools/verify_spec_regressions.py'],
+        [sys.executable, 'tools/verify_probe_publication_handshake.py'],
+        [sys.executable, 'tools/verify_probe_terminal_ownership.py'],
+        [sys.executable, 'tools/verify_probe_lifecycle_regressions.py'],
+        [sys.executable, 'tools/verify_probe_timeout_recovery.py'],
+        [sys.executable, 'tools/verify_probe_cancellation_recovery.py'],
+        [sys.executable, 'tools/verify_report_semantics_04140.py'],
+        [sys.executable, 'tools/verify_report_surface_integrity_04141.py'],
+        [sys.executable, 'tools/verify_profile_requirements_04144.py'],
+        [sys.executable, 'tools/verify_video_registry_04145.py'],
+        [sys.executable, 'tools/verify_concurrency_resource_contracts.py'],
+        [sys.executable, 'tools/verify_package_reproducibility.py'],
+    ]
+    for command in commands:
+        run(command)
+    if args.strict_upstream and not args.header:
+        raise SystemExit('strict upstream header gate requires --header')
+    if args.header:
+        header_path = Path(args.header).resolve()
+        registry_path = Path(args.registry).resolve() if args.registry else (root / lock['bundledRegistryPath']).resolve()
+        run([sys.executable, 'tools/verify_canonical_vulkan_headers.py', str(header_path)])
+        run([sys.executable, 'tools/verify_registry_catalog.py', 'registry/generated/registry_query_manifest.json', str(header_path), 'app/src/main/cpp/registry_query_catalog.h'])
+        run([sys.executable, 'tools/verify_extension_field_coverage.py', '--registry', str(registry_path), '--header', str(header_path)])
+        run([sys.executable, 'tools/verify_upstream_registry.py', '--registry', str(registry_path), '--header', str(header_path)])
+        print('PASS strict locked-header verification')
+    else:
+        print('INFO strict canonical Vulkan header byte-level verification NOT EXECUTED; byte-locked registry/header metadata and bundled registry snapshot were verified')
+    print('VulkanScope quality gate 2.1.7: PASS')
+
+
+def run_2106_quality_gate():
+    commands = [
+        [sys.executable, 'tools/verify_release_2106.py'],
+        [sys.executable, 'tools/test_release_2106_state_machine.py'],
+        [sys.executable, 'tools/test_release_2106_negative_mutations.py'],
+        [sys.executable, 'tools/verify_cmake_registry_lock.py'],
+        [sys.executable, 'tools/verify_registry_snapshot.py'],
+        [sys.executable, 'tools/verify_compile_regressions.py'],
+        [sys.executable, 'tools/verify_spec_regressions.py'],
+        [sys.executable, 'tools/verify_probe_publication_handshake.py'],
+        [sys.executable, 'tools/verify_probe_terminal_ownership.py'],
+        [sys.executable, 'tools/verify_probe_lifecycle_regressions.py'],
+        [sys.executable, 'tools/verify_probe_timeout_recovery.py'],
+        [sys.executable, 'tools/verify_probe_cancellation_recovery.py'],
+        [sys.executable, 'tools/verify_report_semantics_04140.py'],
+        [sys.executable, 'tools/verify_report_surface_integrity_04141.py'],
+        [sys.executable, 'tools/verify_profile_requirements_04144.py'],
+        [sys.executable, 'tools/verify_video_registry_04145.py'],
+        [sys.executable, 'tools/verify_concurrency_resource_contracts.py'],
+        [sys.executable, 'tools/verify_package_reproducibility.py'],
+    ]
+    for command in commands:
+        run(command)
+    if args.strict_upstream and not args.header:
+        raise SystemExit('strict upstream header gate requires --header')
+    if args.header:
+        header_path = Path(args.header).resolve()
+        registry_path = Path(args.registry).resolve() if args.registry else (root / lock['bundledRegistryPath']).resolve()
+        run([sys.executable, 'tools/verify_canonical_vulkan_headers.py', str(header_path)])
+        run([sys.executable, 'tools/verify_registry_catalog.py', 'registry/generated/registry_query_manifest.json', str(header_path), 'app/src/main/cpp/registry_query_catalog.h'])
+        run([sys.executable, 'tools/verify_extension_field_coverage.py', '--registry', str(registry_path), '--header', str(header_path)])
+        run([sys.executable, 'tools/verify_upstream_registry.py', '--registry', str(registry_path), '--header', str(header_path)])
+        print('PASS strict locked-header verification')
+    else:
+        print('INFO strict canonical Vulkan header byte-level verification NOT EXECUTED; byte-locked registry/header metadata and bundled registry snapshot were verified')
+    print('VulkanScope quality gate 2.1.6: PASS')
+
+
+def run_2105_quality_gate():
+    commands = [
+        [sys.executable, 'tools/verify_release_2105.py'],
+        [sys.executable, 'tools/test_release_2105_state_machine.py'],
+        [sys.executable, 'tools/test_release_2105_negative_mutations.py'],
+        [sys.executable, 'tools/verify_cmake_registry_lock.py'],
+        [sys.executable, 'tools/verify_registry_snapshot.py'],
+        [sys.executable, 'tools/verify_compile_regressions.py'],
+        [sys.executable, 'tools/verify_spec_regressions.py'],
+        [sys.executable, 'tools/verify_probe_publication_handshake.py'],
+        [sys.executable, 'tools/verify_probe_terminal_ownership.py'],
+        [sys.executable, 'tools/verify_probe_lifecycle_regressions.py'],
+        [sys.executable, 'tools/verify_probe_timeout_recovery.py'],
+        [sys.executable, 'tools/verify_probe_cancellation_recovery.py'],
+        [sys.executable, 'tools/verify_report_semantics_04140.py'],
+        [sys.executable, 'tools/verify_report_surface_integrity_04141.py'],
+        [sys.executable, 'tools/verify_profile_requirements_04144.py'],
+        [sys.executable, 'tools/verify_video_registry_04145.py'],
+        [sys.executable, 'tools/verify_concurrency_resource_contracts.py'],
+        [sys.executable, 'tools/verify_package_reproducibility.py'],
+    ]
+    for command in commands:
+        run(command)
+    if args.strict_upstream and not args.header:
+        raise SystemExit('strict upstream header gate requires --header')
+    if args.header:
+        header_path = Path(args.header).resolve()
+        registry_path = Path(args.registry).resolve() if args.registry else (root / lock['bundledRegistryPath']).resolve()
+        run([sys.executable, 'tools/verify_canonical_vulkan_headers.py', str(header_path)])
+        run([sys.executable, 'tools/verify_registry_catalog.py', 'registry/generated/registry_query_manifest.json', str(header_path), 'app/src/main/cpp/registry_query_catalog.h'])
+        run([sys.executable, 'tools/verify_extension_field_coverage.py', '--registry', str(registry_path), '--header', str(header_path)])
+        run([sys.executable, 'tools/verify_upstream_registry.py', '--registry', str(registry_path), '--header', str(header_path)])
+        print('PASS strict locked-header verification')
+    else:
+        print('INFO strict canonical Vulkan header byte-level verification NOT EXECUTED; byte-locked registry/header metadata and bundled registry snapshot were verified')
+    print('VulkanScope quality gate 2.1.5: PASS')
+
+
+def run_2104_quality_gate():
+    commands = [
+        [sys.executable, 'tools/verify_release_2104.py'],
+        [sys.executable, 'tools/test_release_2104_state_machine.py'],
+        [sys.executable, 'tools/test_release_2104_negative_mutations.py'],
+        [sys.executable, 'tools/verify_cmake_registry_lock.py'],
+        [sys.executable, 'tools/verify_registry_snapshot.py'],
+        [sys.executable, 'tools/verify_compile_regressions.py'],
+        [sys.executable, 'tools/verify_spec_regressions.py'],
+        [sys.executable, 'tools/verify_probe_publication_handshake.py'],
+        [sys.executable, 'tools/verify_probe_terminal_ownership.py'],
+        [sys.executable, 'tools/verify_probe_lifecycle_regressions.py'],
+        [sys.executable, 'tools/verify_probe_timeout_recovery.py'],
+        [sys.executable, 'tools/verify_probe_cancellation_recovery.py'],
+        [sys.executable, 'tools/verify_report_semantics_04140.py'],
+        [sys.executable, 'tools/verify_report_surface_integrity_04141.py'],
+        [sys.executable, 'tools/verify_profile_requirements_04144.py'],
+        [sys.executable, 'tools/verify_video_registry_04145.py'],
+        [sys.executable, 'tools/verify_concurrency_resource_contracts.py'],
+        [sys.executable, 'tools/verify_package_reproducibility.py'],
+    ]
+    for command in commands:
+        run(command)
+    if args.strict_upstream and not args.header:
+        raise SystemExit('strict upstream header gate requires --header')
+    if args.header:
+        header_path = Path(args.header).resolve()
+        registry_path = Path(args.registry).resolve() if args.registry else (root / lock['bundledRegistryPath']).resolve()
+        run([sys.executable, 'tools/verify_canonical_vulkan_headers.py', str(header_path)])
+        run([sys.executable, 'tools/verify_registry_catalog.py', 'registry/generated/registry_query_manifest.json', str(header_path), 'app/src/main/cpp/registry_query_catalog.h'])
+        run([sys.executable, 'tools/verify_extension_field_coverage.py', '--registry', str(registry_path), '--header', str(header_path)])
+        run([sys.executable, 'tools/verify_upstream_registry.py', '--registry', str(registry_path), '--header', str(header_path)])
+        print('PASS strict locked-header verification')
+    else:
+        print('INFO strict canonical Vulkan header byte-level verification NOT EXECUTED; byte-locked registry/header metadata and bundled registry snapshot were verified')
+    print('VulkanScope quality gate 2.1.4: PASS')
+
+
+def run_2103_quality_gate():
+    commands = [
+        [sys.executable, 'tools/verify_release_2103.py'],
+        [sys.executable, 'tools/test_release_2103_state_machine.py'],
+        [sys.executable, 'tools/test_release_2103_negative_mutations.py'],
+        [sys.executable, 'tools/verify_cmake_registry_lock.py'],
+        [sys.executable, 'tools/verify_registry_snapshot.py'],
+        [sys.executable, 'tools/verify_compile_regressions.py'],
+        [sys.executable, 'tools/verify_spec_regressions.py'],
+        [sys.executable, 'tools/verify_probe_publication_handshake.py'],
+        [sys.executable, 'tools/verify_probe_terminal_ownership.py'],
+        [sys.executable, 'tools/verify_probe_lifecycle_regressions.py'],
+        [sys.executable, 'tools/verify_probe_timeout_recovery.py'],
+        [sys.executable, 'tools/verify_probe_cancellation_recovery.py'],
+        [sys.executable, 'tools/verify_report_semantics_04140.py'],
+        [sys.executable, 'tools/verify_report_surface_integrity_04141.py'],
+        [sys.executable, 'tools/verify_profile_requirements_04144.py'],
+        [sys.executable, 'tools/verify_video_registry_04145.py'],
+        [sys.executable, 'tools/verify_concurrency_resource_contracts.py'],
+        [sys.executable, 'tools/verify_package_reproducibility.py'],
+    ]
+    for command in commands:
+        run(command)
+    if args.strict_upstream and not args.header:
+        raise SystemExit('strict upstream header gate requires --header')
+    if args.header:
+        header_path = Path(args.header).resolve()
+        registry_path = Path(args.registry).resolve() if args.registry else (root / lock['bundledRegistryPath']).resolve()
+        run([sys.executable, 'tools/verify_canonical_vulkan_headers.py', str(header_path)])
+        run([sys.executable, 'tools/verify_registry_catalog.py', 'registry/generated/registry_query_manifest.json', str(header_path), 'app/src/main/cpp/registry_query_catalog.h'])
+        run([sys.executable, 'tools/verify_extension_field_coverage.py', '--registry', str(registry_path), '--header', str(header_path)])
+        run([sys.executable, 'tools/verify_upstream_registry.py', '--registry', str(registry_path), '--header', str(header_path)])
+        print('PASS strict locked-header verification')
+    else:
+        print('INFO strict canonical Vulkan header byte-level verification NOT EXECUTED; byte-locked registry/header metadata and bundled registry snapshot were verified')
+    print('VulkanScope quality gate 2.1.3: PASS')
+
+
+def run_2102_quality_gate():
+    commands = [
+        [sys.executable, 'tools/verify_release_2102.py'],
+        [sys.executable, 'tools/test_release_2102_state_machine.py'],
+        [sys.executable, 'tools/test_release_2102_negative_mutations.py'],
+        [sys.executable, 'tools/verify_cmake_registry_lock.py'],
+        [sys.executable, 'tools/verify_registry_snapshot.py'],
+        [sys.executable, 'tools/verify_compile_regressions.py'],
+        [sys.executable, 'tools/verify_spec_regressions.py'],
+        [sys.executable, 'tools/verify_probe_publication_handshake.py'],
+        [sys.executable, 'tools/verify_probe_terminal_ownership.py'],
+        [sys.executable, 'tools/verify_probe_lifecycle_regressions.py'],
+        [sys.executable, 'tools/verify_probe_timeout_recovery.py'],
+        [sys.executable, 'tools/verify_probe_cancellation_recovery.py'],
+        [sys.executable, 'tools/verify_report_semantics_04140.py'],
+        [sys.executable, 'tools/verify_report_surface_integrity_04141.py'],
+        [sys.executable, 'tools/verify_profile_requirements_04144.py'],
+        [sys.executable, 'tools/verify_video_registry_04145.py'],
+        [sys.executable, 'tools/verify_concurrency_resource_contracts.py'],
+        [sys.executable, 'tools/verify_package_reproducibility.py'],
+    ]
+    for command in commands:
+        run(command)
+    if args.strict_upstream and not args.header:
+        raise SystemExit('strict upstream header gate requires --header')
+    if args.header:
+        header_path = Path(args.header).resolve()
+        registry_path = Path(args.registry).resolve() if args.registry else (root / lock['bundledRegistryPath']).resolve()
+        run([sys.executable, 'tools/verify_canonical_vulkan_headers.py', str(header_path)])
+        run([sys.executable, 'tools/verify_registry_catalog.py', 'registry/generated/registry_query_manifest.json', str(header_path), 'app/src/main/cpp/registry_query_catalog.h'])
+        run([sys.executable, 'tools/verify_extension_field_coverage.py', '--registry', str(registry_path), '--header', str(header_path)])
+        run([sys.executable, 'tools/verify_upstream_registry.py', '--registry', str(registry_path), '--header', str(header_path)])
+        print('PASS strict locked-header verification')
+    else:
+        print('INFO strict canonical Vulkan header byte-level verification NOT EXECUTED; byte-locked registry/header metadata and bundled registry snapshot were verified')
+    print('VulkanScope quality gate 2.1.2: PASS')
+
+
+def run_2101_quality_gate():
+    commands = [
+        [sys.executable, 'tools/test_release_2101_negative_mutations.py'],
+        [sys.executable, 'tools/test_release_2100_state_machine.py'],
+        [sys.executable, 'tools/verify_cmake_registry_lock.py'],
+        [sys.executable, 'tools/verify_registry_snapshot.py'],
+        [sys.executable, 'tools/verify_compile_regressions.py'],
+        [sys.executable, 'tools/verify_spec_regressions.py'],
+        [sys.executable, 'tools/verify_probe_publication_handshake.py'],
+        [sys.executable, 'tools/verify_probe_terminal_ownership.py'],
+        [sys.executable, 'tools/verify_probe_lifecycle_regressions.py'],
+        [sys.executable, 'tools/verify_probe_timeout_recovery.py'],
+        [sys.executable, 'tools/verify_probe_cancellation_recovery.py'],
+        [sys.executable, 'tools/verify_report_semantics_04140.py'],
+        [sys.executable, 'tools/verify_report_surface_integrity_04141.py'],
+        [sys.executable, 'tools/verify_profile_requirements_04144.py'],
+        [sys.executable, 'tools/test_profile_evaluator_state_machine.py'],
+        [sys.executable, 'tools/verify_video_registry_04145.py'],
+        [sys.executable, 'tools/test_video_profile_census_state_machine.py'],
+        [sys.executable, 'tools/verify_concurrency_resource_contracts.py'],
+        [sys.executable, 'tools/verify_package_reproducibility.py'],
+    ]
+    for command in commands:
+        run(command)
+    if args.strict_upstream and not args.header:
+        raise SystemExit('strict upstream header gate requires --header')
+    if args.header:
+        header_path = Path(args.header).resolve()
+        registry_path = Path(args.registry).resolve() if args.registry else (root / lock['bundledRegistryPath']).resolve()
+        run([sys.executable, 'tools/verify_canonical_vulkan_headers.py', str(header_path)])
+        run([sys.executable, 'tools/verify_registry_catalog.py', 'registry/generated/registry_query_manifest.json', str(header_path), 'app/src/main/cpp/registry_query_catalog.h'])
+        run([sys.executable, 'tools/verify_extension_field_coverage.py', '--registry', str(registry_path), '--header', str(header_path)])
+        run([sys.executable, 'tools/verify_upstream_registry.py', '--registry', str(registry_path), '--header', str(header_path)])
+        print('PASS strict locked-header verification')
+    else:
+        print('INFO strict canonical Vulkan header byte-level verification NOT EXECUTED; byte-locked registry/header metadata and bundled registry snapshot were verified')
+    print('VulkanScope quality gate 2.1.1: PASS')
+
+
+
+def run_2100_quality_gate():
+    commands = [
+        [sys.executable, 'tools/verify_release_2100.py'],
+        [sys.executable, 'tools/test_release_2100_state_machine.py'],
+        [sys.executable, 'tools/test_release_2100_negative_mutations.py'],
+        [sys.executable, 'tools/verify_cmake_registry_lock.py'],
+        [sys.executable, 'tools/verify_registry_snapshot.py'],
+        [sys.executable, 'tools/verify_compile_regressions.py'],
+        [sys.executable, 'tools/verify_spec_regressions.py'],
+        [sys.executable, 'tools/verify_probe_publication_handshake.py'],
+        [sys.executable, 'tools/verify_probe_terminal_ownership.py'],
+        [sys.executable, 'tools/verify_probe_lifecycle_regressions.py'],
+        [sys.executable, 'tools/verify_probe_timeout_recovery.py'],
+        [sys.executable, 'tools/verify_probe_cancellation_recovery.py'],
+        [sys.executable, 'tools/verify_report_semantics_04140.py'],
+        [sys.executable, 'tools/verify_report_surface_integrity_04141.py'],
+        [sys.executable, 'tools/verify_profile_requirements_04144.py'],
+        [sys.executable, 'tools/test_profile_evaluator_state_machine.py'],
+        [sys.executable, 'tools/verify_video_registry_04145.py'],
+        [sys.executable, 'tools/test_video_profile_census_state_machine.py'],
+        [sys.executable, 'tools/verify_concurrency_resource_contracts.py'],
+        [sys.executable, 'tools/verify_package_reproducibility.py'],
+    ]
+    for command in commands:
+        run(command)
+    if args.strict_upstream and not args.header:
+        raise SystemExit('strict upstream header gate requires --header')
+    if args.header:
+        header_path = Path(args.header).resolve()
+        registry_path = Path(args.registry).resolve() if args.registry else (root / lock['bundledRegistryPath']).resolve()
+        run([sys.executable, 'tools/verify_canonical_vulkan_headers.py', str(header_path)])
+        run([sys.executable, 'tools/verify_registry_catalog.py', 'registry/generated/registry_query_manifest.json', str(header_path), 'app/src/main/cpp/registry_query_catalog.h'])
+        run([sys.executable, 'tools/verify_extension_field_coverage.py', '--registry', str(registry_path), '--header', str(header_path)])
+        run([sys.executable, 'tools/verify_upstream_registry.py', '--registry', str(registry_path), '--header', str(header_path)])
+        print('PASS strict locked-header verification')
+    else:
+        print('INFO strict canonical Vulkan header byte-level verification NOT EXECUTED; byte-locked registry/header metadata and bundled registry snapshot were verified')
+    print('VulkanScope quality gate 2.1.0: PASS')
 
 
 def run_2006_quality_gate():
@@ -1235,6 +2015,71 @@ def run_1305_quality_gate():
     print('VulkanScope quality gate 1.3.5: PASS')
 
 
+if release_3002_expressive_loading_compile_fix:
+    run_3002_quality_gate()
+    raise SystemExit(0)
+
+if release_3001_ui_input_layout:
+    run_3001_quality_gate()
+    raise SystemExit(0)
+
+if release_3000_edge_to_edge_chrome_overlay:
+    run_3000_quality_gate()
+    raise SystemExit(0)
+
+if release_2116_lazy_viewport_pager_alignment:
+    run_2116_quality_gate()
+    raise SystemExit(0)
+elif release_2115_single_pager_continuous_glass:
+    run_2115_quality_gate()
+    raise SystemExit(0)
+elif release_2114_pager_landing_unified_glass:
+    run_2114_quality_gate()
+    raise SystemExit(0)
+elif release_2113_unified_pager_frosted_blur:
+    run_2113_quality_gate()
+    raise SystemExit(0)
+elif release_2112_single_pager_clipped_glass:
+    run_2112_quality_gate()
+    raise SystemExit(0)
+
+if release_2111_graphics_layer_import_compile_fix:
+    run_2111_quality_gate()
+    raise SystemExit(0)
+
+if release_2110_progressive_glass_handoff:
+    run_2110_quality_gate()
+    raise SystemExit(0)
+if release_2109_pinned_pager_overlay:
+    run_2109_quality_gate()
+    raise SystemExit(0)
+if release_2108_sticky_reporter_compile_fix:
+    run_2108_quality_gate()
+    raise SystemExit(0)
+if release_2107_glass_pager_file_icons_trademark:
+    run_2107_quality_gate()
+    raise SystemExit(0)
+if release_2106_frosted_header_overlay_coordination:
+    run_2106_quality_gate()
+    raise SystemExit(0)
+if release_2105_transparent_header_file_manager_pager:
+    run_2105_quality_gate()
+    raise SystemExit(0)
+if release_2104_kotlin_compile_restoration:
+    run_2104_quality_gate()
+    raise SystemExit(0)
+if release_2103_telegram_paging_sort_dialog:
+    run_2103_quality_gate()
+    raise SystemExit(0)
+if release_2102_header_layout_scroll_refinement:
+    run_2102_quality_gate()
+    raise SystemExit(0)
+if release_2101_collection_pager_compile_fix:
+    run_2101_quality_gate()
+    raise SystemExit(0)
+if release_2100_ui_pagination_transfer_database:
+    run_2100_quality_gate()
+    raise SystemExit(0)
 if release_2006_surface_scroll:
     run_2006_quality_gate()
     raise SystemExit(0)

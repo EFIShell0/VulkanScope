@@ -11,8 +11,8 @@
       "type": "UNIVERSAL",
       "filters": [],
       "attributes": [],
-      "versionCode": 2006,
-      "versionName": "2.0.6",
+      "versionCode": 3002,
+      "versionName": "3.0.2",
       "outputFile": "app-universal-release.apk"
     },
     {
@@ -24,8 +24,8 @@
         }
       ],
       "attributes": [],
-      "versionCode": 2006,
-      "versionName": "2.0.6",
+      "versionCode": 3002,
+      "versionName": "3.0.2",
       "outputFile": "app-armeabi-v7a-release.apk"
     },
     {
@@ -37,8 +37,8 @@
         }
       ],
       "attributes": [],
-      "versionCode": 2006,
-      "versionName": "2.0.6",
+      "versionCode": 3002,
+      "versionName": "3.0.2",
       "outputFile": "app-arm64-v8a-release.apk"
     },
     {
@@ -50,8 +50,8 @@
         }
       ],
       "attributes": [],
-      "versionCode": 2006,
-      "versionName": "2.0.6",
+      "versionCode": 3002,
+      "versionName": "3.0.2",
       "outputFile": "app-x86_64-release.apk"
     }
   ],
