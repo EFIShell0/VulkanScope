@@ -1,3 +1,63 @@
+## 3.0.12
+- Fixes the Kotlin release-compilation failure in Turnip File Manager folder prevalidation by removing the non-suspend Sequence/runCatching lambda around the suspend archive inspector and using a cancellation-safe imperative scan instead.
+- Preserves the 3.0.11 validated Turnip ZIP folder counts, 256-candidate bound, imported-package inclusion, path/archive safety, File Manager UI behavior, Vulkan collection and report/database semantics unchanged.
+
+## 3.0.11
+- Fixes Turnip File Manager folder subtitles so they count only ZIP packages that pass the same bounded Turnip archive inspection used for visible candidates, instead of counting every file whose name ends in `.zip`.
+- Keeps already-imported but otherwise valid Turnip packages in the folder count, matching the packages still shown inside that folder.
+- Preserves the existing 256-ZIP per-folder validation bound, explicit limited-count marker, import revalidation, path safety, Vulkan collection, report/database behavior, ABI targets and dependency versions.
+
+## 3.0.10
+- Fixes the release Kotlin compilation failure in Database submitted-time rendering by resolving Compose `LocalContext` through the established fully qualified platform reference.
+- Makes the shared File Manager View & sort chooser orientation-independent by opening its bounded choice surface outside the landscape scrollable controls pane, preserving all layout/sort choices and X-only dismissal.
+- Adds pointer/D-pad scrolling and system-bar-safe bounds to the View & sort surface so short landscape/freeform windows remain fully usable.
+- Keeps Vulkan/native collection, report/export schemas, Database transport, permissions, ABI targets, registry/generated data, packaged assets and dependencies unchanged.
+
+## 3.0.9
+- Formats public Database submission timestamps as device-local Date and Time fields instead of raw ISO strings, with the local time-zone label retained for context.
+- Makes Database System/Turnip driver labels use the exact Overview color distinction and bold hierarchy while keeping report data unchanged.
+- Gives Encyclopedia, Requirements, Minimums, Graph, Quality and Tests section headers unique semantic icon treatments, using meaningful badge/overlay variants instead of repeating one identical glyph for different roles.
+- Adds the semantic-icon uniqueness rule to the permanent VulkanScope engineering rules without changing Vulkan collection, report schemas, Database endpoints, permissions, ABI targets or dependencies.
+
+## 3.0.8
+- Redesigned Analysis Requirements, Minimums and Encyclopedia for clearer evidence boundaries, richer summaries and more usable detail presentation.
+- Reworked capability statistics into compact Vulkan-accent summary grids across Properties and other metric-based pages.
+- Replaced generic Analysis Quality/Graph/Test section glyphs with semantic icons and matched Database GPU badges to the Turnip driver identity treatment.
+- Fixed hardware D-pad/arrow navigation outside television uiMode and extended focus/scroll handling across pages, file managers, filter lists and scrollable detail dialogs.
+- Added animated file-manager breadcrumb, folder-transition and Turnip selected/remaining-count feedback.
+
+## 3.0.7
+- Replaces generic Database icons in the public report list with the GPU vendor artwork already used by VulkanScope, while keeping unknown vendor IDs explicit through the existing unknown-vendor asset.
+- Makes Turnip and shared-storage file-manager search transitions expand, collapse and resize smoothly, and adds bounded content-size motion to folder/file cards so layout changes no longer snap.
+- Rebuilds Quality as an auditable collection-integrity calculation with a visible 100-point baseline, fixed per-check deductions, threshold bands, triggered/clear evidence and explicit non-ranking semantics.
+- Rebuilds active Test results with the exact target/scope, PASS/FAIL/UNAVAILABLE counts, overall outcome, per-test Vulkan result evidence and clear result semantics without mutating capability support.
+- Preserves Vulkan/native collection, report/export schemas, Database endpoints and bounds, permissions, ABI targets, registry/generated data and dependency versions unchanged.
+
+## 3.0.6
+- Fixes the Analysis release-compilation regression by reading validated-network state from the existing `@Composable` Analysis page and passing the resulting Boolean into the non-composable lazy-list builder.
+- Preserves the 3.0.5 full-screen file managers, diagnostic timing presentation, Database list/Report ID workflows, network gating, Vulkan collection, report/export schemas, ABI targets and dependency versions unchanged.
+
+## 3.0.5
+- Rebuilds Turnip and every shared-storage import/export file manager as animated full-screen AMOLED-black sections with no outer window frame, while preserving system navigation insets/backdrop behavior.
+- Moves expandable search directly beside the unified View & sort control, removes the separate search row, keeps X-only View & sort dismissal, and gives the freed space back to folder/file browsing in portrait and landscape.
+- Uses the established Vulkan-red outline treatment on Turnip and shared-storage folder/file cards while retaining bounded scans, path validation, file-type validation and atomic export semantics.
+- Redesigns Analysis Diagnostic collection into end-to-end, phase and probe/scheduler timing groups; elapsed values are shown in seconds with the exact millisecond value in parentheses.
+- Splits Database lookup into a bounded public report-list workflow and exact 64-character Report ID workflow, with local list filtering, pagination-aware loading and the existing local evidence comparison path.
+- Preserves Vulkan/native collection, registry/generated data, report/export schemas, permissions, ABI targets and dependency versions unchanged.
+
+## 3.0.4
+- Fixes the Kotlin release compilation regression in Android TV navigation by reading the native Android keycode from each Compose key event's `key` value.
+- Removes the invalid explicit Foundation `weight` import while preserving the dependency graph's three equal-width summary cards through the public `RowScope` weight API.
+- Preserves all 3.0.3 Analysis confirmations, graph behavior, full-screen file manager, Android TV navigation semantics, report-copy feedback, Vulkan collection and report/Database behavior unchanged.
+
+## 3.0.3
+- Reworks Analysis custom minimum profile actions into VulkanScope-red contained Load/Delete controls, using the update-action and trash icons, and adds consistent question-style Cancel/Load, Cancel/Delete and Cancel/Save confirmations before local profile mutations.
+- Redesigns the Analysis dependency graph into a bounded scrollable explorer with depth controls, evidence-state legend, summary metrics, readable relationship lanes and a separate complete traversal evidence list.
+- Rebuilds the Turnip file manager as a full-screen surface with clickable breadcrumb navigation, animated round search expansion, one-level ZIP file counts for folders, retained system-navigation glass, and an X-only view/sort chooser dismissal path.
+- Improves Android TV remote navigation with D-pad focus-first movement, bounded lazy-list/grid scroll fallback, Page Up/Page Down handling, full folder/file card activation and bring-into-view focus treatment across application navigation and file-manager content.
+- Adds the same three-second animated green-check feedback used by copy actions to the successful Database report-ID copy control before restoring its normal copy icon.
+- Keeps Vulkan/native collection, registry data, report/Database/export schema and endpoint semantics, permissions, ABI targets and dependency versions unchanged.
+
 ## 3.0.2
 - Fixes the release Kotlin compilation failure in the extracted shared-storage listing by explicitly opting that top-level composable into the Material 3 Expressive loading API it already uses.
 - Preserves the 3.0.1 file-manager layout, loading presentation, page/header spacing, desktop input behavior, opening animation, Vulkan collection and report semantics unchanged.

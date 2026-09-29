@@ -55,6 +55,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -70,13 +71,16 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -206,6 +210,7 @@ import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -232,6 +237,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
@@ -315,6 +321,8 @@ private data class EvidenceActionEnvironment(val openEncyclopedia: (String) -> U
 private val LocalEvidenceActionEnvironment = staticCompositionLocalOf<EvidenceActionEnvironment?> { null }
 private typealias SharedStorageAccessRequest = ((() -> Unit), (() -> Unit)) -> Unit
 private val LocalSharedStorageAccessRequest = staticCompositionLocalOf<SharedStorageAccessRequest> { { granted, _ -> granted() } }
+private typealias SharedStorageBrowserLauncher = (SharedStorageBrowserOverlayRequest) -> Unit
+private val LocalSharedStorageBrowserLauncher = staticCompositionLocalOf<SharedStorageBrowserLauncher> { { } }
 private val LocalTransientOverlayContentInset = staticCompositionLocalOf { 0.dp }
 private val LocalPinnedPagerContentInset = staticCompositionLocalOf { 0.dp }
 private typealias StickyPagerStateReporter = (String, Boolean, Int) -> Unit
@@ -965,8 +973,14 @@ private data class TurnipArchiveCandidate(
     val minApi: Int?
 )
 
+private data class TurnipFolderEntry(
+    val path: String,
+    val validZipFileCount: Int,
+    val zipCountLimited: Boolean
+)
+
 private data class TurnipDirectoryListing(
-    val folders: List<String>,
+    val folders: List<TurnipFolderEntry>,
     val candidates: List<TurnipArchiveCandidate>,
     val entryLimitReached: Boolean,
     val zipLimitReached: Boolean
@@ -983,7 +997,7 @@ private data class TurnipFileManagerState(
     val visible: Boolean = false,
     val rootPath: String = "",
     val directoryPath: String = "",
-    val folders: List<String> = emptyList(),
+    val folders: List<TurnipFolderEntry> = emptyList(),
     val candidates: List<TurnipArchiveCandidate> = emptyList(),
     val importedSourceKeys: Set<String> = emptySet(),
     val selectedPaths: Set<String> = emptySet(),
@@ -1103,16 +1117,37 @@ private suspend fun scanTurnipFileManagerDirectory(root: File, directory: File, 
         }
     }
     sortFileManagerChildren(children, sortMode)
-    val folders = children.asSequence().mapNotNull { child ->
+    val folders = ArrayList<TurnipFolderEntry>()
+    for (child in children) {
         coroutineContext.ensureActive()
-        runCatching {
+        try {
             val canonical = child.canonicalFile
-            if (!canonical.isDirectory || !canonical.canRead()) null
-            else if (canonical != canonicalRoot && !canonical.path.startsWith(prefix)) null
-            else if (child.absoluteFile.path != canonical.path) null
-            else canonical.path
-        }.getOrNull()
-    }.toList()
+            if (!canonical.isDirectory || !canonical.canRead()) continue
+            if (canonical != canonicalRoot && !canonical.path.startsWith(prefix)) continue
+            if (child.absoluteFile.path != canonical.path) continue
+            var inspectedZipFileCount = 0
+            var validZipFileCount = 0
+            var zipCountLimited = false
+            java.nio.file.Files.newDirectoryStream(canonical.toPath()).use { childStream ->
+                val childIterator = childStream.iterator()
+                while (childIterator.hasNext()) {
+                    coroutineContext.ensureActive()
+                    val nested = childIterator.next().toFile()
+                    if (!nested.name.endsWith(".zip", true)) continue
+                    if (inspectedZipFileCount >= 256) {
+                        zipCountLimited = true
+                        break
+                    }
+                    inspectedZipFileCount += 1
+                    if (inspectTurnipArchive(nested) != null) validZipFileCount += 1
+                }
+            }
+            folders += TurnipFolderEntry(canonical.path, validZipFileCount, zipCountLimited)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+        }
+    }
     val candidates = ArrayList<TurnipArchiveCandidate>()
     var inspectedZipCount = 0
     var zipLimitReached = false
@@ -1138,6 +1173,13 @@ private data class SharedStorageBrowserRequest(
     val allowedExtensions: Set<String>,
     val suggestedFileName: String = "",
     val maxImportBytes: Long? = null
+)
+
+private data class SharedStorageBrowserOverlayRequest(
+    val request: SharedStorageBrowserRequest,
+    val onImport: suspend (File) -> Result<String> = { Result.failure(IllegalStateException("Import is unavailable")) },
+    val onExport: suspend (File) -> Result<String> = { Result.failure(IllegalStateException("Export is unavailable")) },
+    val onClosed: () -> Unit = {}
 )
 
 private data class SharedStorageFileEntry(
@@ -1978,7 +2020,11 @@ class MainActivity : ComponentActivity() {
                 onRequestQuery = { group -> requestQueryGroup(group) },
                 queryTimingMs = queryTimingMs
             )
-            if (turnipFileManagerState.visible) {
+            AnimatedVisibility(
+                visible = turnipFileManagerState.visible,
+                enter = fadeIn(tween(180)) + slideInVertically(tween(220, easing = FastOutSlowInEasing)) { it / 10 },
+                exit = fadeOut(tween(160)) + slideOutVertically(tween(210, easing = FastOutSlowInEasing)) { it / 12 }
+            ) {
                 TurnipFileManagerDialog(
                     state = turnipFileManagerState,
                     onDismiss = { closeTurnipFileManager() },
@@ -2253,11 +2299,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun closeTurnipFileManager() {
-        if (turnipFileManagerState.importing) return
+        if (turnipFileManagerState.importing || !turnipFileManagerState.visible) return
         turnipFileManagerScanJob?.cancel()
         turnipFileManagerScanJob = null
         turnipFileManagerScanGeneration += 1L
-        turnipFileManagerState = TurnipFileManagerState()
+        turnipFileManagerState = turnipFileManagerState.copy(visible = false, details = null, status = null)
+        activityScope.launch {
+            kotlinx.coroutines.delay(220L)
+            if (!turnipFileManagerState.visible) turnipFileManagerState = TurnipFileManagerState()
+        }
     }
 
     private fun importSelectedTurnipFiles() {
@@ -5017,6 +5067,7 @@ private fun VulkanScopeApp(
     var surfaceSection by rememberSaveable { mutableStateOf<SurfaceSection?>(null) }
     var encyclopediaSeed by rememberSaveable { mutableStateOf("") }
     var selectedDeviceIndex by rememberSaveable { mutableIntStateOf(0) }
+    var sharedStorageBrowserOverlay by remember { mutableStateOf<SharedStorageBrowserOverlayRequest?>(null) }
     LaunchedEffect(page) { onPageOpened(page) }
     LaunchedEffect(report?.devices?.size) {
         val count = report?.devices?.size ?: 0
@@ -5096,6 +5147,7 @@ private fun VulkanScopeApp(
 
         CompositionLocalProvider(
             LocalValidatedNetwork provides validatedNetworkAvailable,
+            LocalSharedStorageBrowserLauncher provides { request -> sharedStorageBrowserOverlay = request },
             LocalTransientOverlayContentInset provides transientOverlayContentInset,
             LocalPinnedPagerContentInset provides pinnedPagerContentInset,
             LocalStickyPagerStateReporter provides stickyPagerStateReporter,
@@ -5106,6 +5158,7 @@ private fun VulkanScopeApp(
                 containerColor = ComposeColor.Black,
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = {
+                    if (sharedStorageBrowserOverlay == null) {
                     val headerBackdrop = pageChromeBackdrop ?: ChromeBackdropSource(chromeBlurredLayer, Offset.Zero)
                     AppHeader(
                         page,
@@ -5120,6 +5173,7 @@ private fun VulkanScopeApp(
                         backdropLayer = headerBackdrop.layer,
                         backdropRootOffset = headerBackdrop.rootOffset
                     )
+                    }
                 }
             ) { padding ->
                 val headerContentInset = padding.calculateTopPadding()
@@ -5246,31 +5300,45 @@ private fun VulkanScopeApp(
                         backdropRootOffset = navigationBackdrop.rootOffset,
                         modifier = Modifier.matchParentSize().zIndex(6f)
                     )
-                    CompactBottomNavigationBar(
-                        selectedPage = selectedNavigationPage(page),
-                        onPageSelected = { target ->
-                            if (target == Page.Surface) surfaceSection = null
-                            page = target
-                        },
-                        backdropLayer = navigationBackdrop.layer,
-                        backdropRootOffset = navigationBackdrop.rootOffset,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .onSizeChanged { bottomNavigationHeightPx = it.height }
-                    )
-                    TransientStatusOverlayHost(
-                        collectionStatus = collectionStatus,
-                        networkStateKnown = networkStateKnown,
-                        networkAvailable = validatedNetworkAvailable,
-                        networkBannerState = networkBannerState,
-                        updateStatus = updateStatus,
-                        onInstallUpdate = onRequestUpdateConfirmation,
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .offset(y = headerContentInset + coordinatedPinnedPagerInset)
-                            .zIndex(11f)
-                            .onSizeChanged { transientOverlayHeightPx = it.height }
-                    )
+                    if (sharedStorageBrowserOverlay == null) {
+                        CompactBottomNavigationBar(
+                            selectedPage = selectedNavigationPage(page),
+                            onPageSelected = { target ->
+                                if (target == Page.Surface) surfaceSection = null
+                                page = target
+                            },
+                            backdropLayer = navigationBackdrop.layer,
+                            backdropRootOffset = navigationBackdrop.rootOffset,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .onSizeChanged { bottomNavigationHeightPx = it.height }
+                        )
+                        TransientStatusOverlayHost(
+                            collectionStatus = collectionStatus,
+                            networkStateKnown = networkStateKnown,
+                            networkAvailable = validatedNetworkAvailable,
+                            networkBannerState = networkBannerState,
+                            updateStatus = updateStatus,
+                            onInstallUpdate = onRequestUpdateConfirmation,
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .offset(y = headerContentInset + coordinatedPinnedPagerInset)
+                                .zIndex(11f)
+                                .onSizeChanged { transientOverlayHeightPx = it.height }
+                        )
+                    }
+                    sharedStorageBrowserOverlay?.let { overlay ->
+                        SharedStorageBrowserDialog(
+                            request = overlay.request,
+                            onDismiss = {
+                                val closing = sharedStorageBrowserOverlay
+                                sharedStorageBrowserOverlay = null
+                                closing?.onClosed?.invoke()
+                            },
+                            onImport = overlay.onImport,
+                            onExport = overlay.onExport
+                        )
+                    }
                     }
                 }
             }
@@ -5474,6 +5542,137 @@ private fun Modifier.desktopVerticalPointerScroll(state: ScrollableState, wheelS
         }
 
 @Composable
+private fun Modifier.tvRemoteLazyListNavigation(state: LazyListState): Modifier {
+    val focusManager = LocalFocusManager.current
+    val scope = rememberCoroutineScope()
+    return onPreviewKeyEvent { event ->
+        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+        val direction = when (event.key.nativeKeyCode) {
+            AndroidKeyEvent.KEYCODE_DPAD_DOWN -> FocusDirection.Down
+            AndroidKeyEvent.KEYCODE_DPAD_UP -> FocusDirection.Up
+            else -> null
+        }
+        if (direction != null) {
+            if (focusManager.moveFocus(direction)) return@onPreviewKeyEvent true
+            val info = state.layoutInfo
+            if (info.totalItemsCount <= 0) return@onPreviewKeyEvent false
+            val target = if (direction == FocusDirection.Down) {
+                ((info.visibleItemsInfo.lastOrNull()?.index ?: state.firstVisibleItemIndex) + 1).coerceAtMost(info.totalItemsCount - 1)
+            } else {
+                ((info.visibleItemsInfo.firstOrNull()?.index ?: state.firstVisibleItemIndex) - 1).coerceAtLeast(0)
+            }
+            val canAdvance = if (direction == FocusDirection.Down) state.canScrollForward else state.canScrollBackward
+            if (!canAdvance) return@onPreviewKeyEvent false
+            scope.launch {
+                state.animateScrollToItem(target)
+                delay(24L)
+                focusManager.moveFocus(direction)
+            }
+            true
+        } else when (event.key.nativeKeyCode) {
+            AndroidKeyEvent.KEYCODE_PAGE_DOWN -> if (!state.canScrollForward) false else {
+                val target = (state.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: state.firstVisibleItemIndex).coerceAtMost((state.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
+                scope.launch { state.animateScrollToItem(target) }
+                true
+            }
+            AndroidKeyEvent.KEYCODE_PAGE_UP -> if (!state.canScrollBackward) false else {
+                val target = (state.firstVisibleItemIndex - (state.layoutInfo.visibleItemsInfo.size.coerceAtLeast(1) - 1)).coerceAtLeast(0)
+                scope.launch { state.animateScrollToItem(target) }
+                true
+            }
+            else -> false
+        }
+    }
+}
+
+@Composable
+private fun Modifier.tvRemoteLazyGridNavigation(state: LazyGridState): Modifier {
+    val focusManager = LocalFocusManager.current
+    val scope = rememberCoroutineScope()
+    return onPreviewKeyEvent { event ->
+        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+        val direction = when (event.key.nativeKeyCode) {
+            AndroidKeyEvent.KEYCODE_DPAD_DOWN -> FocusDirection.Down
+            AndroidKeyEvent.KEYCODE_DPAD_UP -> FocusDirection.Up
+            else -> null
+        }
+        if (direction != null) {
+            if (focusManager.moveFocus(direction)) return@onPreviewKeyEvent true
+            val info = state.layoutInfo
+            if (info.totalItemsCount <= 0) return@onPreviewKeyEvent false
+            val target = if (direction == FocusDirection.Down) {
+                ((info.visibleItemsInfo.maxOfOrNull { it.index } ?: state.firstVisibleItemIndex) + 1).coerceAtMost(info.totalItemsCount - 1)
+            } else {
+                ((info.visibleItemsInfo.minOfOrNull { it.index } ?: state.firstVisibleItemIndex) - 1).coerceAtLeast(0)
+            }
+            val canAdvance = if (direction == FocusDirection.Down) state.canScrollForward else state.canScrollBackward
+            if (!canAdvance) return@onPreviewKeyEvent false
+            scope.launch {
+                state.animateScrollToItem(target)
+                delay(24L)
+                focusManager.moveFocus(direction)
+            }
+            true
+        } else when (event.key.nativeKeyCode) {
+            AndroidKeyEvent.KEYCODE_PAGE_DOWN -> if (!state.canScrollForward) false else {
+                val target = (state.layoutInfo.visibleItemsInfo.maxOfOrNull { it.index } ?: state.firstVisibleItemIndex).coerceAtMost((state.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
+                scope.launch { state.animateScrollToItem(target) }
+                true
+            }
+            AndroidKeyEvent.KEYCODE_PAGE_UP -> if (!state.canScrollBackward) false else {
+                val visibleCount = state.layoutInfo.visibleItemsInfo.size.coerceAtLeast(1)
+                val target = (state.firstVisibleItemIndex - visibleCount).coerceAtLeast(0)
+                scope.launch { state.animateScrollToItem(target) }
+                true
+            }
+            else -> false
+        }
+    }
+}
+
+@Composable
+private fun Modifier.dpadScrollableNavigation(state: ScrollState): Modifier {
+    val focusManager = LocalFocusManager.current
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val lineStepPx = with(density) { 176.dp.roundToPx() }
+    val pageStepPx = with(density) { (configuration.screenHeightDp.dp * 0.68f).roundToPx() }
+    return onPreviewKeyEvent { event ->
+        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+        val direction = when (event.key.nativeKeyCode) {
+            AndroidKeyEvent.KEYCODE_DPAD_DOWN -> FocusDirection.Down
+            AndroidKeyEvent.KEYCODE_DPAD_UP -> FocusDirection.Up
+            else -> null
+        }
+        if (direction != null) {
+            if (focusManager.moveFocus(direction)) return@onPreviewKeyEvent true
+            val delta = if (direction == FocusDirection.Down) lineStepPx else -lineStepPx
+            val target = (state.value + delta).coerceIn(0, state.maxValue)
+            if (target == state.value) return@onPreviewKeyEvent false
+            scope.launch { state.animateScrollTo(target) }
+            true
+        } else when (event.key.nativeKeyCode) {
+            AndroidKeyEvent.KEYCODE_PAGE_DOWN -> {
+                val target = (state.value + pageStepPx).coerceAtMost(state.maxValue)
+                if (target == state.value) false else {
+                    scope.launch { state.animateScrollTo(target) }
+                    true
+                }
+            }
+            AndroidKeyEvent.KEYCODE_PAGE_UP -> {
+                val target = (state.value - pageStepPx).coerceAtLeast(0)
+                if (target == state.value) false else {
+                    scope.launch { state.animateScrollTo(target) }
+                    true
+                }
+            }
+            else -> false
+        }
+    }
+}
+
+@Composable
 private fun VulkanLazyPage(
     verticalSpacing: Dp,
     modifier: Modifier = Modifier,
@@ -5481,6 +5680,10 @@ private fun VulkanLazyPage(
 ) {
     val listState = rememberLazyListState()
     val pointerWheelScalePx = rememberPointerWheelScalePx()
+    val focusManager = LocalFocusManager.current
+    val tvNavigationScope = rememberCoroutineScope()
+    val pageFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(listState) { runCatching { pageFocusRequester.requestFocus() } }
     val navigationPadding = WindowInsets.navigationBars.asPaddingValues()
     val layoutDirection = LocalLayoutDirection.current
     val transientOverlayContentInset = LocalTransientOverlayContentInset.current
@@ -5642,6 +5845,52 @@ private fun VulkanLazyPage(
                         drawLayer(sourceLayer)
                     }
                     .desktopVerticalPointerScroll(listState, pointerWheelScalePx)
+                    .focusRequester(pageFocusRequester)
+                    .focusable()
+                    .onPreviewKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        val direction = when (event.key.nativeKeyCode) {
+                            AndroidKeyEvent.KEYCODE_DPAD_DOWN -> FocusDirection.Down
+                            AndroidKeyEvent.KEYCODE_DPAD_UP -> FocusDirection.Up
+                            else -> null
+                        }
+                        if (direction != null) {
+                            if (focusManager.moveFocus(direction)) return@onPreviewKeyEvent true
+                            val info = listState.layoutInfo
+                            if (info.totalItemsCount <= 0) return@onPreviewKeyEvent false
+                            val target = if (direction == FocusDirection.Down) {
+                                ((info.visibleItemsInfo.lastOrNull()?.index ?: listState.firstVisibleItemIndex) + 1).coerceAtMost(info.totalItemsCount - 1)
+                            } else {
+                                ((info.visibleItemsInfo.firstOrNull()?.index ?: listState.firstVisibleItemIndex) - 1).coerceAtLeast(0)
+                            }
+                            if (target == listState.firstVisibleItemIndex && !listState.canScrollBackward && direction == FocusDirection.Up) return@onPreviewKeyEvent false
+                            if (target == info.totalItemsCount - 1 && !listState.canScrollForward && direction == FocusDirection.Down) return@onPreviewKeyEvent false
+                            tvNavigationScope.launch {
+                                listState.animateScrollToItem(target)
+                                delay(24L)
+                                focusManager.moveFocus(direction)
+                            }
+                            return@onPreviewKeyEvent true
+                        }
+                        when (event.key.nativeKeyCode) {
+                            AndroidKeyEvent.KEYCODE_PAGE_DOWN -> {
+                                val info = listState.layoutInfo
+                                if (info.totalItemsCount <= 0 || !listState.canScrollForward) false else {
+                                    val target = (info.visibleItemsInfo.lastOrNull()?.index ?: listState.firstVisibleItemIndex).coerceAtMost(info.totalItemsCount - 1)
+                                    tvNavigationScope.launch { listState.animateScrollToItem(target) }
+                                    true
+                                }
+                            }
+                            AndroidKeyEvent.KEYCODE_PAGE_UP -> {
+                                if (!listState.canScrollBackward) false else {
+                                    val target = (listState.firstVisibleItemIndex - (listState.layoutInfo.visibleItemsInfo.size.coerceAtLeast(1) - 1)).coerceAtLeast(0)
+                                    tvNavigationScope.launch { listState.animateScrollToItem(target) }
+                                    true
+                                }
+                            }
+                            else -> false
+                        }
+                    }
                     .focusGroup(),
                 verticalArrangement = Arrangement.spacedBy(verticalSpacing),
                 userScrollEnabled = true,
@@ -6582,6 +6831,15 @@ private fun encyclopediaSearch(category: String, rawQuery: String): List<Encyclo
     }
 }
 
+private fun encyclopediaEntryIcon(category: String): Int = when {
+    category.contains("VkResult", true) -> R.drawable.ic_test
+    category.contains("command", true) -> R.drawable.ic_code
+    category.contains("extension", true) -> R.drawable.ic_extensions
+    category.contains("token", true) || category.contains("VK_", true) -> R.drawable.ic_registry
+    category.contains("type", true) -> R.drawable.ic_properties
+    else -> R.drawable.ic_book
+}
+
 @Composable
 private fun EncyclopediaPage(initialQuery: String = "") {
     var query by rememberSaveable { mutableStateOf(initialQuery) }
@@ -6597,41 +6855,73 @@ private fun EncyclopediaPage(initialQuery: String = "") {
     val pageCount = maxOf(1, (entries.size + COLLECTION_PAGE_SIZE - 1) / COLLECTION_PAGE_SIZE)
     LaunchedEffect(entries.size) { if (page >= pageCount) page = pageCount - 1 }
     val pagedEntries = entries.drop(page * COLLECTION_PAGE_SIZE).take(COLLECTION_PAGE_SIZE)
+    val queryTrimmed = query.trim()
+    val statusText = when {
+        (category == "Commands" || category == "VK_*" || category == "Types") && queryTrimmed.length < 2 -> "Type at least 2 characters before searching this large symbol family."
+        category == "Extensions" && queryTrimmed.isBlank() -> "Showing the first $ENCYCLOPEDIA_VISIBLE_RESULT_LIMIT registered extensions. Search to narrow the local reference."
+        category == "VkResult" && queryTrimmed.isBlank() -> "${VULKAN_VK_RESULT_REFERENCE.size} canonical VkResult values are available from the locked Vulkan 1.4.364 reference."
+        category == "All" && queryTrimmed.isBlank() -> "Core concepts and VulkanScope evidence semantics are shown first. Search to resolve a registry symbol."
+        entries.size >= ENCYCLOPEDIA_VISIBLE_RESULT_LIMIT -> "The result set is capped at $ENCYCLOPEDIA_VISIBLE_RESULT_LIMIT entries. Refine the query for a narrower match."
+        else -> "${entries.size} matching reference entr${if (entries.size == 1) "y" else "ies"}."
+    }
     VulkanLazyPage(verticalSpacing = 12.dp) {
         item {
             CapabilitySectionCard("Encyclopedia") {
                 Text(
-                    "Offline Vulkan reference built from the locked Vulkan 1.4.364 registry plus curated VulkanScope interpretation rules. Search exact symbols such as VK_SUCCESS, vkGetPhysicalDeviceFeatures2, VkPhysicalDeviceProperties2 or VK_KHR_swapchain.",
+                    "A local, offline Vulkan reference for registry symbols, result codes, extensions and VulkanScope evidence semantics. The source baseline is the checked-in Vulkan 1.4.364 registry; browsing this page never performs a network request.",
                     color = VulkanTextSecondary,
                     style = MaterialTheme.typography.bodySmall
                 )
-                CapabilityKeyValue("Registry symbol census", "$VULKAN_COMMAND_SYMBOL_COUNT vk* commands · $VULKAN_TOKEN_SYMBOL_COUNT VK_* tokens · $VULKAN_TYPE_SYMBOL_COUNT Vk* types · 476 registered extensions")
-                Text("Runtime evidence and registry/reference symbols are separate evidence classes.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                ExpressiveMetricGrid(
+                    listOf(
+                        "COMMANDS" to VULKAN_COMMAND_SYMBOL_COUNT.toString(),
+                        "VK_* TOKENS" to VULKAN_TOKEN_SYMBOL_COUNT.toString(),
+                        "Vk* TYPES" to VULKAN_TYPE_SYMBOL_COUNT.toString(),
+                        "EXTENSIONS" to "476"
+                    )
+                )
+                Surface(shape = MaterialTheme.shapes.large, color = VulkanSurfaceLow, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.28f)), modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Icon(painterResource(R.drawable.ic_shield), contentDescription = null, tint = VulkanAccentSoft, modifier = Modifier.size(20.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text("Evidence boundary", color = VulkanTextPrimary, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                            Text("A registry relationship or symbol registration is reference metadata. It never substitutes for runtime capability evidence collected from the selected Vulkan device.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            }
+        }
+        item {
+            CapabilitySectionCard("Reference search") {
                 ExpressiveSearchField(
                     value = query,
                     onValueChange = { query = it; page = 0 },
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    placeholderText = "Search VK_SUCCESS, vkCreateInstance, VkFormat, VK_KHR_swapchain…"
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholderText = "VK_SUCCESS · vkCreateInstance · VkFormat · VK_KHR_swapchain"
                 )
                 val categories = listOf("All", "VkResult", "Commands", "VK_*", "Types", "Extensions")
                 ExpressiveFilterBar(categories, categories.indexOf(category).coerceAtLeast(0)) {
                     category = categories[it]
                     page = 0
                 }
-                Text(
-                    when {
-                        (category == "Commands" || category == "VK_*" || category == "Types") && query.trim().length < 2 -> "Type at least 2 characters to search this large registry symbol family. Results are capped at $ENCYCLOPEDIA_VISIBLE_RESULT_LIMIT; refine the query for a specific symbol."
-                        category == "Extensions" && query.isBlank() -> "Showing the first $ENCYCLOPEDIA_VISIBLE_RESULT_LIMIT registered extensions. Search by exact extension, command, token, dependency or promotion to narrow the local reference."
-                        category == "VkResult" && query.isBlank() -> "${VULKAN_VK_RESULT_REFERENCE.size} canonical VkResult values from the Vulkan 1.4.364 reference are listed below; compatibility aliases are shown with their canonical result."
-                        category == "All" && query.isBlank() -> "Core concepts, naming rules and VulkanScope evidence semantics are shown below. Search to resolve registry symbols."
-                        entries.size >= ENCYCLOPEDIA_VISIBLE_RESULT_LIMIT -> "Showing the first $ENCYCLOPEDIA_VISIBLE_RESULT_LIMIT matches. Refine the query for a narrower result."
-                        else -> "${entries.size} matching reference entr${if (entries.size == 1) "y" else "ies"}."
-                    },
-                    color = VulkanTextMuted,
-                    style = MaterialTheme.typography.labelSmall
+                ExpressiveMetricGrid(
+                    listOf(
+                        "CATEGORY" to category,
+                        "MATCHES" to entries.size.toString(),
+                        "PAGE" to "${page + 1} / $pageCount"
+                    )
                 )
+                Text(statusText, color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+            }
+        }
+        item {
+            CapabilitySectionCard("How to read encyclopedia entries") {
+                CapabilityKeyValue("Title", "Exact local symbol or concept name")
+                CapabilityKeyValue("Category", "Reference family such as VkResult, command, token, type or extension")
+                CapabilityKeyValue("Definition", "Concise meaning from the checked-in reference or VulkanScope interpretation rule")
+                CapabilityKeyValue("Detail", "Additional dependency, promotion, alias or evidence guidance when available")
                 Text(
-                    "Vulkan Video marked Not applicable describes the Vulkan Video API path exposed by the selected driver; it does not prove hardware video decode/encode is absent. Registry registration, a symbol name or an extension reference never substitutes for runtime evidence.",
+                    "Vulkan Video marked Not applicable describes the Vulkan Video API path exposed by the selected driver; it does not prove hardware video decode or encode is absent.",
                     color = VulkanTextSecondary,
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -6640,23 +6930,35 @@ private fun EncyclopediaPage(initialQuery: String = "") {
         stickyCollectionPager(totalItems = entries.size, currentPage = page, onPageChange = { page = it })
         if (entries.isEmpty()) {
             item {
-                CapabilityItemCard {
-                    Text(
-                        if (query.trim().length < 2 && category in setOf("Commands", "VK_*", "Types")) "Search input is intentionally bounded before the large symbol index is touched." else "No matching local Vulkan reference entry.",
-                        color = VulkanTextSecondary,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(16.dp)
-                    )
-                }
+                EmptyState(
+                    if (queryTrimmed.length < 2 && category in setOf("Commands", "VK_*", "Types"))
+                        "Enter at least two characters to search this large registry family"
+                    else
+                        "No matching local Vulkan reference entry"
+                )
             }
         } else {
             items(pagedEntries, key = { "${it.category}:${it.title}" }) { entry ->
                 CapabilityItemCard {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        Text(trademarkVulkanDisplayText(entry.title), color = VulkanTextPrimary, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                        Text(trademarkVulkanDisplayText(entry.category), color = VulkanAccentSoft, style = MaterialTheme.typography.labelSmall)
+                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Surface(shape = RoundedCornerShape(14.dp), color = VulkanAccentContainer, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.32f))) {
+                                Icon(painterResource(encyclopediaEntryIcon(entry.category)), contentDescription = null, tint = VulkanAccentSoft, modifier = Modifier.padding(9.dp).size(20.dp))
+                            }
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(trademarkVulkanDisplayText(entry.title), color = VulkanTextPrimary, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                Text(trademarkVulkanDisplayText(entry.category), color = VulkanAccentSoft, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
                         Text(trademarkVulkanDisplayText(entry.definition), color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-                        if (entry.detail.isNotBlank()) Text(trademarkVulkanDisplayText(entry.detail), color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                        if (entry.detail.isNotBlank()) {
+                            Surface(shape = RoundedCornerShape(14.dp), color = VulkanSurfaceLow, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant), modifier = Modifier.fillMaxWidth()) {
+                                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Icon(painterResource(R.drawable.ic_evidence), contentDescription = null, tint = VulkanAccentSoft, modifier = Modifier.size(18.dp))
+                                    Text(trademarkVulkanDisplayText(entry.detail), color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -6668,10 +6970,13 @@ private fun EncyclopediaPage(initialQuery: String = "") {
 private fun AnalysisPage(report: VulkanReport, device: DeviceReport?, display: DisplayReport, driverMode: DriverMode, turnipSupport: TurnipSupport, collectionStatus: CollectionStatus, queryTimingMs: Map<String, Long>, onDriverModeChanged: (DriverMode) -> Unit) {
     var storageAction by remember { mutableStateOf<AnalysisStorageAction?>(null) }
     val analysisModel = rememberAnalysisWorkspaceModel(report, device, display, driverMode, turnipSupport, collectionStatus, queryTimingMs, onDriverModeChanged) { storageAction = it }
+    val networkAvailable = LocalValidatedNetwork.current
     VulkanLazyPage(verticalSpacing = 12.dp) {
-        analysisWorkspaceItems(analysisModel, report, device)
+        analysisWorkspaceItems(analysisModel, report, device, networkAvailable)
     }
-    storageAction?.let { action ->
+    val launchSharedStorageBrowser = LocalSharedStorageBrowserLauncher.current
+    LaunchedEffect(storageAction) {
+        val action = storageAction ?: return@LaunchedEffect
         val request = when (action) {
             AnalysisStorageAction.IMPORT_SNAPSHOT -> SharedStorageBrowserRequest(
                 title = "Import analysis snapshot",
@@ -6709,24 +7014,66 @@ private fun AnalysisPage(report: VulkanReport, device: DeviceReport?, display: D
                 suggestedFileName = "VulkanScope-${safeFilePart(device?.name ?: "Unknown-GPU")}-technicalReport.json"
             )
         }
-        SharedStorageBrowserDialog(
-            request = request,
-            onDismiss = { storageAction = null },
-            onImport = { file ->
-                when (action) {
-                    AnalysisStorageAction.IMPORT_SNAPSHOT -> analysisModel.importSnapshotFile(file)
-                    AnalysisStorageAction.IMPORT_MINIMUM_PROFILE -> analysisModel.importMinimumProfileFile(file)
-                    else -> Result.failure(IllegalStateException("This action does not import files"))
+        launchSharedStorageBrowser(
+            SharedStorageBrowserOverlayRequest(
+                request = request,
+                onImport = { file ->
+                    when (action) {
+                        AnalysisStorageAction.IMPORT_SNAPSHOT -> analysisModel.importSnapshotFile(file)
+                        AnalysisStorageAction.IMPORT_MINIMUM_PROFILE -> analysisModel.importMinimumProfileFile(file)
+                        else -> Result.failure(IllegalStateException("This action does not import files"))
+                    }
+                },
+                onExport = { file ->
+                    when (action) {
+                        AnalysisStorageAction.EXPORT_SNAPSHOT -> analysisModel.exportSnapshotFile(file)
+                        AnalysisStorageAction.EXPORT_MINIMUM_PROFILE -> analysisModel.exportMinimumProfileFile(file)
+                        AnalysisStorageAction.EXPORT_TECHNICAL_REPORT -> analysisModel.exportRawTechnicalReportFile(file)
+                        else -> Result.failure(IllegalStateException("This action does not export files"))
+                    }
+                }
+            )
+        )
+        storageAction = null
+    }
+    analysisModel.state.pendingMinimumConfirmation?.let { pending ->
+        val title = when (pending.kind) {
+            MinimumProfileConfirmationKind.SAVE -> "Save minimum profile?"
+            MinimumProfileConfirmationKind.LOAD -> "Load minimum profile?"
+            MinimumProfileConfirmationKind.DELETE -> "Delete minimum profile?"
+        }
+        val body = when (pending.kind) {
+            MinimumProfileConfirmationKind.SAVE -> "Save ${pending.name.ifBlank { "this minimum" }} to VulkanScope private local minimum profiles? Existing entries with the same name are replaced only after you confirm."
+            MinimumProfileConfirmationKind.LOAD -> "Load ${pending.name} into the custom minimum editor? Unsaved edits currently in the editor will be replaced."
+            MinimumProfileConfirmationKind.DELETE -> "Delete ${pending.name} from VulkanScope private local minimum profiles? This cannot be undone."
+        }
+        AlertDialog(
+            modifier = Modifier.border(1.dp, VulkanAccentSoft.copy(alpha = 0.46f), MaterialTheme.shapes.extraLarge),
+            onDismissRequest = { analysisModel.state.pendingMinimumConfirmation = null },
+            shape = MaterialTheme.shapes.extraLarge,
+            containerColor = VulkanSurfaceRaised,
+            titleContentColor = VulkanTextPrimary,
+            textContentColor = VulkanTextPrimary,
+            tonalElevation = 0.dp,
+            title = { QuestionDialogTitle(title) },
+            text = { Text(body, color = VulkanTextSecondary, style = MaterialTheme.typography.bodyMedium) },
+            confirmButton = {
+                when (pending.kind) {
+                    MinimumProfileConfirmationKind.SAVE -> ExpressiveContainedIconTextButton("Save", R.drawable.ic_save, fontWeight = FontWeight.Bold) {
+                        analysisModel.state.pendingMinimumConfirmation = null
+                        analysisModel.saveMinimumProfile()
+                    }
+                    MinimumProfileConfirmationKind.LOAD -> ExpressiveContainedIconTextButton("Load", R.drawable.ic_action_update, fontWeight = FontWeight.Bold) {
+                        analysisModel.state.pendingMinimumConfirmation = null
+                        analysisModel.loadMinimumProfile(pending.name)
+                    }
+                    MinimumProfileConfirmationKind.DELETE -> ExpressiveContainedIconTextButton("Delete", R.drawable.ic_delete, fontWeight = FontWeight.Bold) {
+                        analysisModel.state.pendingMinimumConfirmation = null
+                        analysisModel.deleteMinimumProfile(pending.name)
+                    }
                 }
             },
-            onExport = { file ->
-                when (action) {
-                    AnalysisStorageAction.EXPORT_SNAPSHOT -> analysisModel.exportSnapshotFile(file)
-                    AnalysisStorageAction.EXPORT_MINIMUM_PROFILE -> analysisModel.exportMinimumProfileFile(file)
-                    AnalysisStorageAction.EXPORT_TECHNICAL_REPORT -> analysisModel.exportRawTechnicalReportFile(file)
-                    else -> Result.failure(IllegalStateException("This action does not export files"))
-                }
-            }
+            dismissButton = { ExpressiveCancelButton { analysisModel.state.pendingMinimumConfirmation = null } }
         )
     }
     analysisModel.state.selectedEvidence?.let { selected ->
@@ -7199,7 +7546,8 @@ private fun CompactBottomNavigationBar(
                                 indication = null,
                                 role = Role.Tab,
                                 onClick = { onPageSelected(item.page) }
-                            ),
+                            )
+                            .then(tvBrowseModifier(RoundedCornerShape(999.dp))),
                         contentAlignment = Alignment.Center
                     ) {
                         Box(
@@ -7694,7 +8042,9 @@ private fun SurfaceSectionCards(onSelected: (SurfaceSection) -> Unit) {
             Modifier
                 .fillMaxSize()
                 .desktopVerticalPointerScroll(scrollState)
+                .dpadScrollableNavigation(scrollState)
                 .verticalScroll(scrollState)
+                .focusable()
                 .focusGroup()
                 .padding(
                     start = 18.dp + startInset,
@@ -8490,32 +8840,78 @@ private fun vulkanSnapshotDiff(baseline: JSONObject, current: JSONObject): List<
 }
 private fun vulkanExtensionQueryGroup(name: String): String? = ISOLATED_EXTENSION_GROUPS.entries.firstOrNull { it.value == name }?.key
 
-private data class HeuristicDiagnosticScore(val score: Int?, val level: String, val factors: List<String>)
+private data class HeuristicDiagnosticCheck(val title: String, val deduction: Int, val triggered: Boolean, val evidence: String)
+
+private data class HeuristicDiagnosticScore(
+    val score: Int?,
+    val level: String,
+    val factors: List<String>,
+    val checks: List<HeuristicDiagnosticCheck>,
+    val deductedPoints: Int
+)
 
 private fun heuristicDiagnosticEvidenceScore(report: VulkanReport, device: DeviceReport?): HeuristicDiagnosticScore {
-    if (device == null) return HeuristicDiagnosticScore(null, "Unavailable", listOf("No completed physical-device report is available"))
-    var score = 100
-    val factors = mutableListOf<String>()
-    fun deduct(points: Int, label: String) {
-        score = (score - points).coerceAtLeast(0)
-        factors += "-$points · $label"
-    }
-    if (!report.error.isNullOrBlank()) deduct(35, "Top-level collection error")
-    if (device.queueQuerySafetyRejected) deduct(15, "Queue-family enumeration safety rejection")
-    if (device.memoryHeapSafetyRejected) deduct(10, "Memory-heap enumeration safety rejection")
-    if (device.memoryTypeSafetyRejected) deduct(10, "Memory-type enumeration safety rejection")
-    if (device.surfaceQueueQuerySafetyRejected) deduct(10, "Surface queue-family enumeration safety rejection")
-    if (device.surfaceFormatQuerySafetyRejected) deduct(10, "Surface-format enumeration safety rejection")
-    if (device.deviceExtensionStatus != "available") deduct(10, "Device-extension enumeration is ${device.deviceExtensionStatus}")
-    if (device.surfaceFormatQuerySecondAttempted && device.surfaceFormatQueryResultSecond != 0) deduct(5, "Second Surface-format query returned VkResult ${device.surfaceFormatQueryResultSecond}")
+    if (device == null) return HeuristicDiagnosticScore(null, "Unavailable", listOf("No completed physical-device report is available"), emptyList(), 0)
+    val checks = listOf(
+        HeuristicDiagnosticCheck(
+            "Top-level collection error",
+            35,
+            !report.error.isNullOrBlank(),
+            report.error?.takeIf { it.isNotBlank() } ?: "No top-level collection error was recorded"
+        ),
+        HeuristicDiagnosticCheck(
+            "Queue-family enumeration safety",
+            15,
+            device.queueQuerySafetyRejected,
+            if (device.queueQuerySafetyRejected) "Bounded queue-family enumeration was safety-rejected" else "No queue-family safety rejection was recorded"
+        ),
+        HeuristicDiagnosticCheck(
+            "Memory-heap enumeration safety",
+            10,
+            device.memoryHeapSafetyRejected,
+            if (device.memoryHeapSafetyRejected) "Bounded memory-heap enumeration was safety-rejected" else "No memory-heap safety rejection was recorded"
+        ),
+        HeuristicDiagnosticCheck(
+            "Memory-type enumeration safety",
+            10,
+            device.memoryTypeSafetyRejected,
+            if (device.memoryTypeSafetyRejected) "Bounded memory-type enumeration was safety-rejected" else "No memory-type safety rejection was recorded"
+        ),
+        HeuristicDiagnosticCheck(
+            "Surface queue-family enumeration safety",
+            10,
+            device.surfaceQueueQuerySafetyRejected,
+            if (device.surfaceQueueQuerySafetyRejected) "Surface queue-family enumeration was safety-rejected" else "No Surface queue-family safety rejection was recorded"
+        ),
+        HeuristicDiagnosticCheck(
+            "Surface-format enumeration safety",
+            10,
+            device.surfaceFormatQuerySafetyRejected,
+            if (device.surfaceFormatQuerySafetyRejected) "Surface-format enumeration was safety-rejected" else "No Surface-format safety rejection was recorded"
+        ),
+        HeuristicDiagnosticCheck(
+            "Device-extension enumeration",
+            10,
+            device.deviceExtensionStatus != "available",
+            "Recorded status: ${device.deviceExtensionStatus}"
+        ),
+        HeuristicDiagnosticCheck(
+            "Second Surface-format query",
+            5,
+            device.surfaceFormatQuerySecondAttempted && device.surfaceFormatQueryResultSecond != 0,
+            if (!device.surfaceFormatQuerySecondAttempted) "Second query was not attempted" else "VkResult ${device.surfaceFormatQueryResultSecond}"
+        )
+    )
+    val deductedPoints = checks.filter { it.triggered }.sumOf { it.deduction }
+    val score = (100 - deductedPoints).coerceAtLeast(0)
+    val factors = checks.filter { it.triggered }.map { "-${it.deduction} · ${it.title}" }.ifEmpty { listOf("No explicit collection/safety anomaly was recorded by VulkanScope") }
     val level = when {
         score >= 95 -> "No explicit collection anomalies"
         score >= 80 -> "Minor explicit anomalies"
         score >= 60 -> "Multiple explicit anomalies"
         else -> "Severe explicit collection anomalies"
     }
-    if (factors.isEmpty()) factors += "No explicit collection/safety anomaly was recorded by VulkanScope"
-    return HeuristicDiagnosticScore(score, level, factors)
+    return HeuristicDiagnosticScore(score, level, factors, checks, deductedPoints)
 }
 
 private fun analysisQueryTokens(query: String): List<String> = Regex("\\\"([^\\\"]+)\\\"|\\S+").findAll(query).map { it.groups[1]?.value ?: it.value }.toList()
@@ -8551,6 +8947,10 @@ private fun matchesAnalysisQuery(row: VulkanAnalysisDiff, query: String): Boolea
 private fun extensionDependencyTokens(expression: String): List<String> = Regex("VK_(?:VERSION_[0-9_]+|[A-Z0-9]+_[A-Za-z0-9_]+)").findAll(expression).map { it.value }.distinct().toList()
 
 private data class DependencyGraphEntry(val token: String, val depth: Int, val parent: String?)
+
+private enum class MinimumProfileConfirmationKind { SAVE, LOAD, DELETE }
+
+private data class MinimumProfileConfirmation(val kind: MinimumProfileConfirmationKind, val name: String)
 
 private fun dependencyGraphEntries(root: String, maxDepth: Int = 4, maxNodes: Int = 64): List<DependencyGraphEntry> {
     if (!root.startsWith("VK_") || maxDepth < 0 || maxNodes < 1) return emptyList()
@@ -8643,6 +9043,72 @@ private fun matchesFormatExplorerQuery(format: FormatEntry, query: String): Bool
 
 private fun databaseReportUrl(id: String): String = OFFICIAL_DATABASE_WEB_URL.trimEnd('/') + "/#reports/" + Uri.encode(id) + "/Overview"
 
+private data class DatabaseReportSummary(
+    val id: String,
+    val submittedAt: String,
+    val gpuName: String,
+    val vendorId: String,
+    val deviceId: String,
+    val driverMode: String,
+    val driverVersion: String,
+    val deviceApiVersion: String,
+    val manufacturer: String,
+    val model: String
+)
+
+private data class DatabaseReportCursor(val submittedAt: String, val id: String)
+
+private data class DatabaseReportPage(val reports: List<DatabaseReportSummary>, val nextCursor: DatabaseReportCursor?)
+
+private suspend fun fetchDatabaseReportPage(context: Context, cursor: DatabaseReportCursor?): DatabaseReportPage = withContext(Dispatchers.IO) {
+    if (!hasValidatedInternet(context)) error("Database list is unavailable without a validated internet connection")
+    val baseUrl = OFFICIAL_DATABASE_API_ENDPOINT.toHttpUrlOrNull() ?: error("The official VulkanScope Database endpoint is invalid")
+    if (baseUrl.scheme != "https" || baseUrl.host != "vulkanscope-database-api.vulkanscope.workers.dev" || baseUrl.username.isNotEmpty() || baseUrl.password.isNotEmpty() || baseUrl.query != null || baseUrl.fragment != null || baseUrl.encodedPath != "/") error("The official VulkanScope Database endpoint is invalid")
+    val builder = baseUrl.newBuilder().addPathSegments("v1/reports").addQueryParameter("limit", "50")
+    cursor?.let {
+        if (!it.id.matches(Regex("[a-f0-9]{64}"))) error("Database list cursor is invalid")
+        builder.addQueryParameter("beforeSubmittedAt", it.submittedAt)
+        builder.addQueryParameter("beforeId", it.id)
+    }
+    val request = Request.Builder().url(builder.build()).header("Accept", "application/json").get().build()
+    databaseHttpClient.newCall(request).execute().use { response ->
+        val body = readResponseTextLimited(response.body, ANALYSIS_DATABASE_COMPARE_MAX_BYTES)
+        if (!response.isSuccessful) {
+            val message = runCatching { JSONObject(body).optString("error") }.getOrDefault("").ifBlank { "HTTP ${response.code}" }
+            error("Database list fetch failed: $message")
+        }
+        val payload = JSONObject(body)
+        val array = payload.optJSONArray("reports") ?: JSONArray()
+        val reports = buildList {
+            for (index in 0 until minOf(array.length(), 50)) {
+                val item = array.optJSONObject(index) ?: continue
+                val id = item.optString("id").lowercase()
+                if (!id.matches(Regex("[a-f0-9]{64}"))) continue
+                add(
+                    DatabaseReportSummary(
+                        id = id,
+                        submittedAt = item.optString("submitted_at"),
+                        gpuName = item.optString("gpu_name", "Unknown"),
+                        vendorId = item.optString("vendor_id", "Unknown"),
+                        deviceId = item.optString("device_id", "Unknown"),
+                        driverMode = item.optString("driver_mode", "Unknown"),
+                        driverVersion = item.optString("driver_version", "Unknown"),
+                        deviceApiVersion = item.optString("device_api_version", "Unknown"),
+                        manufacturer = item.optString("manufacturer", "Unknown"),
+                        model = item.optString("model", "Unknown")
+                    )
+                )
+            }
+        }
+        val next = payload.optJSONObject("nextCursor")?.let {
+            val submittedAt = it.optString("submittedAt")
+            val id = it.optString("id").lowercase()
+            if (submittedAt.isNotBlank() && id.matches(Regex("[a-f0-9]{64}"))) DatabaseReportCursor(submittedAt, id) else null
+        }
+        DatabaseReportPage(reports, next)
+    }
+}
+
 private suspend fun fetchDatabaseTechnicalReport(context: Context, reportId: String): JSONObject = withContext(Dispatchers.IO) {
     if (!hasValidatedInternet(context)) error("Database fetch is unavailable without a validated internet connection")
     val id = reportId.trim().lowercase()
@@ -8701,15 +9167,22 @@ private class AnalysisWorkspaceState(initialWatched: Set<String>, initialProfile
     var customProfileName by mutableStateOf("My minimum")
     var customProfileRules by mutableStateOf("api>=1.3\nextension:VK_KHR_dynamic_rendering")
     var customProfileStatus by mutableStateOf("Local custom profiles do not modify Vulkan capability evidence")
+    var pendingMinimumConfirmation by mutableStateOf<MinimumProfileConfirmation?>(null)
     var savedProfiles by mutableStateOf(initialProfiles)
     var graphInput by mutableStateOf("VK_KHR_swapchain")
     var graphDepth by mutableIntStateOf(4)
     var rawQuery by mutableStateOf("")
+    var databaseLookupMode by mutableIntStateOf(0)
     var databaseReportId by mutableStateOf("")
     var databaseStatus by mutableStateOf("No Database report loaded")
     var databaseLoading by mutableStateOf(false)
     var databaseRemoteLeaves by mutableStateOf<List<RawJsonLeaf>>(emptyList())
     var databaseIncludeUnchanged by mutableStateOf(false)
+    var databaseListQuery by mutableStateOf("")
+    var databaseReports by mutableStateOf<List<DatabaseReportSummary>>(emptyList())
+    var databaseListCursor by mutableStateOf<DatabaseReportCursor?>(null)
+    var databaseListStatus by mutableStateOf("Press Load reports to fetch a bounded public Database page")
+    var databaseListLoading by mutableStateOf(false)
     var history by mutableStateOf<List<AnalysisHistoryRecord>>(emptyList())
     var historyStatus by mutableStateOf("Local history is bounded and stored only on this device")
     var pendingHistoryDelete by mutableStateOf<AnalysisHistoryRecord?>(null)
@@ -8777,7 +9250,8 @@ private data class AnalysisWorkspaceModel(
     val loadMinimumProfile: (String) -> Unit,
     val deleteMinimumProfile: (String) -> Unit,
     val exportRawTechnicalReport: () -> Unit,
-    val fetchDatabaseReport: () -> Unit,
+    val fetchDatabaseReport: (String) -> Unit,
+    val fetchDatabaseReportList: (Boolean) -> Unit,
     val useHistoryAsBaseline: (AnalysisHistoryRecord) -> Unit,
     val deleteHistory: (AnalysisHistoryRecord) -> Unit,
     val deleteAllHistory: () -> Unit,
@@ -9078,17 +9552,40 @@ private fun rememberAnalysisWorkspaceModel(
         loadMinimumProfile = { name -> state.savedProfiles[name]?.let { state.customProfileName = name; state.customProfileRules = it; state.customProfileStatus = "Loaded local minimum profile · $name" } },
         deleteMinimumProfile = { name -> state.savedProfiles = state.savedProfiles - name; persistProfiles(state.savedProfiles); state.customProfileStatus = "Deleted local minimum profile · $name" },
         exportRawTechnicalReport = { onStorageAction(AnalysisStorageAction.EXPORT_TECHNICAL_REPORT) },
-        fetchDatabaseReport = {
+        fetchDatabaseReport = { requestedId ->
+            val id = requestedId.trim().lowercase()
             if (!hasValidatedInternet(context)) {
                 state.databaseRemoteLeaves = emptyList()
                 state.databaseStatus = "Database fetch unavailable · no validated internet connection"
-            } else if (!state.databaseLoading) {
+            } else if (!state.databaseLoading && id.matches(Regex("[a-f0-9]{64}"))) {
+                state.databaseReportId = id
                 state.databaseLoading = true
                 scope.launch {
-                    val result = runCatching { fetchDatabaseTechnicalReport(context, state.databaseReportId) }
-                    result.onSuccess { technical -> state.databaseRemoteLeaves = flattenJson(technical); state.databaseStatus = "Database technicalReport loaded · ${state.databaseReportId.take(12)}…" }
+                    val result = runCatching { fetchDatabaseTechnicalReport(context, id) }
+                    result.onSuccess { technical -> state.databaseRemoteLeaves = flattenJson(technical); state.databaseStatus = "Database technicalReport loaded · ${id.take(12)}…" }
                         .onFailure { state.databaseRemoteLeaves = emptyList(); state.databaseStatus = it.message ?: "Database report fetch failed" }
                     state.databaseLoading = false
+                }
+            }
+        },
+        fetchDatabaseReportList = { reset ->
+            if (!hasValidatedInternet(context)) {
+                state.databaseListStatus = "Database list unavailable · no validated internet connection"
+            } else if (!state.databaseListLoading) {
+                val cursor = if (reset) null else state.databaseListCursor
+                if (!reset && cursor == null && state.databaseReports.isNotEmpty()) {
+                    state.databaseListStatus = "No more reports are available in the current bounded list"
+                } else {
+                    state.databaseListLoading = true
+                    scope.launch {
+                        val result = runCatching { fetchDatabaseReportPage(context, cursor) }
+                        result.onSuccess { page ->
+                            state.databaseReports = if (reset) page.reports else (state.databaseReports + page.reports).distinctBy { it.id }.take(200)
+                            state.databaseListCursor = page.nextCursor
+                            state.databaseListStatus = if (page.reports.isEmpty()) "No public reports returned" else "${state.databaseReports.size} public reports loaded"
+                        }.onFailure { state.databaseListStatus = it.message ?: "Database list fetch failed" }
+                        state.databaseListLoading = false
+                    }
                 }
             }
         },
@@ -9152,7 +9649,7 @@ private fun rememberAnalysisWorkspaceModel(
 private fun historyLabel(record: AnalysisHistoryRecord): String = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(java.util.Date(record.timestampMs))
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
-private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, report: VulkanReport, device: DeviceReport?) {
+private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, report: VulkanReport, device: DeviceReport?, networkAvailable: Boolean) {
     val state = model.state
     fun analysisPage(total: Int): Int = state.contentPage.coerceIn(0, maxOf(0, (total + COLLECTION_PAGE_SIZE - 1) / COLLECTION_PAGE_SIZE - 1))
     fun <T> analysisSlice(source: List<T>): List<T> {
@@ -9247,110 +9744,380 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
             } else item { EmptyState("Collect at least one completed System session and one completed Turnip session") }
         }
         3 -> {
-            item { CapabilitySectionCard("Collection diagnostics") {
-                Text("Shows measured app-side collection phases plus dedicated-process timing evidence. Native-call timing is measured around the JNI collector inside the dedicated probe process; it is not presented as timing for each individual Vulkan® API command. Missing timing evidence remains unknown rather than inferred.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-                model.timingsMs["collection/total"]?.let { ExpressiveMetric("Complete collection", "$it ms") }
-                model.timingsMs["collection/base_total"]?.let { ExpressiveMetric("Base collection", "$it ms") }
-                model.timingsMs["collection/enrichment_total"]?.let { ExpressiveMetric("Metadata + Surface", "$it ms") }
-                model.timingsMs["collection/background_total"]?.let { ExpressiveMetric("Background details", "$it ms") }
-                model.timingsMs["collection/background_process_lanes"]?.let { ExpressiveMetric("Parallel isolated lanes", it.toString()) }
-                val probeTotals = model.timingsMs.filterKeys { it.startsWith("probe_total/") }
-                if (probeTotals.isNotEmpty()) {
-                    val slowest = probeTotals.maxByOrNull { it.value }
-                    ExpressiveMetric("Dedicated probes measured", probeTotals.size.toString())
-                    slowest?.let { ExpressiveMetric("Slowest dedicated probe", "${it.key.removePrefix("probe_total/")} · ${it.value} ms") }
+            val totalMs = model.timingsMs["collection/total"]
+            val baseMs = model.timingsMs["collection/base_total"]
+            val enrichmentMs = model.timingsMs["collection/enrichment_total"]
+            val backgroundMs = model.timingsMs["collection/background_total"]
+            val probeTotals = model.timingsMs.filterKeys { it.startsWith("probe_total/") }
+            val queueWaits = model.timingsMs.filterKeys { it.startsWith("probe_queue_wait/") }
+            val slowestProbe = probeTotals.maxByOrNull { it.value }
+            val longestQueueWait = queueWaits.maxByOrNull { it.value }
+            item {
+                CapabilitySectionCard("Diagnostic collection") {
+                    Text("Measured collection timing is grouped by orchestration, dedicated-probe work and scheduler wait. Main values use seconds for quick reading and retain the exact millisecond measurement in parentheses. Missing timing remains unavailable rather than inferred.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                    totalMs?.let {
+                        Surface(shape = MaterialTheme.shapes.extraLarge, color = VulkanAccentContainer, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.44f))) {
+                            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Complete collection", color = VulkanAccentSoft, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                Text(formatAnalysisElapsedTime(it), color = VulkanTextPrimary, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                                Text("App-side measured end-to-end collection interval", color = VulkanTextSecondary, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        baseMs?.let { ExpressiveInfoPill("Base", formatAnalysisElapsedTime(it)) }
+                        enrichmentMs?.let { ExpressiveInfoPill("Metadata + Surface", formatAnalysisElapsedTime(it)) }
+                        backgroundMs?.let { ExpressiveInfoPill("Background", formatAnalysisElapsedTime(it)) }
+                        model.timingsMs["collection/background_process_lanes"]?.let { ExpressiveInfoPill("Isolated lanes", it.toString()) }
+                    }
                 }
-                val queueWaits = model.timingsMs.filterKeys { it.startsWith("probe_queue_wait/") }
-                queueWaits.maxByOrNull { it.value }?.let { ExpressiveMetric("Longest scheduler wait", "${it.key.removePrefix("probe_queue_wait/")} · ${it.value} ms") }
-                ExpressiveMetric("Diagnostic rows", model.diagnostics.size.toString())
-                ExpressiveMetric("Safety rejections", model.diagnostics.count { it.state == "SAFETY REJECTED" }.toString())
-                ExpressiveMetric("Incomplete", model.diagnostics.count { it.state == "INCOMPLETE" }.toString())
-            } }
+            }
+            item {
+                CapabilitySectionCard("Probe and scheduler timing") {
+                    ExpressiveMetricGrid(
+                        listOf(
+                            "Dedicated probes" to probeTotals.size.toString(),
+                            "Diagnostic rows" to model.diagnostics.size.toString(),
+                            "Safety rejections" to model.diagnostics.count { it.state == "SAFETY REJECTED" }.toString(),
+                            "Incomplete" to model.diagnostics.count { it.state == "INCOMPLETE" }.toString()
+                        )
+                    )
+                    slowestProbe?.let {
+                        CapabilityKeyValue("Slowest dedicated probe", "${it.key.removePrefix("probe_total/")} · ${formatAnalysisElapsedTime(it.value)}")
+                    }
+                    longestQueueWait?.let {
+                        CapabilityKeyValue("Longest scheduler wait", "${it.key.removePrefix("probe_queue_wait/")} · ${formatAnalysisElapsedTime(it.value)}")
+                    }
+                    Text("Scheduler wait is shown separately from probe work when that evidence exists, so queue delay is not presented as native-call duration.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                }
+            }
             analysisPager(model.diagnostics.size)
-            items(analysisSlice(model.diagnostics), key = { "diag:${it.key}" }) { row -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                ExpressiveStatus(row.state)
-                CapabilityKeyValue(row.key, row.value)
-                CapabilityKeyValue("Per-query timing", row.timing)
-            } } }
+            items(analysisSlice(model.diagnostics), key = { "diag:${it.key}" }) { row ->
+                CapabilityItemCard {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ExpressiveStatus(row.state)
+                            Text(row.key.substringAfterLast('/').ifBlank { row.key }, modifier = Modifier.weight(1f), color = VulkanTextPrimary, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                        }
+                        CapabilityKeyValue("Evidence", row.value)
+                        Surface(shape = RoundedCornerShape(14.dp), color = VulkanSurfaceLow, contentColor = VulkanTextSecondary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.26f))) {
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 11.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(painterResource(R.drawable.ic_evidence), contentDescription = null, tint = VulkanAccentSoft, modifier = Modifier.size(18.dp))
+                                Text(row.timing, color = VulkanTextSecondary, style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                    }
+                }
+            }
         }
         4 -> {
-            item { CapabilitySectionCard("Capability requirement resolver") {
-                Text("Registry dependency expressions are reference metadata. VulkanScope evaluates referenced tokens individually against authoritative runtime API/extension evidence and does not collapse a registry expression into an inferred global support claim.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-                ExpressiveSearchField(value = state.requirementInput, onValueChange = { state.requirementInput = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "VK_EXT_descriptor_buffer")
-                model.requirementReference?.let { ref ->
-                    CapabilityKeyValue("Registry depends", ref.depends.ifBlank { "No dependency expression in checked-in reference" })
-                    CapabilityKeyValue("Registry requires", ref.requires.ifBlank { "No requires expression in checked-in reference" })
-                    CapabilityKeyValue("Promoted to", ref.promotedTo.ifBlank { "Not promoted in checked-in reference" })
+            val satisfiedCount = model.requirementEvaluations.count { it.state == "SATISFIED" }
+            val notSatisfiedCount = model.requirementEvaluations.count { it.state == "NOT SATISFIED" }
+            val unknownCount = model.requirementEvaluations.count { it.state == "UNKNOWN" }
+            val requestedToken = state.requirementInput.trim()
+            item {
+                CapabilitySectionCard("Capability requirement resolver") {
+                    Text(
+                        "Resolve one Vulkan registry token into its checked-in dependency references, then compare every referenced token with the runtime evidence collected from the selected device. Registry relationships and runtime support remain separate evidence classes.",
+                        color = VulkanTextSecondary,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    ExpressiveSearchField(
+                        value = state.requirementInput,
+                        onValueChange = { state.requirementInput = it.take(160) },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholderText = "VK_EXT_descriptor_buffer"
+                    )
+                    ExpressiveMetricGrid(
+                        listOf(
+                            "SATISFIED" to satisfiedCount.toString(),
+                            "NOT SATISFIED" to notSatisfiedCount.toString(),
+                            "UNKNOWN" to unknownCount.toString(),
+                            "CHECKED" to model.requirementEvaluations.size.toString()
+                        )
+                    )
+                    Surface(
+                        shape = MaterialTheme.shapes.large,
+                        color = VulkanSurfaceLow,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.32f)),
+                        modifier = Modifier.fillMaxWidth().animateContentSize(tween(220, easing = FastOutSlowInEasing))
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                                Icon(painterResource(R.drawable.ic_registry), contentDescription = null, tint = VulkanAccentSoft, modifier = Modifier.size(20.dp))
+                                Text("Registry relationship", color = VulkanTextPrimary, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                            }
+                            if (requestedToken.isBlank()) {
+                                Text("Enter a VK_* token to inspect its local registry reference and runtime evidence.", color = VulkanTextMuted, style = MaterialTheme.typography.bodySmall)
+                            } else {
+                                CapabilityKeyValue("Requested token", requestedToken)
+                                model.requirementReference?.let { ref ->
+                                    CapabilityKeyValue("Depends", ref.depends.ifBlank { "No dependency expression in checked-in reference" })
+                                    CapabilityKeyValue("Requires", ref.requires.ifBlank { "No requires expression in checked-in reference" })
+                                    CapabilityKeyValue("Promoted to", ref.promotedTo.ifBlank { "Not promoted in checked-in reference" })
+                                } ?: Text(
+                                    "No checked-in extension relationship was resolved for this input. The requested token can still be compared with available runtime evidence without inventing registry metadata.",
+                                    color = VulkanTextMuted,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        "SATISFIED means the requested runtime evidence is explicitly present. NOT SATISFIED requires explicit contrary evidence. UNKNOWN means the current report cannot safely decide the token.",
+                        color = VulkanTextMuted,
+                        style = MaterialTheme.typography.labelSmall
+                    )
                 }
-            } }
+            }
+            if (model.requirementEvaluations.isNotEmpty()) {
+                item {
+                    CapabilitySectionCard("Requirement evaluation summary") {
+                        Text(
+                            "Each row below is evaluated independently. A registry dependency expression is never collapsed into an inferred global support result.",
+                            color = VulkanTextSecondary,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        CapabilityKeyValue("Evaluation scope", "${model.requirementEvaluations.size} unique token${if (model.requirementEvaluations.size == 1) "" else "s"}")
+                    }
+                }
+            }
             analysisPager(model.requirementEvaluations.size)
-            items(analysisSlice(model.requirementEvaluations), key = { "req:${it.token}" }) { result -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                ExpressiveStatus(result.state)
-                CapabilityKeyValue(result.token, result.evidence)
-            } } }
+            items(analysisSlice(model.requirementEvaluations), key = { "req:${it.token}" }) { result ->
+                CapabilityItemCard {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Surface(shape = RoundedCornerShape(14.dp), color = VulkanAccentContainer, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.32f))) {
+                                Icon(painterResource(R.drawable.ic_registry), contentDescription = null, tint = VulkanAccentSoft, modifier = Modifier.padding(9.dp).size(20.dp))
+                            }
+                            Text(result.token, modifier = Modifier.weight(1f), color = VulkanTextPrimary, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                            ExpressiveStatus(result.state)
+                        }
+                        CapabilityKeyValue("Runtime evidence", result.evidence)
+                        Text(
+                            when (result.state) {
+                                "SATISFIED" -> "Explicit report evidence satisfies this token."
+                                "NOT SATISFIED" -> "Explicit report evidence contradicts this token."
+                                else -> "The available report evidence is insufficient for a safe yes/no decision."
+                            },
+                            color = VulkanTextMuted,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                }
+            }
+            if (requestedToken.isNotBlank() && model.requirementEvaluations.isEmpty()) item { EmptyState("No bounded requirement evidence could be produced for the requested token") }
         }
         5 -> {
-            item { CapabilitySectionCard("Vulkan Profiles and custom minimums") {
-                Text("Official bundled Profile evaluation remains authoritative for included profiles. The custom builder is a separate local rule layer and never rewrites runtime evidence.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-                ExpressiveSearchField(value = state.profileQuery, onValueChange = { state.profileQuery = it; state.contentPage = 0 }, modifier = Modifier.fillMaxWidth(), placeholderText = "Search bundled profiles…")
-                ExpressiveFilterBar(listOf("All", "FAIL", "UNKNOWN", "PASS"), listOf("All", "FAIL", "UNKNOWN", "PASS").indexOf(state.profileStatusFilter).coerceAtLeast(0)) { state.profileStatusFilter = listOf("All", "FAIL", "UNKNOWN", "PASS")[it] }
-            } }
+            val profilePassCount = model.profileResults.count { it.status == "PASS" }
+            val profileFailCount = model.profileResults.count { it.status == "FAIL" }
+            val profileUnknownCount = model.profileResults.count { it.status == "UNKNOWN" }
+            val customPassCount = model.customMinimumEvaluations.count { it.state == "PASS" }
+            val customFailCount = model.customMinimumEvaluations.count { it.state == "FAIL" }
+            val customUnknownCount = model.customMinimumEvaluations.count { it.state == "UNKNOWN" }
+            item {
+                CapabilitySectionCard("Vulkan Profiles and custom minimums") {
+                    Text(
+                        "Inspect bundled Vulkan Profile evaluations and build a separate local minimum contract. Official profile evidence, custom rules and raw runtime evidence remain distinct and never overwrite one another.",
+                        color = VulkanTextSecondary,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    ExpressiveSearchField(
+                        value = state.profileQuery,
+                        onValueChange = { state.profileQuery = it; state.contentPage = 0 },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholderText = "Search bundled profiles…"
+                    )
+                    ExpressiveFilterBar(listOf("All", "FAIL", "UNKNOWN", "PASS"), listOf("All", "FAIL", "UNKNOWN", "PASS").indexOf(state.profileStatusFilter).coerceAtLeast(0)) {
+                        state.profileStatusFilter = listOf("All", "FAIL", "UNKNOWN", "PASS")[it]
+                        state.contentPage = 0
+                    }
+                    ExpressiveMetricGrid(
+                        listOf(
+                            "PASS" to profilePassCount.toString(),
+                            "FAIL" to profileFailCount.toString(),
+                            "UNKNOWN" to profileUnknownCount.toString(),
+                            "VISIBLE" to model.profileResults.size.toString()
+                        )
+                    )
+                    Text(
+                        "PASS means every mapped requirement used by this bundled evaluation is met. FAIL requires at least one verified failed requirement. UNKNOWN preserves missing or unresolved evidence instead of guessing support.",
+                        color = VulkanTextMuted,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
             analysisPager(model.profileResults.size)
-            items(analysisSlice(model.profileResults), key = { "profile:${it.name}" }) { result -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                CapabilityKeyValue(result.name, profileSummary(result))
-                CapabilityKeyValue("Mapped checks", result.checkedRequirementCount.toString())
-                result.failingLimits.takeIf { it.isNotEmpty() }?.let { CapabilityKeyValue("Verified property/limit failures", it.joinToString("; ")) }
-                result.unknownLimits.takeIf { it.isNotEmpty() }?.let { CapabilityKeyValue("Unavailable properties/limits", it.joinToString("; ")) }
-                result.failingRequirementGroups.takeIf { it.isNotEmpty() }?.let { CapabilityKeyValue("Failed inherited/OR requirements", it.joinToString("; ")) }
-                result.unknownRequirementGroups.takeIf { it.isNotEmpty() }?.let { CapabilityKeyValue("Unresolved inherited/OR requirements", it.joinToString("; ")) }
-            } } }
-            item { CapabilitySectionCard("Custom minimum builder") {
-                OutlinedTextField(value = state.customProfileName, onValueChange = { state.customProfileName = it.take(128) }, modifier = Modifier.fillMaxWidth(), label = { Text("Profile name") }, singleLine = true)
-                OutlinedTextField(value = state.customProfileRules, onValueChange = { if (it.length <= 16_384) state.customProfileRules = it }, modifier = Modifier.fillMaxWidth().heightIn(min = 140.dp), label = { Text("Rules") }, supportingText = { Text("One rule per line: api>=1.3 · extension:VK_KHR_dynamic_rendering · feature:name=true · limit:name>=number · evidence:path=value") })
-                CapabilityKeyValue("Local status", state.customProfileStatus)
-                ExpressiveActionButton("Save local profile", "Bounded local profile; no capability mutation", R.drawable.ic_save) { model.saveMinimumProfile() }
-                SharedStoragePermissionActionButton("Import profile JSON", "Open the in-app shared-storage browser · JSON · 256 KiB bound", R.drawable.ic_action_import) { model.importMinimumProfile() }
-                SharedStoragePermissionActionButton("Export profile JSON", "Choose a shared-storage folder and JSON file name", R.drawable.ic_export) { model.exportMinimumProfile() }
-            } }
+            items(analysisSlice(model.profileResults), key = { "profile:${it.name}" }) { result ->
+                CapabilityItemCard {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Surface(shape = RoundedCornerShape(14.dp), color = VulkanAccentContainer, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.32f))) {
+                                Icon(painterResource(R.drawable.ic_profile), contentDescription = null, tint = VulkanAccentSoft, modifier = Modifier.padding(9.dp).size(20.dp))
+                            }
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(result.name, color = VulkanTextPrimary, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                if (result.revision.isNotBlank()) Text("Revision ${result.revision}", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                            }
+                            ExpressiveStatus(result.status)
+                        }
+                        ExpressiveMetricGrid(
+                            listOf(
+                                "MAPPED" to result.checkedRequirementCount.toString(),
+                                "MET" to result.metRequirementCount.toString(),
+                                "FAILED" to result.failedRequirementCount.toString(),
+                                "UNKNOWN" to result.unknownRequirementCount.toString()
+                            )
+                        )
+                        CapabilityKeyValue("Profile summary", profileSummary(result))
+                        result.minimumApiVersion.takeIf { it.isNotBlank() }?.let { CapabilityKeyValue("Minimum API", it) }
+                        result.failingLimits.takeIf { it.isNotEmpty() }?.let { CapabilityKeyValue("Verified property / limit failures", it.joinToString("; ")) }
+                        result.unknownLimits.takeIf { it.isNotEmpty() }?.let { CapabilityKeyValue("Unavailable properties / limits", it.joinToString("; ")) }
+                        result.failingRequirementGroups.takeIf { it.isNotEmpty() }?.let { CapabilityKeyValue("Failed inherited / OR requirements", it.joinToString("; ")) }
+                        result.unknownRequirementGroups.takeIf { it.isNotEmpty() }?.let { CapabilityKeyValue("Unresolved inherited / OR requirements", it.joinToString("; ")) }
+                        result.coverageNote.takeIf { it.isNotBlank() }?.let { Text(it, color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall) }
+                    }
+                }
+            }
+            item {
+                CapabilitySectionCard("Custom minimum builder") {
+                    Text(
+                        "Create up to $ANALYSIS_CUSTOM_PROFILE_MAX_RULES local rules. These rules are a user-defined acceptance checklist for the current report; they do not modify Vulkan capabilities or bundled Profile results.",
+                        color = VulkanTextSecondary,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Surface(shape = MaterialTheme.shapes.large, color = VulkanSurfaceLow, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.26f)), modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("Profile identity", color = VulkanAccentSoft, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                            OutlinedTextField(value = state.customProfileName, onValueChange = { state.customProfileName = it.take(128) }, modifier = Modifier.fillMaxWidth(), label = { Text("Profile name") }, singleLine = true)
+                        }
+                    }
+                    Surface(shape = MaterialTheme.shapes.large, color = VulkanSurfaceLow, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.26f)), modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("Rule contract", color = VulkanAccentSoft, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                            OutlinedTextField(value = state.customProfileRules, onValueChange = { if (it.length <= 16_384) state.customProfileRules = it }, modifier = Modifier.fillMaxWidth().heightIn(min = 150.dp), label = { Text("One rule per line") }, supportingText = { Text("api>=1.3 · extension:VK_KHR_dynamic_rendering · feature:name=true · limit:name>=number · evidence:path=value") })
+                            CapabilityKeyValue("Parsed rule count", state.customProfileRules.lineSequence().count { it.isNotBlank() }.coerceAtMost(ANALYSIS_CUSTOM_PROFILE_MAX_RULES).toString())
+                            CapabilityKeyValue("Local status", state.customProfileStatus)
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ExpressiveContainedIconTextButton("Save", R.drawable.ic_save, modifier = Modifier.weight(1f)) {
+                            state.pendingMinimumConfirmation = MinimumProfileConfirmation(MinimumProfileConfirmationKind.SAVE, state.customProfileName.trim())
+                        }
+                        SharedStoragePermissionActionButton("Import", "JSON · 256 KiB bound", R.drawable.ic_action_import, modifier = Modifier.weight(1f)) { model.importMinimumProfile() }
+                    }
+                    SharedStoragePermissionActionButton("Export profile JSON", "Choose a shared-storage folder and JSON file name", R.drawable.ic_export) { model.exportMinimumProfile() }
+                }
+            }
             val savedProfileRows = state.savedProfiles.toSortedMap().entries.toList()
             val savedProfilePageCount = maxOf(1, (savedProfileRows.size + COLLECTION_PAGE_SIZE - 1) / COLLECTION_PAGE_SIZE)
             val savedProfilePage = state.savedProfilesPage.coerceIn(0, savedProfilePageCount - 1)
             val pagedSavedProfiles = savedProfileRows.drop(savedProfilePage * COLLECTION_PAGE_SIZE).take(COLLECTION_PAGE_SIZE)
+            if (savedProfileRows.isNotEmpty()) {
+                item {
+                    CapabilitySectionCard("Saved minimum profiles") {
+                        ExpressiveMetricGrid(listOf("SAVED" to savedProfileRows.size.toString(), "PAGE" to "${savedProfilePage + 1} / $savedProfilePageCount"))
+                        Text("Load replaces only the local builder fields. Delete removes only the selected locally saved profile. Both actions require confirmation.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
             stickyCollectionPager(
                 totalItems = savedProfileRows.size,
                 currentPage = savedProfilePage,
                 onPageChange = { state.savedProfilesPage = it },
                 pagerKey = "analysis-saved-profiles"
             )
-            items(pagedSavedProfiles, key = { "saved:${it.key}" }) { entry -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                CapabilityKeyValue(entry.key, "${entry.value.lineSequence().count { it.isNotBlank() }} rule(s)")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { ExpressiveTextButton("Load") { model.loadMinimumProfile(entry.key) }; ExpressiveTextButton("Delete") { model.deleteMinimumProfile(entry.key) } }
-            } } }
-            item { CapabilitySectionCard("Current custom evaluation") {
-                ExpressiveMetric("PASS", model.customMinimumEvaluations.count { it.state == "PASS" }.toString())
-                ExpressiveMetric("FAIL", model.customMinimumEvaluations.count { it.state == "FAIL" }.toString())
-                ExpressiveMetric("UNKNOWN", model.customMinimumEvaluations.count { it.state == "UNKNOWN" }.toString())
-            } }
+            items(pagedSavedProfiles, key = { "saved:${it.key}" }) { entry ->
+                CapabilityItemCard {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Surface(shape = RoundedCornerShape(14.dp), color = VulkanAccentContainer, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.32f))) {
+                                Icon(painterResource(R.drawable.ic_save), contentDescription = null, tint = VulkanAccentSoft, modifier = Modifier.padding(9.dp).size(20.dp))
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text(entry.key, color = VulkanTextPrimary, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                Text("${entry.value.lineSequence().count { it.isNotBlank() }} rule(s)", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ExpressiveContainedIconTextButton("Load", R.drawable.ic_action_update, modifier = Modifier.weight(1f)) {
+                                state.pendingMinimumConfirmation = MinimumProfileConfirmation(MinimumProfileConfirmationKind.LOAD, entry.key)
+                            }
+                            ExpressiveContainedIconTextButton("Delete", R.drawable.ic_delete, modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold) {
+                                state.pendingMinimumConfirmation = MinimumProfileConfirmation(MinimumProfileConfirmationKind.DELETE, entry.key)
+                            }
+                        }
+                    }
+                }
+            }
+            item {
+                CapabilitySectionCard("Current custom evaluation") {
+                    ExpressiveMetricGrid(
+                        listOf(
+                            "PASS" to customPassCount.toString(),
+                            "FAIL" to customFailCount.toString(),
+                            "UNKNOWN" to customUnknownCount.toString(),
+                            "TOTAL" to model.customMinimumEvaluations.size.toString()
+                        )
+                    )
+                    Text("Each local rule is evaluated independently against the current evidence snapshot. UNKNOWN is preserved whenever the requested evidence cannot be safely resolved.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                }
+            }
             analysisPager(model.customMinimumEvaluations.size, "analysis-custom-minimums")
-            items(analysisSlice(model.customMinimumEvaluations), key = { "minimum:${it.rule}" }) { evaluation -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                ExpressiveStatus(evaluation.state)
-                CapabilityKeyValue(evaluation.rule, evaluation.evidence)
-            } } }
+            items(analysisSlice(model.customMinimumEvaluations), key = { "minimum:${it.rule}" }) { evaluation ->
+                CapabilityItemCard {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            ExpressiveStatus(evaluation.state)
+                            Text(evaluation.rule, modifier = Modifier.weight(1f), color = VulkanTextPrimary, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        }
+                        CapabilityKeyValue("Observed evidence", evaluation.evidence)
+                    }
+                }
+            }
         }
         6 -> {
-            item { CapabilitySectionCard("Capability dependency graph") {
-                Text("Registry edges and runtime enumeration remain separate evidence classes. Graph traversal is bounded and cycle-safe.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-                ExpressiveSearchField(value = state.graphInput, onValueChange = { state.graphInput = it }, modifier = Modifier.fillMaxWidth(), placeholderText = "VK_KHR_swapchain")
+            item { CapabilitySectionCard("Dependency graph explorer") {
+                Text("Explore the checked-in Vulkan registry relationship graph without mixing registry references with runtime support evidence. Traversal stays bounded and cycle-safe.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                ExpressiveSearchField(value = state.graphInput, onValueChange = { state.graphInput = it.trim().take(160) }, modifier = Modifier.fillMaxWidth(), placeholderText = "VK_KHR_swapchain")
+                Text("Traversal depth", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
                 ExpressiveFilterBar((1..4).map { "Depth $it" }, state.graphDepth - 1) { state.graphDepth = it + 1 }
                 CapabilityKeyValue("Root", model.graphRootToken.ifBlank { "Enter a Vulkan® extension token" })
-                model.graphRootRef?.let { CapabilityKeyValue("Registry depends", it.depends.ifBlank { "Unavailable in checked-in reference asset" }) }
+                model.graphRootRef?.let { ref ->
+                    CapabilityKeyValue("Registry depends", ref.depends.ifBlank { "No dependency expression in the checked-in reference" })
+                    CapabilityKeyValue("Registry requires", ref.requires.ifBlank { "No additional requires expression" })
+                    CapabilityKeyValue("Promoted to", ref.promotedTo.ifBlank { "Not promoted in the checked-in reference" })
+                }
+                if (state.graphInput.isNotBlank() && model.graphRootRef == null) {
+                    Text("No checked-in extension relationship record matched this token. Try an exact VK_* extension name.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
+                }
             } }
             if (model.graphRootRef != null) {
-                item { CapabilitySectionCard("Visual registry-reference graph") { VulkanDependencyGraph(model.visualGraphNodes, Modifier.fillMaxWidth()); CapabilityKeyValue("Bounded traversal", "${model.graphEntries.size} reference node(s)") } }
+                item {
+                    val runtimePresent = model.visualGraphNodes.count { it.evidence.startsWith("Enumerated") || it.evidence.startsWith("Runtime API satisfies") }
+                    val runtimeAbsent = model.visualGraphNodes.count { it.evidence.startsWith("Not enumerated") || it.evidence.startsWith("Runtime API does not expose") }
+                    val runtimeUnknown = (model.visualGraphNodes.size - runtimePresent - runtimeAbsent).coerceAtLeast(0)
+                    CapabilitySectionCard("Graph overview") {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Box(Modifier.weight(1f)) { ExpressiveMetric("Nodes", model.graphEntries.size.toString()) }
+                            Box(Modifier.weight(1f)) { ExpressiveMetric("Direct", model.graphEntries.count { it.depth == 1 }.toString()) }
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Box(Modifier.weight(1f)) { ExpressiveMetric("Present", runtimePresent.toString()) }
+                            Box(Modifier.weight(1f)) { ExpressiveMetric("Unknown", runtimeUnknown.toString()) }
+                        }
+                        if (runtimeAbsent > 0) CapabilityKeyValue("Not exposed in completed runtime evidence", runtimeAbsent.toString())
+                        Text("Node color/status summarizes only the selected device's current enumeration/API evidence. It is not a conformance or performance result.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+                item { CapabilitySectionCard("Interactive dependency map") { VulkanDependencyGraph(model.visualGraphNodes, Modifier.fillMaxWidth()); CapabilityKeyValue("Traversal bound", "${model.graphEntries.size} registry-reference node(s)") } }
                 analysisPager(model.graphEntries.size)
-                items(analysisSlice(model.graphEntries), key = { "dep:${it.depth}:${it.token}" }) { entry -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    CapabilityKeyValue(entry.token, dependencyRuntimeEvidence(entry.token, report, device))
+                items(analysisSlice(model.graphEntries), key = { "dep:${it.depth}:${it.token}" }) { entry -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    val runtimeEvidence = dependencyRuntimeEvidence(entry.token, report, device)
+                    CapabilityKeyValue(entry.token, runtimeEvidence)
+                    CapabilityKeyValue("Depth", entry.depth.toString())
                     entry.parent?.let { CapabilityKeyValue("Registry edge", "$it → ${entry.token}") }
+                    if (entry.depth == 0) Text("Traversal root", color = VulkanAccentSoft, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                 } } }
             }
         }
@@ -9383,36 +10150,117 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
         }
         9 -> {
             item {
-                val networkAvailable = LocalValidatedNetwork.current
-                CapabilitySectionCard("Compare with VulkanScope Database") {
-                Text("Fetching is explicit and uses only the fixed official Database HTTPS origin. The downloaded public technicalReport is compared locally against the current technicalReport.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-                ExpressiveSearchField(
-                    value = state.databaseReportId,
-                    onValueChange = { state.databaseReportId = it.lowercase().filter { ch -> ch in '0'..'9' || ch in 'a'..'f' }.take(64) },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = networkAvailable,
-                    placeholderText = "64-character report id"
-                )
-                CapabilityKeyValue("Status", state.databaseStatus)
-                ExpressiveActionButton("Fetch public report", if (networkAvailable) "Explicit GET from the fixed official Database endpoint" else "Unavailable without a validated internet connection", R.drawable.ic_database_fetch, enabled = networkAvailable && !state.databaseLoading && state.databaseReportId.length == 64) { model.fetchDatabaseReport() }
-                if (!networkAvailable) Text("Public Database report-id lookup is locked until Android reports a validated internet connection.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
-                if (state.databaseLoading) LoadingIndicator(color = VulkanAccentSoft, modifier = Modifier.size(32.dp))
-                if (state.databaseRemoteLeaves.isNotEmpty()) ExpressiveToggleRow("Show unchanged", "Include identical structured JSON leaves.", state.databaseIncludeUnchanged) { state.databaseIncludeUnchanged = it }
-            } }
+                CapabilitySectionCard("VulkanScope Database lookup") {
+                    Text("Choose a bounded public Database list or enter an exact report ID. Both paths are explicit user-initiated reads from the fixed official HTTPS endpoint and the selected technicalReport is compared locally.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                    ExpressiveFilterBar(
+                        listOf("Database list", "Report ID"),
+                        state.databaseLookupMode.coerceIn(0, 1)
+                    ) {
+                        state.databaseLookupMode = it
+                        state.contentPage = 0
+                    }
+                    if (state.databaseLookupMode == 0) {
+                        ExpressiveSearchField(
+                            value = state.databaseListQuery,
+                            onValueChange = { state.databaseListQuery = it.take(120); state.contentPage = 0 },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = networkAvailable,
+                            placeholderText = "Filter loaded GPU, device, driver or report ID…"
+                        )
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ExpressiveContainedIconTextButton(
+                                if (state.databaseReports.isEmpty()) "Load reports" else "Refresh",
+                                R.drawable.ic_database_fetch,
+                                modifier = Modifier.weight(1f),
+                                enabled = networkAvailable && !state.databaseListLoading
+                            ) { model.fetchDatabaseReportList(true) }
+                            ExpressiveContainedIconTextButton(
+                                "Load more",
+                                R.drawable.ic_download,
+                                modifier = Modifier.weight(1f),
+                                enabled = networkAvailable && !state.databaseListLoading && state.databaseListCursor != null
+                            ) { model.fetchDatabaseReportList(false) }
+                        }
+                        CapabilityKeyValue("List status", state.databaseListStatus)
+                        Text("Each request is capped at 50 rows and the in-app list is bounded to 200 unique reports.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                    } else {
+                        ExpressiveSearchField(
+                            value = state.databaseReportId,
+                            onValueChange = { state.databaseReportId = it.lowercase().filter { ch -> ch in '0'..'9' || ch in 'a'..'f' }.take(64) },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = networkAvailable,
+                            placeholderText = "64-character report id"
+                        )
+                        ExpressiveActionButton(
+                            "Fetch by report ID",
+                            if (networkAvailable) "Load the exact public technicalReport for local comparison" else "Unavailable without a validated internet connection",
+                            R.drawable.ic_database_fetch,
+                            enabled = networkAvailable && !state.databaseLoading && state.databaseReportId.length == 64
+                        ) { model.fetchDatabaseReport(state.databaseReportId) }
+                        CapabilityKeyValue("Status", state.databaseStatus)
+                    }
+                    if (!networkAvailable) Text("Database lookup is locked until Android reports a validated internet connection.", color = ComposeColor(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
+                    if (state.databaseListLoading || state.databaseLoading) LoadingIndicator(color = VulkanAccentSoft, modifier = Modifier.size(32.dp))
+                    if (state.databaseRemoteLeaves.isNotEmpty()) ExpressiveToggleRow("Show unchanged", "Include identical structured JSON leaves.", state.databaseIncludeUnchanged) { state.databaseIncludeUnchanged = it }
+                }
+            }
+            if (state.databaseLookupMode == 0) {
+                val query = state.databaseListQuery.trim()
+                val visibleReports = state.databaseReports.filter { report ->
+                    query.isBlank() || listOf(report.id, report.gpuName, report.manufacturer, report.model, report.driverMode, report.driverVersion, report.deviceApiVersion, report.vendorId, report.deviceId)
+                        .any { it.contains(query, true) }
+                }
+                analysisPager(visibleReports.size)
+                items(analysisSlice(visibleReports), key = { "db-list:${it.id}" }) { reportRow ->
+                    CapabilityItemCard {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                SystemDriverVendorBadge(reportRow.vendorId)
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(reportRow.gpuName.ifBlank { "Unknown GPU" }, color = VulkanTextPrimary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                                    Text("${reportRow.manufacturer} ${reportRow.model}".trim(), color = VulkanTextSecondary, style = MaterialTheme.typography.labelMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                ExpressiveInfoPill("API", reportRow.deviceApiVersion)
+                                DatabaseDriverModePill(reportRow.driverMode)
+                                ExpressiveInfoPill("Version", reportRow.driverVersion)
+                            }
+                            DatabaseSubmittedAt(reportRow.submittedAt)
+                            CapabilityKeyValue("Report ID", reportRow.id)
+                            ExpressiveContainedIconTextButton(
+                                "Compare this report",
+                                R.drawable.ic_compare,
+                                enabled = networkAvailable && !state.databaseLoading
+                            ) {
+                                state.databaseLookupMode = 1
+                                state.databaseReportId = reportRow.id
+                                model.fetchDatabaseReport(reportRow.id)
+                            }
+                        }
+                    }
+                }
+            }
             if (state.databaseRemoteLeaves.isNotEmpty()) {
-                item { CapabilitySectionCard("Database comparison summary") {
-                    ExpressiveMetric("Differences", model.databaseDiff.count { it.state != "Unchanged" }.toString())
-                    ExpressiveMetric("Added locally", model.databaseDiff.count { it.state == "Added" }.toString())
-                    ExpressiveMetric("Missing locally", model.databaseDiff.count { it.state == "Removed" }.toString())
-                    Text("A difference is a report-evidence difference only; it is not a device ranking or market-share statement.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
-                } }
+                item {
+                    CapabilitySectionCard("Database comparison summary") {
+                        ExpressiveMetric("Differences", model.databaseDiff.count { it.state != "Unchanged" }.toString())
+                        ExpressiveMetric("Added locally", model.databaseDiff.count { it.state == "Added" }.toString())
+                        ExpressiveMetric("Missing locally", model.databaseDiff.count { it.state == "Removed" }.toString())
+                        Text("A difference is a report-evidence difference only; it is not a device ranking or market-share statement.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
                 val boundedDatabaseDiff = model.databaseDiff.take(ANALYSIS_GLOBAL_SEARCH_VISIBLE_LIMIT)
                 analysisPager(boundedDatabaseDiff.size)
-                items(analysisSlice(boundedDatabaseDiff), key = { "db:${it.key}" }) { row -> CapabilityItemCard { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    CapabilityKeyValue(row.key, row.state)
-                    row.baseline?.let { CapabilityKeyValue("Database", it) }
-                    row.current?.let { CapabilityKeyValue("Current", it) }
-                } } }
+                items(analysisSlice(boundedDatabaseDiff), key = { "db:${it.key}" }) { row ->
+                    CapabilityItemCard {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            CapabilityKeyValue(row.key, row.state)
+                            row.baseline?.let { CapabilityKeyValue("Database", it) }
+                            row.current?.let { CapabilityKeyValue("Current", it) }
+                        }
+                    }
+                }
             }
         }
         10 -> {
@@ -9458,13 +10306,66 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
             }
         }
         12 -> {
-            item { CapabilitySectionCard("Diagnostic evidence score") {
-                CapabilityKeyValue("Score", model.driverHealth.score?.let { "$it / 100" } ?: "Unavailable")
-                CapabilityKeyValue("Interpretation", model.driverHealth.level)
-                Text("This heuristic summarizes explicit collection/safety anomalies only. It is not Vulkan® conformance, a benchmark, GPU ranking, performance score or vendor-quality claim.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-            } }
-            analysisPager(model.driverHealth.factors.size)
-            items(analysisSlice(model.driverHealth.factors), key = { "quality:$it" }) { factor -> CapabilityItemCard { Text(factor, modifier = Modifier.padding(14.dp)) } }
+            item {
+                CapabilitySectionCard("Collection integrity score") {
+                    Surface(
+                        shape = MaterialTheme.shapes.extraLarge,
+                        color = VulkanAccentContainer,
+                        contentColor = VulkanTextPrimary,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.44f))
+                    ) {
+                        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Current evidence score", color = VulkanAccentSoft, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                Text(model.driverHealth.score?.let { "$it / 100" } ?: "Unavailable", color = VulkanTextPrimary, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                                Text(model.driverHealth.level, color = VulkanTextSecondary, style = MaterialTheme.typography.bodyMedium)
+                            }
+                            Surface(shape = CircleShape, color = ComposeColor(0xFF31181B), contentColor = VulkanAccentSoft, modifier = Modifier.size(54.dp)) {
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Icon(painterResource(R.drawable.ic_analysis), contentDescription = null, modifier = Modifier.size(26.dp))
+                                }
+                            }
+                        }
+                    }
+                    ExpressiveMetricGrid(
+                        listOf(
+                            "Starting score" to if (model.driverHealth.score == null) "Unavailable" else "100",
+                            "Deducted" to if (model.driverHealth.score == null) "Unavailable" else "-${model.driverHealth.deductedPoints}",
+                            "Checks" to model.driverHealth.checks.size.toString(),
+                            "Triggered" to model.driverHealth.checks.count { it.triggered }.toString()
+                        )
+                    )
+                    Text("The score starts at 100 and subtracts fixed points only when VulkanScope records one of the explicit collection or safety anomalies below. The result is clamped at 0. It does not use GPU model, vendor, feature count, benchmark data or market ranking.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            item {
+                CapabilitySectionCard("Scoring method") {
+                    CapabilityKeyValue("95–100", "No explicit collection anomalies")
+                    CapabilityKeyValue("80–94", "Minor explicit anomalies")
+                    CapabilityKeyValue("60–79", "Multiple explicit anomalies")
+                    CapabilityKeyValue("0–59", "Severe explicit collection anomalies")
+                    Text("A clear check subtracts 0 points. A triggered check subtracts the fixed amount printed on its card. Multiple triggered checks are additive before the final 0-point floor is applied.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            analysisPager(model.driverHealth.checks.size)
+            items(analysisSlice(model.driverHealth.checks), key = { "quality:${it.title}" }) { check ->
+                CapabilityItemCard {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            ExpressiveStatus(if (check.triggered) "DEDUCTION" else "CLEAR")
+                            Text(check.title, modifier = Modifier.weight(1f), color = VulkanTextPrimary, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        }
+                        CapabilityKeyValue("Rule", if (check.triggered) "-${check.deduction} points applied" else "-${check.deduction} points only if triggered")
+                        CapabilityKeyValue("Observed evidence", check.evidence)
+                    }
+                }
+            }
+            if (model.driverHealth.checks.isEmpty()) item { EmptyState("A completed physical-device report is required before the integrity score can be calculated") }
+            item {
+                CapabilitySectionCard("What this score does not mean") {
+                    Text("It is not Vulkan® conformance, a performance benchmark, GPU quality ranking, driver certification or vendor score. It summarizes only the explicit collection/safety evidence checked above so the calculation can be audited line by line.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                }
+            }
         }
         13 -> {
             item { CapabilitySectionCard("Database permalink & QR") {
@@ -9486,19 +10387,97 @@ private fun LazyListScope.analysisWorkspaceItems(model: AnalysisWorkspaceModel, 
             }
         }
         else -> {
-            item { CapabilitySectionCard("Optional active tests") {
-                Text("Active tests are isolated from capability collection. FAIL means the test failed; it does not rewrite the reported feature as Unsupported.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-                CapabilityKeyValue("Target GPU", device?.let { "${it.name} · ${it.vendorId}:${it.deviceId}" } ?: "Unavailable")
-                ExpressiveActionButton("Run Vulkan self-tests", "Selected GPU only · minimal VkDevice, SPIR-V™ shader-module, pipeline-layout and compute-pipeline creation", R.drawable.ic_self_test, enabled = !state.testRunning && model.selfTestsAvailable) { model.runSelfTests() }
-                if (state.testRunning) LoadingIndicator(color = VulkanAccentSoft, modifier = Modifier.size(32.dp))
-            } }
+            item {
+                CapabilitySectionCard("Vulkan active self-tests") {
+                    Text("These tests run only when you press Run. They execute in the isolated Vulkan probe path against the selected physical device and remain separate from capability collection.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                    CapabilityKeyValue("Target GPU", device?.let { "${it.name} · ${it.vendorId}:${it.deviceId}" } ?: "Unavailable")
+                    CapabilityKeyValue("Execution scope", "Selected physical device · bounded graphics/compute queue-family selection")
+                    ExpressiveMetricGrid(
+                        listOf(
+                            "Device" to "VkDevice",
+                            "Shader" to "SPIR-V™",
+                            "Layout" to "Pipeline layout",
+                            "Pipeline" to "Compute"
+                        )
+                    )
+                    Text("PASS means the specific create/destroy path completed successfully. FAIL means the attempted Vulkan operation returned a failure or did not produce the required handle. UNAVAILABLE means the test could not be safely attempted because a required entry point, prerequisite or target identity was unavailable.", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                    ExpressiveActionButton("Run Vulkan self-tests", "Create a minimal VkDevice, shader module, pipeline layout and compute pipeline for the selected GPU", R.drawable.ic_self_test, enabled = !state.testRunning && model.selfTestsAvailable) { model.runSelfTests() }
+                    if (state.testRunning) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            LoadingIndicator(color = VulkanAccentSoft, modifier = Modifier.size(32.dp))
+                            Text("Self-tests are running in the isolated probe…", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
             state.testResult?.let { result ->
-                item { CapabilitySectionCard("Self-test result") { CapabilityKeyValue("Status", result.optString("status", "unknown")); result.optString("reason").takeIf { it.isNotBlank() }?.let { CapabilityKeyValue("Reason", it) } } }
                 val tests = result.optJSONArray("tests")
-                if (tests != null) items((0 until tests.length()).mapNotNull { tests.optJSONObject(it) }) { test -> CapabilityItemCard { Column(Modifier.padding(14.dp)) {
-                    CapabilityKeyValue(trademarkSpirvDisplayText(test.optString("name", "Test")), test.optString("status", "unknown"))
-                    test.optString("detail").takeIf { it.isNotBlank() }?.let { CapabilityKeyValue("Detail", it) }
-                } } }
+                val testRows = if (tests == null) emptyList() else (0 until tests.length()).mapNotNull { tests.optJSONObject(it) }
+                val passCount = testRows.count { it.optString("status").equals("PASS", true) }
+                val failCount = testRows.count { it.optString("status").equals("FAIL", true) }
+                val unavailableCount = testRows.count { it.optString("status").equals("UNAVAILABLE", true) }
+                val overallRaw = result.optString("status", "unknown")
+                val overallLabel = when (overallRaw) {
+                    "completed" -> "Completed"
+                    "completed_with_failures" -> "Completed with failures"
+                    "completed_with_unavailable" -> "Completed with unavailable checks"
+                    "unavailable" -> "Unavailable"
+                    else -> overallRaw.replace('_', ' ').replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+                }
+                item {
+                    CapabilitySectionCard("Test result summary") {
+                        Surface(shape = MaterialTheme.shapes.extraLarge, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.34f))) {
+                            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                ExpressiveStatus(when { failCount > 0 -> "FAIL"; unavailableCount > 0 || overallRaw == "unavailable" -> "UNAVAILABLE"; overallRaw == "completed" -> "PASS"; else -> "UNKNOWN" })
+                                Text(overallLabel, color = VulkanTextPrimary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                Text("${testRows.size} reported check${if (testRows.size == 1) "" else "s"}", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        ExpressiveMetricGrid(
+                            listOf(
+                                "PASS" to passCount.toString(),
+                                "FAIL" to failCount.toString(),
+                                "UNAVAILABLE" to unavailableCount.toString(),
+                                "TOTAL" to testRows.size.toString()
+                            )
+                        )
+                        result.optString("reason").takeIf { it.isNotBlank() }?.let { CapabilityKeyValue("Why no full result was available", it) }
+                    }
+                }
+                if (testRows.isNotEmpty()) {
+                    itemsIndexed(testRows, key = { index, test -> "self-test:$index:${test.optString("name")}" }) { index, test ->
+                        val status = test.optString("status", "UNKNOWN").uppercase()
+                        CapabilityItemCard {
+                            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Surface(shape = CircleShape, color = VulkanAccentContainer, contentColor = VulkanAccentSoft, modifier = Modifier.size(34.dp)) {
+                                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text((index + 1).toString(), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge) }
+                                    }
+                                    Text(trademarkSpirvDisplayText(test.optString("name", "Test")), modifier = Modifier.weight(1f), color = VulkanTextPrimary, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                    ExpressiveStatus(status)
+                                }
+                                test.optString("detail").takeIf { it.isNotBlank() }?.let { CapabilityKeyValue("Vulkan result", it) }
+                                Text(
+                                    when (status) {
+                                        "PASS" -> "The requested Vulkan object path completed and produced the expected handle."
+                                        "FAIL" -> "The operation was attempted but did not complete successfully. Capability evidence is not rewritten by this result."
+                                        "UNAVAILABLE" -> "The check was not safely runnable because its required path or prerequisite was unavailable."
+                                        else -> "The probe returned an unrecognized test state; capability evidence remains unchanged."
+                                    },
+                                    color = VulkanTextMuted,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    item { EmptyState(result.optString("reason").takeIf { it.isNotBlank() } ?: "No individual self-test result was returned") }
+                }
+                item {
+                    CapabilitySectionCard("Result semantics") {
+                        Text("Self-test results are operational evidence only. They do not convert Vulkan feature support to Unsupported, do not replace conformance testing, and do not contribute to the Collection integrity score.", color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
             }
         }
     }
@@ -9554,7 +10533,7 @@ private fun ExpressiveDetailDialog(title: String, onDismiss: () -> Unit, content
                 Column(Modifier.fillMaxSize()) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Surface(shape = RoundedCornerShape(18.dp), color = VulkanAccentContainer) {
-                            Icon(painterResource(R.drawable.ic_info), contentDescription = null, tint = VulkanAccentSoft, modifier = Modifier.padding(10.dp).size(21.dp))
+                            Icon(painterResource(capabilitySectionIcon(title)), contentDescription = null, tint = VulkanAccentSoft, modifier = Modifier.padding(10.dp).size(21.dp))
                         }
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = VulkanTextPrimary)
@@ -9564,7 +10543,7 @@ private fun ExpressiveDetailDialog(title: String, onDismiss: () -> Unit, content
                     HorizontalDivider(color = VulkanOutlineVariant)
                     Box(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 14.dp, vertical = 12.dp)) {
                         Column(
-                            Modifier.fillMaxWidth().desktopVerticalPointerScroll(scrollState).verticalScroll(scrollState).focusGroup(),
+                            Modifier.fillMaxWidth().desktopVerticalPointerScroll(scrollState).dpadScrollableNavigation(scrollState).verticalScroll(scrollState).focusable().focusGroup(),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             CompositionLocalProvider(LocalDetailKeyValuePresentation provides true) { content() }
@@ -10972,38 +11951,43 @@ private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverM
     selectedLibraryLicense?.let { library ->
         LibraryLicenseDialog(library = library, onDismiss = { selectedLibraryLicense = null })
     }
-    pendingSnapshot()?.let { snapshot ->
+    val launchSharedStorageBrowser = LocalSharedStorageBrowserLauncher.current
+    val pendingStorageSnapshot = pendingSnapshot()
+    LaunchedEffect(pendingStorageSnapshot?.path) {
+        val snapshot = pendingStorageSnapshot ?: return@LaunchedEffect
         val mime = snapshot.mime
         val isHtml = mime == "text/html"
-        SharedStorageBrowserDialog(
-            request = SharedStorageBrowserRequest(
-                title = if (isHtml) "Export HTML report" else "Export TXT report",
-                description = "Choose a shared-storage folder for the complete ${if (isHtml) "offline HTML" else "plain-text"} VulkanScope report.",
-                mode = SharedStorageBrowserMode.EXPORT,
-                allowedExtensions = setOf(if (isHtml) "html" else "txt"),
-                suggestedFileName = snapshot.filename
-            ),
-            onDismiss = { discardPendingSnapshot() },
-            onExport = { destination ->
-                try {
-                    val saved = withContext(Dispatchers.IO) {
-                        val target = validatedSharedStorageDestination(
-                            destination.parentFile ?: error("Destination folder is unavailable"),
-                            destination.name,
-                            setOf(if (isHtml) "html" else "txt")
-                        )
-                        val source = validatedExportSnapshot(context, snapshot)
-                        copySharedStorageFile(target, source)
-                        target
+        launchSharedStorageBrowser(
+            SharedStorageBrowserOverlayRequest(
+                request = SharedStorageBrowserRequest(
+                    title = if (isHtml) "Export HTML report" else "Export TXT report",
+                    description = "Choose a shared-storage folder for the complete ${if (isHtml) "offline HTML" else "plain-text"} VulkanScope report.",
+                    mode = SharedStorageBrowserMode.EXPORT,
+                    allowedExtensions = setOf(if (isHtml) "html" else "txt"),
+                    suggestedFileName = snapshot.filename
+                ),
+                onExport = { destination ->
+                    try {
+                        val saved = withContext(Dispatchers.IO) {
+                            val target = validatedSharedStorageDestination(
+                                destination.parentFile ?: error("Destination folder is unavailable"),
+                                destination.name,
+                                setOf(if (isHtml) "html" else "txt")
+                            )
+                            val source = validatedExportSnapshot(context, snapshot)
+                            copySharedStorageFile(target, source)
+                            target
+                        }
+                        android.widget.Toast.makeText(context, "${if (isHtml) "HTML" else "TXT"} report saved to ${saved.absolutePath}", android.widget.Toast.LENGTH_LONG).show()
+                        Result.success("Saved ${saved.name}")
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Throwable) {
+                        Result.failure(error)
                     }
-                    android.widget.Toast.makeText(context, "${if (isHtml) "HTML" else "TXT"} report saved to ${saved.absolutePath}", android.widget.Toast.LENGTH_LONG).show()
-                    Result.success("Saved ${saved.name}")
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (error: Throwable) {
-                    Result.failure(error)
-                }
-            }
+                },
+                onClosed = { discardPendingSnapshot() }
+            )
         )
     }
     VulkanLazyPage(verticalSpacing = 14.dp) {
@@ -11183,11 +12167,11 @@ private fun InfoPage(report: VulkanReport, display: DisplayReport, mode: DriverM
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace
                             )
-                            IconButton(
-                                onClick = { copyEvidenceText(context, "VulkanScope report ID", reportId) },
-                                colors = IconButtonDefaults.iconButtonColors(containerColor = VulkanAccentContainer, contentColor = VulkanAccentSoft)
+                            TransientIconButton(
+                                idleIcon = R.drawable.ic_copy,
+                                contentDescription = "Copy report ID"
                             ) {
-                                Icon(painterResource(R.drawable.ic_copy), contentDescription = "Copy report ID", modifier = Modifier.size(19.dp))
+                                runCatching { copyEvidenceText(context, "VulkanScope report ID", reportId) }.isSuccess
                             }
                         }
                     }
@@ -11263,7 +12247,7 @@ private fun DatabaseSubmissionFailureDialog(log: String, onDismiss: () -> Unit) 
                 Surface(shape = MaterialTheme.shapes.medium, color = ComposeColor(0xFF0D0D0D), border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant)) {
                     Text(
                         log,
-                        modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp).desktopVerticalPointerScroll(scrollState).verticalScroll(scrollState).padding(14.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp).desktopVerticalPointerScroll(scrollState).dpadScrollableNavigation(scrollState).verticalScroll(scrollState).padding(14.dp),
                         color = VulkanTextPrimary,
                         style = MaterialTheme.typography.bodySmall,
                         fontFamily = FontFamily.Monospace
@@ -11347,6 +12331,64 @@ private fun TransientActionButton(
             state = if (success) 2 else 3
             delay(3000)
             state = 0
+        }
+    }
+}
+
+@Composable
+private fun TransientIconButton(
+    idleIcon: Int,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    action: suspend () -> Boolean
+) {
+    val scope = rememberCoroutineScope()
+    var state by remember { mutableStateOf(0) }
+    val busy = state != 0
+    val icon = when (state) {
+        2 -> R.drawable.ic_check
+        3 -> R.drawable.ic_close
+        else -> idleIcon
+    }
+    val tint = when (state) {
+        2 -> ComposeColor(0xFF73C991)
+        3 -> ComposeColor(0xFFFF6B6B)
+        else -> VulkanAccentSoft
+    }
+    val container = when (state) {
+        2 -> ComposeColor(0xFF173524)
+        3 -> ComposeColor(0xFF3B1B1E)
+        else -> VulkanAccentContainer
+    }
+    IconButton(
+        onClick = {
+            if (!enabled || busy) return@IconButton
+            state = 1
+            scope.launch {
+                val success = try { action() }
+                catch (cancelled: CancellationException) { state = 0; throw cancelled }
+                catch (_: Throwable) { false }
+                state = if (success) 2 else 3
+                delay(3000L)
+                state = 0
+            }
+        },
+        enabled = enabled && !busy,
+        colors = IconButtonDefaults.iconButtonColors(
+            containerColor = container,
+            contentColor = tint,
+            disabledContainerColor = container,
+            disabledContentColor = tint
+        ),
+        modifier = modifier
+    ) {
+        AnimatedContent(
+            targetState = icon,
+            transitionSpec = { (fadeIn(tween(180)) + scaleIn(tween(220), initialScale = 0.72f)) togetherWith (fadeOut(tween(120)) + scaleOut(tween(150), targetScale = 0.82f)) },
+            label = "transientIcon"
+        ) { targetIcon ->
+            Icon(painterResource(targetIcon), contentDescription = if (state == 2) "$contentDescription completed" else contentDescription, modifier = Modifier.size(19.dp))
         }
     }
 }
@@ -11617,6 +12659,132 @@ private fun DriverUpdatePreferencesPage(
 
 }
 
+
+private data class FileManagerBreadcrumb(val label: String, val path: String)
+
+private fun fileManagerBreadcrumbs(rootPath: String, directoryPath: String): List<FileManagerBreadcrumb> {
+    val root = File(rootPath)
+    val current = File(directoryPath)
+    val rootText = root.path.trimEnd(File.separatorChar)
+    val currentText = current.path.trimEnd(File.separatorChar)
+    if (rootText.isBlank() || currentText.isBlank()) return emptyList()
+    val relative = if (currentText == rootText) "" else currentText.removePrefix(rootText).trim(File.separatorChar)
+    val crumbs = mutableListOf(FileManagerBreadcrumb("Storage", rootText))
+    if (relative.isNotBlank()) {
+        var path = rootText
+        relative.split(File.separatorChar).filter { it.isNotBlank() }.forEach { segment ->
+            path += File.separator + segment
+            crumbs += FileManagerBreadcrumb(segment, path)
+        }
+    }
+    return crumbs
+}
+
+@Composable
+private fun FileManagerBreadcrumbBar(
+    rootPath: String,
+    directoryPath: String,
+    enabled: Boolean,
+    onNavigate: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val crumbs = remember(rootPath, directoryPath) { fileManagerBreadcrumbs(rootPath, directoryPath) }
+    val scrollState = rememberScrollState()
+    Row(
+        modifier = modifier.horizontalScroll(scrollState),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        crumbs.forEachIndexed { index, crumb ->
+            if (index > 0) Text(">", color = VulkanTextMuted, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+            val active = index == crumbs.lastIndex
+            val shape = RoundedCornerShape(12.dp)
+            val crumbContainer by animateColorAsState(if (active) VulkanAccentContainer else VulkanSurfaceLow, tween(210), label = "breadcrumbContainer")
+            val crumbContent by animateColorAsState(if (active) VulkanAccentSoft else VulkanTextSecondary, tween(210), label = "breadcrumbContent")
+            val crumbBorder by animateColorAsState(if (active) VulkanAccentSoft.copy(alpha = 0.46f) else VulkanOutlineVariant, tween(210), label = "breadcrumbBorder")
+            Surface(
+                shape = shape,
+                color = crumbContainer,
+                contentColor = crumbContent,
+                border = androidx.compose.foundation.BorderStroke(1.dp, crumbBorder),
+                modifier = Modifier
+                    .animateContentSize(animationSpec = tween(220, easing = FastOutSlowInEasing))
+                    .clip(shape)
+                    .clickable(enabled = enabled && !active, role = Role.Button) { onNavigate(crumb.path) }
+                    .then(tvBrowseModifier(shape))
+            ) {
+                Text(
+                    crumb.label,
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+                    color = crumbContent,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExpandableFileManagerSearch(
+    value: String,
+    onValueChange: (String) -> Unit,
+    enabled: Boolean,
+    placeholderText: String,
+    modifier: Modifier = Modifier
+) {
+    var expanded by rememberSaveable { mutableStateOf(value.isNotBlank()) }
+    val focusRequester = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    LaunchedEffect(expanded, enabled) {
+        if (expanded && enabled) runCatching { focusRequester.requestFocus() }
+    }
+    AnimatedContent(
+        targetState = expanded,
+        transitionSpec = {
+            (fadeIn(tween(170)) + slideInHorizontally(tween(190)) { it / 5 }) togetherWith
+                (fadeOut(tween(130)) + slideOutHorizontally(tween(160)) { it / 5 })
+        },
+        label = "fileManagerSearch",
+        modifier = modifier
+    ) { open ->
+        if (open) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ExpressiveSearchField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    modifier = Modifier.weight(1f).focusRequester(focusRequester),
+                    enabled = enabled,
+                    placeholderText = placeholderText
+                )
+                HeaderActionButton(
+                    icon = R.drawable.ic_close,
+                    contentDescription = "Close search",
+                    onClick = {
+                        onValueChange("")
+                        focusManager.clearFocus(force = true)
+                        expanded = false
+                    },
+                    enabled = enabled,
+                    size = 46.dp
+                )
+            }
+        } else {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                HeaderActionButton(
+                    icon = R.drawable.ic_search,
+                    contentDescription = "Search files and folders",
+                    onClick = { expanded = true },
+                    enabled = enabled,
+                    size = 48.dp
+                )
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun TurnipFileManagerDialog(
@@ -11632,8 +12800,14 @@ private fun TurnipFileManagerDialog(
     onImport: () -> Unit
 ) {
     var search by remember(state.directoryPath) { mutableStateOf("") }
+    var searchExpanded by rememberSaveable(state.directoryPath) { mutableStateOf(false) }
+    val searchFocusRequester = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    LaunchedEffect(searchExpanded, state.importing) {
+        if (searchExpanded && !state.importing) runCatching { searchFocusRequester.requestFocus() }
+    }
     val filteredFolders = remember(state.folders, search) {
-        if (search.isBlank()) state.folders else state.folders.filter { File(it).name.contains(search, true) }
+        if (search.isBlank()) state.folders else state.folders.filter { File(it.path).name.contains(search, true) }
     }
     val filteredCandidates = remember(state.candidates, search) {
         if (search.isBlank()) state.candidates else state.candidates.filter {
@@ -11644,20 +12818,25 @@ private fun TurnipFileManagerDialog(
     val expandedTextLayout = preferExpandedTextLayout()
     val context = androidx.compose.ui.platform.LocalContext.current
     val suppressDesktopSecondaryInput = remember(context) { isChromeOsRuntime(context) || isAndroidPcFormFactor(context) }
-    Dialog(
-        onDismissRequest = { if (!state.importing) onDismiss() },
-        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = !state.importing, dismissOnClickOutside = false)
-    ) {
+    val navigationPadding = WindowInsets.navigationBars.asPaddingValues()
+    val layoutDirection = LocalLayoutDirection.current
+    val navigationStartInset = navigationPadding.calculateLeftPadding(layoutDirection)
+    val navigationEndInset = navigationPadding.calculateRightPadding(layoutDirection)
+    val navigationBottomInset = navigationPadding.calculateBottomPadding()
+    BackHandler(enabled = !state.importing) { onDismiss() }
+    Box(Modifier.fillMaxSize().zIndex(40f)) {
         Surface(
-            modifier = Modifier.fillMaxSize().padding(10.dp).consumeDesktopSecondaryMouseInput(suppressDesktopSecondaryInput),
-            shape = MaterialTheme.shapes.extraLarge,
-            color = VulkanSurfaceRaised,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = navigationStartInset, end = navigationEndInset, bottom = navigationBottomInset)
+                .consumeDesktopSecondaryMouseInput(suppressDesktopSecondaryInput),
+            shape = RoundedCornerShape(0.dp),
+            color = VulkanBlack,
             contentColor = VulkanTextPrimary,
-            border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.46f)),
-            tonalElevation = 8.dp,
-            shadowElevation = 10.dp
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp
         ) {
-            Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     AnimatedHeaderActionButton(
                         visible = !atRoot,
@@ -11668,37 +12847,68 @@ private fun TurnipFileManagerDialog(
                         buttonSize = 42.dp,
                         slotSize = 50.dp
                     )
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("Turnip file manager", color = VulkanTextPrimary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text(state.directoryPath, color = VulkanTextSecondary, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        FileManagerBreadcrumbBar(
+                            rootPath = state.rootPath,
+                            directoryPath = state.directoryPath,
+                            enabled = !state.loading && !state.importing,
+                            onNavigate = onNavigate,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                     HeaderActionButton(icon = R.drawable.ic_close, contentDescription = "Close", onClick = onDismiss, enabled = !state.importing)
                 }
 
-                Surface(shape = MaterialTheme.shapes.extraLarge, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant)) {
-                    if (expandedTextLayout) {
-                        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            TurnipFileManagerSelectionSummary(state)
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                                FileManagerOptionsChooser(state.viewMode, state.sortMode, onViewMode, onSortMode, enabled = !state.importing, modifier = Modifier.width(50.dp))
+                Surface(shape = MaterialTheme.shapes.extraLarge, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.34f))) {
+                    Row(
+                        Modifier.fillMaxWidth().animateContentSize(animationSpec = tween(240, easing = FastOutSlowInEasing)).padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        AnimatedContent(
+                            targetState = searchExpanded,
+                            transitionSpec = {
+                                (fadeIn(tween(180)) + expandHorizontally(tween(240, easing = FastOutSlowInEasing), expandFrom = Alignment.End)) togetherWith
+                                    (fadeOut(tween(130)) + shrinkHorizontally(tween(210, easing = FastOutSlowInEasing), shrinkTowards = Alignment.End))
+                            },
+                            label = "turnipFileManagerSearchResize",
+                            modifier = Modifier.weight(1f).animateContentSize(animationSpec = tween(240, easing = FastOutSlowInEasing))
+                        ) { expanded ->
+                            if (expanded) {
+                                ExpressiveSearchField(
+                                    value = search,
+                                    onValueChange = { search = it.take(120) },
+                                    modifier = Modifier.fillMaxWidth().focusRequester(searchFocusRequester),
+                                    enabled = !state.importing,
+                                    placeholderText = "Folders and validated Turnip packages"
+                                )
+                            } else {
+                                TurnipFileManagerSelectionSummary(state)
                             }
                         }
-                    } else {
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Box(Modifier.weight(1f)) { TurnipFileManagerSelectionSummary(state) }
-                            FileManagerOptionsChooser(state.viewMode, state.sortMode, onViewMode, onSortMode, enabled = !state.importing, modifier = Modifier.width(50.dp))
+                        FileManagerOptionsChooser(state.viewMode, state.sortMode, onViewMode, onSortMode, enabled = !state.importing, modifier = Modifier.width(50.dp))
+                        AnimatedContent(
+                            targetState = searchExpanded,
+                            transitionSpec = { fadeIn(tween(160)) + scaleIn(tween(190), initialScale = 0.82f) togetherWith fadeOut(tween(120)) + scaleOut(tween(150), targetScale = 0.82f) },
+                            label = "turnipFileManagerSearchAction"
+                        ) { expanded ->
+                            HeaderActionButton(
+                                icon = if (expanded) R.drawable.ic_close else R.drawable.ic_search,
+                                contentDescription = if (expanded) "Close search" else "Search files and folders",
+                                onClick = {
+                                    if (expanded) {
+                                        search = ""
+                                        focusManager.clearFocus(force = true)
+                                        searchExpanded = false
+                                    } else searchExpanded = true
+                                },
+                                enabled = !state.importing,
+                                size = if (expanded) 46.dp else 48.dp
+                            )
                         }
                     }
                 }
-
-                ExpressiveSearchField(
-                    value = search,
-                    onValueChange = { search = it.take(120) },
-                    modifier = Modifier.fillMaxWidth(),
-                    labelText = "Search",
-                    placeholderText = "Folders and validated Turnip packages",
-                    enabled = !state.importing
-                )
 
                 state.status?.let { message ->
                     val warning = message.contains("failed", true) || message.contains("unavailable", true) || message.contains("limit", true)
@@ -11712,7 +12922,16 @@ private fun TurnipFileManagerDialog(
                     }
                 }
 
-                Box(Modifier.weight(1f).fillMaxWidth()) {
+                AnimatedContent(
+                    targetState = state.directoryPath,
+                    transitionSpec = {
+                        (fadeIn(tween(190)) + slideInHorizontally(tween(230, easing = FastOutSlowInEasing)) { it / 8 }) togetherWith
+                            (fadeOut(tween(150)) + slideOutHorizontally(tween(200, easing = FastOutSlowInEasing)) { -it / 8 })
+                    },
+                    label = "turnipDirectoryTransition",
+                    modifier = Modifier.weight(1f).fillMaxWidth().animateContentSize(animationSpec = tween(220, easing = FastOutSlowInEasing))
+                ) { _ ->
+                    Box(Modifier.fillMaxSize()) {
                     if (state.loading) {
                         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             LoadingIndicator(color = VulkanAccentSoft)
@@ -11731,13 +12950,13 @@ private fun TurnipFileManagerDialog(
                         LazyVerticalGrid(
                             columns = GridCells.Adaptive(minimumCellWidth),
                             state = gridState,
-                            modifier = Modifier.fillMaxSize().desktopVerticalPointerScroll(gridState),
+                            modifier = Modifier.fillMaxSize().desktopVerticalPointerScroll(gridState).tvRemoteLazyGridNavigation(gridState).focusGroup(),
                             horizontalArrangement = Arrangement.spacedBy(if (denseGrid) 6.dp else 8.dp),
                             verticalArrangement = Arrangement.spacedBy(if (denseGrid) 6.dp else if (largeGrid) 10.dp else 8.dp),
                             contentPadding = PaddingValues(bottom = 8.dp)
                         ) {
-                            gridItems(filteredFolders, key = { "folder:$it" }) { path ->
-                                TurnipFileManagerFolderGridCard(path = path, enabled = !state.importing, dense = denseGrid, large = largeGrid) { onNavigate(path) }
+                            gridItems(filteredFolders, key = { "folder:${it.path}" }) { folder ->
+                                TurnipFileManagerFolderGridCard(folder = folder, enabled = !state.importing, dense = denseGrid, large = largeGrid) { onNavigate(folder.path) }
                             }
                             gridItems(filteredCandidates, key = { "zip:${it.path}" }) { candidate ->
                                 val alreadyImported = turnipImportedSourceKey(candidate.path, candidate.name) in state.importedSourceKeys
@@ -11758,7 +12977,7 @@ private fun TurnipFileManagerDialog(
                                 }
                             }
                         }
-                        SoftScrollIntersectionShadows(showTopFade, showBottomFade, Modifier.fillMaxSize(), edgeColor = VulkanSurfaceRaised)
+                        SoftScrollIntersectionShadows(showTopFade, showBottomFade, Modifier.fillMaxSize(), edgeColor = VulkanBlack)
                         ExpressiveScrollHints(gridState, Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 6.dp))
                     } else {
                         val listState = rememberLazyListState()
@@ -11768,12 +12987,12 @@ private fun TurnipFileManagerDialog(
                         val showBottomFade by remember(listState) { derivedStateOf { listState.canScrollForward } }
                         LazyColumn(
                             state = listState,
-                            modifier = Modifier.fillMaxSize().desktopVerticalPointerScroll(listState),
+                            modifier = Modifier.fillMaxSize().desktopVerticalPointerScroll(listState).tvRemoteLazyListNavigation(listState).focusGroup(),
                             verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 9.dp),
                             contentPadding = PaddingValues(bottom = 8.dp)
                         ) {
-                            items(filteredFolders, key = { "folder:$it" }) { path ->
-                                TurnipFileManagerFolderRow(path = path, compact = compact, details = details, enabled = !state.importing) { onNavigate(path) }
+                            items(filteredFolders, key = { "folder:${it.path}" }) { folder ->
+                                TurnipFileManagerFolderRow(folder = folder, compact = compact, details = details, enabled = !state.importing) { onNavigate(folder.path) }
                             }
                             items(filteredCandidates, key = { "zip:${it.path}" }) { candidate ->
                                 val alreadyImported = turnipImportedSourceKey(candidate.path, candidate.name) in state.importedSourceKeys
@@ -11792,8 +13011,9 @@ private fun TurnipFileManagerDialog(
                                 item { EmptyState(if (search.isBlank()) "No folders or validated Turnip ZIPs in this location" else "No matching folders or validated Turnip ZIPs") }
                             }
                         }
-                        SoftScrollIntersectionShadows(showTopFade, showBottomFade, Modifier.fillMaxSize(), edgeColor = VulkanSurfaceRaised)
+                        SoftScrollIntersectionShadows(showTopFade, showBottomFade, Modifier.fillMaxSize(), edgeColor = VulkanBlack)
                         ExpressiveScrollHints(listState, Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 6.dp))
+                    }
                     }
                 }
 
@@ -11824,14 +13044,28 @@ private fun TurnipFileManagerDialog(
 
 @Composable
 private fun TurnipFileManagerSelectionSummary(state: TurnipFileManagerState) {
-    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    val selectedCount = state.selectedPaths.size
+    val remainingCount = (state.maxSelectable - selectedCount).coerceAtLeast(0)
+    Column(Modifier.animateContentSize(animationSpec = tween(220, easing = FastOutSlowInEasing)), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             Surface(shape = RoundedCornerShape(999.dp), color = VulkanAccentContainer, contentColor = VulkanAccentSoft) {
-                Text(state.selectedPaths.size.toString(), modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+                AnimatedContent(
+                    targetState = selectedCount,
+                    transitionSpec = { fadeIn(tween(150)) + slideInVertically(tween(180)) { it / 2 } togetherWith fadeOut(tween(120)) + slideOutVertically(tween(150)) { -it / 2 } },
+                    label = "turnipSelectedCount"
+                ) { count ->
+                    Text(count.toString(), modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+                }
             }
             Text("selected", color = VulkanTextPrimary, fontWeight = FontWeight.Bold)
         }
-        Text("${(state.maxSelectable - state.selectedPaths.size).coerceAtLeast(0)} / ${state.maxSelectable} remaining", color = VulkanTextSecondary, style = MaterialTheme.typography.labelMedium)
+        AnimatedContent(
+            targetState = remainingCount,
+            transitionSpec = { fadeIn(tween(150)) + slideInVertically(tween(180)) { it / 3 } togetherWith fadeOut(tween(120)) + slideOutVertically(tween(150)) { -it / 3 } },
+            label = "turnipRemainingCount"
+        ) { remaining ->
+            Text("$remaining / ${state.maxSelectable} remaining", color = VulkanTextSecondary, style = MaterialTheme.typography.labelMedium)
+        }
     }
 }
 
@@ -11867,91 +13101,124 @@ private fun FileManagerOptionsChooser(
                 }
             }
         }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            containerColor = VulkanSurfaceRaised,
-            tonalElevation = 8.dp,
-            shadowElevation = 14.dp,
-            shape = RoundedCornerShape(22.dp),
-            modifier = Modifier.widthIn(min = 292.dp, max = 340.dp)
+    }
+    if (expanded) {
+        Dialog(
+            onDismissRequest = { },
+            properties = DialogProperties(
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false,
+                usePlatformDefaultWidth = false
+            )
         ) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                    HeaderActionButton(
-                        icon = R.drawable.ic_close,
-                        contentDescription = "Close view and sort menu",
-                        onClick = { expanded = false },
-                        enabled = true,
-                        size = 36.dp
-                    )
-                    Text(fileManagerViewModeLabel(viewMode), color = VulkanAccentSoft, style = MaterialTheme.typography.labelMedium)
-                }
-                HorizontalDivider(color = VulkanOutlineVariant)
-                FileManagerViewMode.entries.chunked(3).forEach { rowModes ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        rowModes.forEach { mode ->
-                            val selected = mode == viewMode
-                            val tileShape = RoundedCornerShape(16.dp)
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(tileShape)
-                                    .background(if (selected) VulkanAccentContainer else ComposeColor.Transparent)
-                                    .clickable(enabled = enabled, role = Role.Button) { onViewMode(mode) }
-                                    .padding(horizontal = 6.dp, vertical = 9.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    painterResource(fileManagerViewModeIcon(mode)),
-                                    contentDescription = fileManagerViewModeLabel(mode),
-                                    tint = if (selected) VulkanAccentSoft else VulkanTextPrimary,
-                                    modifier = Modifier.size(27.dp)
-                                )
-                                Text(
-                                    fileManagerViewModeLabel(mode),
-                                    color = if (selected) VulkanTextPrimary else VulkanTextSecondary,
-                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    textAlign = TextAlign.Center,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                Box(Modifier.width(34.dp).height(3.dp).clip(RoundedCornerShape(99.dp)).background(if (selected) VulkanAccentSoft else ComposeColor.Transparent))
+            BoxWithConstraints(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .padding(12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                val menuScrollState = rememberScrollState()
+                val menuMaxHeight = (maxHeight - 24.dp).coerceAtLeast(220.dp)
+                Surface(
+                    color = VulkanSurfaceRaised,
+                    contentColor = VulkanTextPrimary,
+                    tonalElevation = 8.dp,
+                    shadowElevation = 14.dp,
+                    shape = RoundedCornerShape(22.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.30f)),
+                    modifier = Modifier
+                        .widthIn(min = 292.dp, max = 360.dp)
+                        .heightIn(max = menuMaxHeight)
+                        .focusGroup()
+                ) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .desktopVerticalPointerScroll(menuScrollState)
+                            .dpadScrollableNavigation(menuScrollState)
+                            .verticalScroll(menuScrollState)
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                            HeaderActionButton(
+                                icon = R.drawable.ic_close,
+                                contentDescription = "Close view and sort menu",
+                                onClick = { expanded = false },
+                                enabled = true,
+                                size = 36.dp
+                            )
+                            Text(fileManagerViewModeLabel(viewMode), color = VulkanAccentSoft, style = MaterialTheme.typography.labelMedium)
+                        }
+                        HorizontalDivider(color = VulkanOutlineVariant)
+                        FileManagerViewMode.entries.chunked(3).forEach { rowModes ->
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                rowModes.forEach { mode ->
+                                    val selected = mode == viewMode
+                                    val tileShape = RoundedCornerShape(16.dp)
+                                    Column(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(tileShape)
+                                            .background(if (selected) VulkanAccentContainer else ComposeColor.Transparent)
+                                            .clickable(enabled = enabled, role = Role.Button) { onViewMode(mode) }
+                                            .padding(horizontal = 6.dp, vertical = 9.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(
+                                            painterResource(fileManagerViewModeIcon(mode)),
+                                            contentDescription = fileManagerViewModeLabel(mode),
+                                            tint = if (selected) VulkanAccentSoft else VulkanTextPrimary,
+                                            modifier = Modifier.size(27.dp)
+                                        )
+                                        Text(
+                                            fileManagerViewModeLabel(mode),
+                                            color = if (selected) VulkanTextPrimary else VulkanTextSecondary,
+                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            textAlign = TextAlign.Center,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                        Box(Modifier.width(34.dp).height(3.dp).clip(RoundedCornerShape(99.dp)).background(if (selected) VulkanAccentSoft else ComposeColor.Transparent))
+                                    }
+                                }
+                                repeat(3 - rowModes.size) { Spacer(Modifier.weight(1f)) }
                             }
                         }
-                        repeat(3 - rowModes.size) { Spacer(Modifier.weight(1f)) }
-                    }
-                }
-                HorizontalDivider(color = VulkanOutlineVariant)
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Sort", color = VulkanTextPrimary, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    Text(fileManagerSortLabel(sortMode), color = VulkanAccentSoft, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                FileManagerSortMode.entries.forEach { candidate ->
-                    val selected = candidate == sortMode
-                    val rowShape = RoundedCornerShape(14.dp)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(rowShape)
-                            .background(if (selected) VulkanAccentContainer.copy(alpha = 0.72f) else ComposeColor.Transparent)
-                            .clickable(enabled = enabled, role = Role.Button) { onSortMode(candidate) }
-                            .padding(horizontal = 10.dp, vertical = 9.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Icon(
-                            painterResource(fileManagerSortModeIcon(candidate)),
-                            contentDescription = fileManagerSortLabel(candidate),
-                            tint = if (selected) VulkanAccentSoft else VulkanTextSecondary,
-                            modifier = Modifier.size(19.dp)
-                        )
-                        Text(fileManagerSortLabel(candidate), color = if (selected) VulkanAccentSoft else VulkanTextPrimary, modifier = Modifier.weight(1f), fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
-                        if (selected) {
-                            Icon(painterResource(R.drawable.ic_check), contentDescription = null, tint = VulkanAccentSoft, modifier = Modifier.size(17.dp))
+                        HorizontalDivider(color = VulkanOutlineVariant)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Sort", color = VulkanTextPrimary, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                            Text(fileManagerSortLabel(sortMode), color = VulkanAccentSoft, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        FileManagerSortMode.entries.forEach { candidate ->
+                            val selected = candidate == sortMode
+                            val rowShape = RoundedCornerShape(14.dp)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(rowShape)
+                                    .background(if (selected) VulkanAccentContainer.copy(alpha = 0.72f) else ComposeColor.Transparent)
+                                    .clickable(enabled = enabled, role = Role.Button) { onSortMode(candidate) }
+                                    .padding(horizontal = 10.dp, vertical = 9.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    painterResource(fileManagerSortModeIcon(candidate)),
+                                    contentDescription = fileManagerSortLabel(candidate),
+                                    tint = if (selected) VulkanAccentSoft else VulkanTextSecondary,
+                                    modifier = Modifier.size(19.dp)
+                                )
+                                Text(fileManagerSortLabel(candidate), color = if (selected) VulkanAccentSoft else VulkanTextPrimary, modifier = Modifier.weight(1f), fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+                                if (selected) {
+                                    Icon(painterResource(R.drawable.ic_check), contentDescription = null, tint = VulkanAccentSoft, modifier = Modifier.size(17.dp))
+                                }
+                            }
                         }
                     }
                 }
@@ -12009,12 +13276,14 @@ private fun MesaOfficialLogoBadge(size: Dp, muted: Boolean = false, modifier: Mo
 @Composable
 private fun FileManagerNavigateArrow(enabled: Boolean, description: String, onClick: () -> Unit) {
     val shape = RoundedCornerShape(18.dp)
+    val configuration = LocalConfiguration.current
+    val isTelevision = configuration.uiMode and Configuration.UI_MODE_TYPE_MASK == Configuration.UI_MODE_TYPE_TELEVISION
     Surface(
         shape = shape,
         color = if (enabled) ComposeColor(0xFF31181B) else VulkanSurfaceLow,
         contentColor = if (enabled) VulkanAccentSoft else VulkanTextMuted,
         border = androidx.compose.foundation.BorderStroke(1.dp, if (enabled) VulkanAccentSoft.copy(alpha = 0.24f) else VulkanOutlineVariant),
-        modifier = Modifier.size(46.dp).clip(shape).clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+        modifier = Modifier.size(46.dp).focusProperties { canFocus = !isTelevision }.clip(shape).clickable(enabled = enabled, role = Role.Button, onClick = onClick)
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = description, modifier = Modifier.size(21.dp))
@@ -12022,17 +13291,24 @@ private fun FileManagerNavigateArrow(enabled: Boolean, description: String, onCl
     }
 }
 
+private fun turnipFolderCountLabel(folder: TurnipFolderEntry): String {
+    val count = folder.validZipFileCount
+    val suffix = if (count == 1) "file" else "files"
+    return if (folder.zipCountLimited) "${count}+ $suffix" else "$count $suffix"
+}
+
 @Composable
-private fun TurnipFileManagerFolderRow(path: String, compact: Boolean, details: Boolean, enabled: Boolean, onOpen: () -> Unit) {
+private fun TurnipFileManagerFolderRow(folder: TurnipFolderEntry, compact: Boolean, details: Boolean, enabled: Boolean, onOpen: () -> Unit) {
+    val path = folder.path
     val shape = MaterialTheme.shapes.large
-    Surface(shape = shape, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant), tonalElevation = if (compact) 0.dp else 1.dp, modifier = Modifier.fillMaxWidth()) {
+    Surface(shape = shape, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.38f)), tonalElevation = if (compact) 0.dp else 1.dp, modifier = Modifier.animateContentSize(animationSpec = tween(220, easing = FastOutSlowInEasing)).fillMaxWidth().clip(shape).clickable(enabled = enabled, role = Role.Button, onClick = onOpen).then(tvBrowseModifier(shape))) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = if (compact) 8.dp else 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Surface(shape = RoundedCornerShape(14.dp), color = ComposeColor(0xFF2A2418), contentColor = ComposeColor(0xFFFFC857)) {
                 Icon(painterResource(R.drawable.ic_folder), contentDescription = null, modifier = Modifier.padding(if (compact) 7.dp else 8.dp).size(if (compact) 22.dp else 25.dp))
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(File(path).name.ifBlank { path }, color = VulkanTextPrimary, fontWeight = FontWeight.SemiBold, maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis)
-                if (!compact) Text(if (details) path else "Folder", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall, maxLines = if (details) 2 else 1, overflow = TextOverflow.Ellipsis)
+                if (!compact) Text(if (details) "${turnipFolderCountLabel(folder)} · $path" else turnipFolderCountLabel(folder), color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall, maxLines = if (details) 2 else 1, overflow = TextOverflow.Ellipsis)
             }
             FileManagerNavigateArrow(enabled = enabled, description = "Open folder") { onOpen() }
         }
@@ -12044,11 +13320,11 @@ private fun TurnipFileManagerCandidateRow(candidate: TurnipArchiveCandidate, sel
     val shape = MaterialTheme.shapes.large
     val rowAlpha = if (alreadyImported) 0.56f else 1f
     Surface(
-        modifier = Modifier.fillMaxWidth().alpha(rowAlpha).clip(shape).clickable(enabled = enabled, role = Role.Checkbox) { onSelectedChange() },
+        modifier = Modifier.animateContentSize(animationSpec = tween(220, easing = FastOutSlowInEasing)).fillMaxWidth().alpha(rowAlpha).clip(shape).clickable(enabled = enabled, role = Role.Checkbox) { onSelectedChange() }.then(tvBrowseModifier(shape)),
         shape = shape,
         color = if (alreadyImported) VulkanSurfaceLow else if (selected) VulkanAccentContainer else VulkanSurfaceTonal,
         contentColor = if (alreadyImported) VulkanTextMuted else VulkanTextPrimary,
-        border = androidx.compose.foundation.BorderStroke(1.dp, if (selected && !alreadyImported) VulkanAccentSoft.copy(alpha = 0.58f) else VulkanOutlineVariant),
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (selected && !alreadyImported) VulkanAccentSoft.copy(alpha = 0.58f) else VulkanAccentSoft.copy(alpha = 0.38f)),
         tonalElevation = if (compact) 0.dp else 1.dp
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = if (compact) 7.dp else 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -12069,10 +13345,11 @@ private fun TurnipFileManagerCandidateRow(candidate: TurnipArchiveCandidate, sel
 }
 
 @Composable
-private fun TurnipFileManagerFolderGridCard(path: String, enabled: Boolean, dense: Boolean, large: Boolean, onOpen: () -> Unit) {
+private fun TurnipFileManagerFolderGridCard(folder: TurnipFolderEntry, enabled: Boolean, dense: Boolean, large: Boolean, onOpen: () -> Unit) {
+    val path = folder.path
     val shape = MaterialTheme.shapes.large
     if (large) {
-        Surface(shape = shape, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant), modifier = Modifier.fillMaxWidth()) {
+        Surface(shape = shape, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.38f)), modifier = Modifier.animateContentSize(animationSpec = tween(220, easing = FastOutSlowInEasing)).fillMaxWidth().clip(shape).clickable(enabled = enabled, role = Role.Button, onClick = onOpen).then(tvBrowseModifier(shape))) {
             Row(
                 Modifier.fillMaxWidth().padding(14.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -12083,7 +13360,7 @@ private fun TurnipFileManagerFolderGridCard(path: String, enabled: Boolean, dens
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(File(path).name.ifBlank { path }, color = VulkanTextPrimary, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text("Folder", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+                    Text(turnipFolderCountLabel(folder), color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
                 }
                 FileManagerNavigateArrow(enabled = enabled, description = "Open folder") { onOpen() }
             }
@@ -12093,7 +13370,7 @@ private fun TurnipFileManagerFolderGridCard(path: String, enabled: Boolean, dens
     val padding = if (dense) 6.dp else 12.dp
     val iconSize = if (dense) 18.dp else 30.dp
     val titleStyle = if (dense) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge
-    Surface(shape = shape, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant), modifier = Modifier.fillMaxWidth()) {
+    Surface(shape = shape, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.38f)), modifier = Modifier.animateContentSize(animationSpec = tween(220, easing = FastOutSlowInEasing)).fillMaxWidth().clip(shape).clickable(enabled = enabled, role = Role.Button, onClick = onOpen).then(tvBrowseModifier(shape))) {
         Column(
             Modifier.fillMaxWidth().padding(padding),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -12103,7 +13380,7 @@ private fun TurnipFileManagerFolderGridCard(path: String, enabled: Boolean, dens
                 Icon(painterResource(R.drawable.ic_folder), contentDescription = null, modifier = Modifier.padding(if (dense) 6.dp else 10.dp).size(iconSize))
             }
             Text(File(path).name.ifBlank { path }, color = VulkanTextPrimary, fontWeight = FontWeight.SemiBold, style = titleStyle, textAlign = TextAlign.Center, maxLines = if (dense) 1 else 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
-            if (!dense) Text("Folder", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+            Text(turnipFolderCountLabel(folder), color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 FileManagerNavigateArrow(enabled = enabled, description = "Open folder") { onOpen() }
             }
@@ -12114,9 +13391,9 @@ private fun TurnipFileManagerFolderGridCard(path: String, enabled: Boolean, dens
 @Composable
 private fun TurnipFileManagerCandidateGridCard(candidate: TurnipArchiveCandidate, selected: Boolean, alreadyImported: Boolean, enabled: Boolean, dense: Boolean, large: Boolean, onSelectedChange: () -> Unit, onDetails: () -> Unit) {
     val shape = MaterialTheme.shapes.large
-    val surfaceModifier = Modifier.fillMaxWidth().alpha(if (alreadyImported) 0.56f else 1f).clip(shape).clickable(enabled = enabled, role = Role.Checkbox) { onSelectedChange() }
+    val surfaceModifier = Modifier.fillMaxWidth().alpha(if (alreadyImported) 0.56f else 1f).clip(shape).clickable(enabled = enabled, role = Role.Checkbox) { onSelectedChange() }.then(tvBrowseModifier(shape))
     if (large) {
-        Surface(modifier = surfaceModifier, shape = shape, color = if (alreadyImported) VulkanSurfaceLow else if (selected) VulkanAccentContainer else VulkanSurfaceTonal, contentColor = if (alreadyImported) VulkanTextMuted else VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, if (selected && !alreadyImported) VulkanAccentSoft.copy(alpha = 0.58f) else VulkanOutlineVariant)) {
+        Surface(modifier = surfaceModifier, shape = shape, color = if (alreadyImported) VulkanSurfaceLow else if (selected) VulkanAccentContainer else VulkanSurfaceTonal, contentColor = if (alreadyImported) VulkanTextMuted else VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, if (selected && !alreadyImported) VulkanAccentSoft.copy(alpha = 0.58f) else VulkanAccentSoft.copy(alpha = 0.38f))) {
             Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 MesaOfficialLogoBadge(size = 44.dp, muted = alreadyImported)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -12137,7 +13414,7 @@ private fun TurnipFileManagerCandidateGridCard(candidate: TurnipArchiveCandidate
     }
     val padding = if (dense) 6.dp else 10.dp
     val titleStyle = if (dense) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge
-    Surface(modifier = surfaceModifier, shape = shape, color = if (alreadyImported) VulkanSurfaceLow else if (selected) VulkanAccentContainer else VulkanSurfaceTonal, contentColor = if (alreadyImported) VulkanTextMuted else VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, if (selected && !alreadyImported) VulkanAccentSoft.copy(alpha = 0.58f) else VulkanOutlineVariant)) {
+    Surface(modifier = surfaceModifier, shape = shape, color = if (alreadyImported) VulkanSurfaceLow else if (selected) VulkanAccentContainer else VulkanSurfaceTonal, contentColor = if (alreadyImported) VulkanTextMuted else VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, if (selected && !alreadyImported) VulkanAccentSoft.copy(alpha = 0.58f) else VulkanAccentSoft.copy(alpha = 0.38f))) {
         Column(Modifier.fillMaxWidth().padding(padding), verticalArrangement = Arrangement.spacedBy(if (dense) 5.dp else 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 Checkbox(checked = selected, onCheckedChange = { onSelectedChange() }, enabled = enabled, colors = CheckboxDefaults.colors(checkedColor = VulkanAccent, checkmarkColor = VulkanTextPrimary, uncheckedColor = VulkanOutline, disabledUncheckedColor = VulkanOutlineVariant))
@@ -12172,7 +13449,7 @@ private fun TurnipArchiveCandidateDetailsDialog(candidate: TurnipArchiveCandidat
         text = {
             Box(Modifier.fillMaxWidth().heightIn(max = 480.dp)) {
                 val detailsScroll = rememberScrollState()
-                Column(Modifier.fillMaxWidth().desktopVerticalPointerScroll(detailsScroll).verticalScroll(detailsScroll).padding(end = 2.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.fillMaxWidth().desktopVerticalPointerScroll(detailsScroll).dpadScrollableNavigation(detailsScroll).verticalScroll(detailsScroll).focusable().focusGroup().padding(end = 2.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     CapabilityKeyValue("Validation", "Passed pre-import package checks")
                     CapabilityKeyValue("Schema", candidate.schemaVersion.toString())
                     CapabilityKeyValue("Driver name", candidate.driverName ?: "Not exposed")
@@ -12287,6 +13564,29 @@ private fun SharedStorageBrowserDialog(
     val focusManager = LocalFocusManager.current
     val density = LocalDensity.current
     val imeVisible = WindowInsets.ime.getBottom(density) > 0
+    val navigationPadding = WindowInsets.navigationBars.asPaddingValues()
+    val layoutDirection = LocalLayoutDirection.current
+    val navigationStartInset = navigationPadding.calculateLeftPadding(layoutDirection)
+    val navigationEndInset = navigationPadding.calculateRightPadding(layoutDirection)
+    val navigationBottomInset = navigationPadding.calculateBottomPadding()
+    var screenVisible by remember(request.title) { mutableStateOf(false) }
+    var closing by remember(request.title) { mutableStateOf(false) }
+    var searchExpanded by rememberSaveable(request.title) { mutableStateOf(false) }
+    val searchFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { screenVisible = true }
+    LaunchedEffect(searchExpanded, busy) {
+        if (searchExpanded && !busy) runCatching { searchFocusRequester.requestFocus() }
+    }
+    fun requestClose() {
+        if (busy || closing) return
+        closing = true
+        focusManager.clearFocus(force = true)
+        screenVisible = false
+        scope.launch {
+            delay(220L)
+            onDismiss()
+        }
+    }
 
     LaunchedEffect(directoryPath, request.mode, request.allowedExtensions, sortMode) {
         val scanRoot = root ?: return@LaunchedEffect
@@ -12324,7 +13624,7 @@ private fun SharedStorageBrowserDialog(
             catch (cancelled: CancellationException) { busy = false; throw cancelled }
             catch (error: Throwable) { Result.failure(error) }
             busy = false
-            result.onSuccess { status = it; onDismiss() }.onFailure { status = it.message ?: "Export failed" }
+            result.onSuccess { status = it; requestClose() }.onFailure { status = it.message ?: "Export failed" }
         }
     }
 
@@ -12337,53 +13637,78 @@ private fun SharedStorageBrowserDialog(
             catch (cancelled: CancellationException) { busy = false; throw cancelled }
             catch (error: Throwable) { Result.failure(error) }
             busy = false
-            result.onSuccess { status = it; onDismiss() }.onFailure { status = it.message ?: "Import failed" }
+            result.onSuccess { status = it; requestClose() }.onFailure { status = it.message ?: "Import failed" }
         }
     }
 
     BackHandler(enabled = !busy) {
         if (imeVisible) focusManager.clearFocus(force = true)
         else if (!atRoot) navigateUp()
-        else onDismiss()
+        else requestClose()
     }
 
     val headerContent: @Composable () -> Unit = {
-        Surface(shape = MaterialTheme.shapes.extraLarge, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant)) {
-            Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AnimatedHeaderActionButton(
-                    visible = !atRoot,
-                    icon = R.drawable.ic_back,
-                    contentDescription = "Parent folder",
-                    onClick = ::navigateUp,
-                    enabled = !loading && !busy,
-                    buttonSize = 42.dp,
-                    slotSize = 50.dp
-                )
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(request.title, color = VulkanTextPrimary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Text(directoryPath.ifBlank { "Shared storage unavailable" }, color = VulkanTextSecondary, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            AnimatedHeaderActionButton(
+                visible = !atRoot,
+                icon = R.drawable.ic_back,
+                contentDescription = "Parent folder",
+                onClick = ::navigateUp,
+                enabled = !loading && !busy,
+                buttonSize = 42.dp,
+                slotSize = 50.dp
+            )
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(request.title, color = VulkanTextPrimary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                if (root != null) {
+                    FileManagerBreadcrumbBar(
+                        rootPath = root.path,
+                        directoryPath = directoryPath,
+                        enabled = !loading && !busy,
+                        onNavigate = { directoryPath = it },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    Text("Shared storage unavailable", color = VulkanTextSecondary, style = MaterialTheme.typography.labelSmall)
                 }
-                HeaderActionButton(icon = R.drawable.ic_close, contentDescription = "Close", onClick = onDismiss, enabled = !busy)
             }
+            HeaderActionButton(icon = R.drawable.ic_close, contentDescription = "Close", onClick = ::requestClose, enabled = !busy)
         }
     }
 
     val descriptionContent: @Composable () -> Unit = {
-        Surface(shape = MaterialTheme.shapes.large, color = VulkanSurfaceLow, contentColor = VulkanTextSecondary) {
-            Text(request.description, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
-        }
+        Text(request.description, modifier = Modifier.fillMaxWidth(), color = VulkanTextSecondary, style = MaterialTheme.typography.bodySmall)
     }
 
     val searchContent: @Composable () -> Unit = {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ExpressiveSearchField(
-                value = search,
-                onValueChange = { search = it.take(120) },
-                modifier = Modifier.weight(1f),
-                enabled = !busy,
-                labelText = if (request.mode == SharedStorageBrowserMode.IMPORT) "Search folders and files" else "Search folders",
-                placeholderText = if (request.mode == SharedStorageBrowserMode.IMPORT) "Folders and supported files" else "Folders"
-            )
+        Row(Modifier.fillMaxWidth().animateContentSize(animationSpec = tween(240, easing = FastOutSlowInEasing)), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            AnimatedContent(
+                targetState = searchExpanded,
+                transitionSpec = {
+                    (fadeIn(tween(180)) + expandHorizontally(tween(240, easing = FastOutSlowInEasing), expandFrom = Alignment.End)) togetherWith
+                        (fadeOut(tween(130)) + shrinkHorizontally(tween(210, easing = FastOutSlowInEasing), shrinkTowards = Alignment.End))
+                },
+                label = "sharedFileManagerSearchResize",
+                modifier = Modifier.weight(1f).animateContentSize(animationSpec = tween(240, easing = FastOutSlowInEasing))
+            ) { expanded ->
+                if (expanded) {
+                    ExpressiveSearchField(
+                        value = search,
+                        onValueChange = { search = it.take(120) },
+                        modifier = Modifier.fillMaxWidth().focusRequester(searchFocusRequester),
+                        enabled = !busy,
+                        placeholderText = if (request.mode == SharedStorageBrowserMode.IMPORT) "Folders and supported files" else "Folders"
+                    )
+                } else {
+                    val visibleFileCount = if (request.mode == SharedStorageBrowserMode.IMPORT) filteredFiles.size else 0
+                    Text(
+                        if (request.mode == SharedStorageBrowserMode.IMPORT) "${filteredFolders.size} folders · $visibleFileCount files" else "${filteredFolders.size} folders",
+                        modifier = Modifier.fillMaxWidth(),
+                        color = VulkanTextSecondary,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+            }
             FileManagerOptionsChooser(
                 viewMode = viewMode,
                 sortMode = sortMode,
@@ -12398,6 +13723,25 @@ private fun SharedStorageBrowserDialog(
                 enabled = !busy,
                 modifier = Modifier.width(50.dp)
             )
+            AnimatedContent(
+                targetState = searchExpanded,
+                transitionSpec = { fadeIn(tween(160)) + scaleIn(tween(190), initialScale = 0.82f) togetherWith fadeOut(tween(120)) + scaleOut(tween(150), targetScale = 0.82f) },
+                label = "sharedFileManagerSearchAction"
+            ) { expanded ->
+                HeaderActionButton(
+                    icon = if (expanded) R.drawable.ic_close else R.drawable.ic_search,
+                    contentDescription = if (expanded) "Close search" else "Search files and folders",
+                    onClick = {
+                        if (expanded) {
+                            search = ""
+                            focusManager.clearFocus(force = true)
+                            searchExpanded = false
+                        } else searchExpanded = true
+                    },
+                    enabled = !busy,
+                    size = if (expanded) 46.dp else 48.dp
+                )
+            }
         }
     }
 
@@ -12456,43 +13800,68 @@ private fun SharedStorageBrowserDialog(
         }
     }
 
-    Dialog(onDismissRequest = { if (!busy) onDismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = false, dismissOnClickOutside = false)) {
-        Surface(
-            modifier = Modifier.fillMaxSize().padding(10.dp).consumeDesktopSecondaryMouseInput(suppressDesktopSecondaryInput),
-            shape = MaterialTheme.shapes.extraLarge,
-            color = VulkanSurfaceRaised,
-            contentColor = VulkanTextPrimary,
-            border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.46f)),
-            tonalElevation = 8.dp,
-            shadowElevation = 10.dp
+    Box(Modifier.fillMaxSize().zIndex(50f)) {
+        AnimatedVisibility(
+            visible = screenVisible,
+            enter = fadeIn(tween(180)) + slideInVertically(tween(220, easing = FastOutSlowInEasing)) { it / 10 },
+            exit = fadeOut(tween(160)) + slideOutVertically(tween(210, easing = FastOutSlowInEasing)) { it / 12 }
         ) {
-            BoxWithConstraints(Modifier.fillMaxSize().padding(16.dp)) {
-                val landscapeLayout = maxWidth > maxHeight && maxWidth >= 700.dp
-                if (landscapeLayout) {
-                    val controlsScrollState = rememberScrollState()
-                    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Column(
-                            Modifier
-                                .weight(0.42f)
-                                .fillMaxHeight()
-                                .desktopVerticalPointerScroll(controlsScrollState)
-                                .verticalScroll(controlsScrollState),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(start = navigationStartInset, end = navigationEndInset, bottom = navigationBottomInset)
+                    .consumeDesktopSecondaryMouseInput(suppressDesktopSecondaryInput),
+                shape = RoundedCornerShape(0.dp),
+                color = VulkanBlack,
+                contentColor = VulkanTextPrimary,
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp
+            ) {
+                BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    val landscapeLayout = maxWidth > maxHeight && maxWidth >= 700.dp
+                    if (landscapeLayout) {
+                        val controlsScrollState = rememberScrollState()
+                        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Column(
+                                Modifier
+                                    .weight(0.4f)
+                                    .fillMaxHeight()
+                                    .desktopVerticalPointerScroll(controlsScrollState)
+                                    .dpadScrollableNavigation(controlsScrollState)
+                                    .verticalScroll(controlsScrollState)
+                                    .focusable()
+                                    .focusGroup(),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                headerContent()
+                                descriptionContent()
+                                searchContent()
+                                exportNameContent()
+                                statusContent()
+                                footerContent()
+                            }
+                            Box(Modifier.weight(0.6f).fillMaxHeight()) {
+                                SharedStorageBrowserListing(
+                                    loading = loading,
+                                    viewMode = viewMode,
+                                    filteredFolders = filteredFolders,
+                                    filteredFiles = filteredFiles,
+                                    mode = request.mode,
+                                    busy = busy,
+                                    navigationKey = directoryPath,
+                                    onNavigate = { directoryPath = it },
+                                    onImport = ::runImport,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+                    } else {
+                        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             headerContent()
                             descriptionContent()
                             searchContent()
                             exportNameContent()
                             statusContent()
-                            footerContent()
-                        }
-                        Surface(
-                            modifier = Modifier.weight(0.58f).fillMaxHeight(),
-                            shape = MaterialTheme.shapes.extraLarge,
-                            color = VulkanSurfaceLow,
-                            contentColor = VulkanTextPrimary,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant)
-                        ) {
                             SharedStorageBrowserListing(
                                 loading = loading,
                                 viewMode = viewMode,
@@ -12500,31 +13869,13 @@ private fun SharedStorageBrowserDialog(
                                 filteredFiles = filteredFiles,
                                 mode = request.mode,
                                 busy = busy,
+                                navigationKey = directoryPath,
                                 onNavigate = { directoryPath = it },
                                 onImport = ::runImport,
-                                modifier = Modifier.fillMaxSize().padding(8.dp)
+                                modifier = Modifier.weight(1f).fillMaxWidth()
                             )
+                            footerContent()
                         }
-                    }
-                } else {
-                    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        headerContent()
-                        descriptionContent()
-                        searchContent()
-                        exportNameContent()
-                        statusContent()
-                        SharedStorageBrowserListing(
-                            loading = loading,
-                            viewMode = viewMode,
-                            filteredFolders = filteredFolders,
-                            filteredFiles = filteredFiles,
-                            mode = request.mode,
-                            busy = busy,
-                            onNavigate = { directoryPath = it },
-                            onImport = ::runImport,
-                            modifier = Modifier.weight(1f).fillMaxWidth()
-                        )
-                        footerContent()
                     }
                 }
             }
@@ -12555,11 +13906,21 @@ private fun SharedStorageBrowserListing(
     filteredFiles: List<SharedStorageFileEntry>,
     mode: SharedStorageBrowserMode,
     busy: Boolean,
+    navigationKey: String,
     onNavigate: (String) -> Unit,
     onImport: (SharedStorageFileEntry) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Box(modifier) {
+    AnimatedContent(
+        targetState = navigationKey,
+        transitionSpec = {
+            (fadeIn(tween(190)) + slideInHorizontally(tween(230, easing = FastOutSlowInEasing)) { it / 8 }) togetherWith
+                (fadeOut(tween(150)) + slideOutHorizontally(tween(200, easing = FastOutSlowInEasing)) { -it / 8 })
+        },
+        label = "sharedStorageDirectoryTransition",
+        modifier = modifier.animateContentSize(animationSpec = tween(220, easing = FastOutSlowInEasing))
+    ) { _ ->
+        Box(Modifier.fillMaxSize()) {
         if (loading) {
             Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 LoadingIndicator(color = VulkanAccentSoft)
@@ -12579,7 +13940,7 @@ private fun SharedStorageBrowserListing(
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(minimumCellWidth),
                 state = gridState,
-                modifier = Modifier.fillMaxSize().desktopVerticalPointerScroll(gridState),
+                modifier = Modifier.fillMaxSize().desktopVerticalPointerScroll(gridState).tvRemoteLazyGridNavigation(gridState).focusGroup(),
                 horizontalArrangement = Arrangement.spacedBy(if (denseGrid) 6.dp else 8.dp),
                 verticalArrangement = Arrangement.spacedBy(if (denseGrid) 6.dp else if (largeGrid) 10.dp else 8.dp),
                 contentPadding = PaddingValues(bottom = 8.dp)
@@ -12596,7 +13957,7 @@ private fun SharedStorageBrowserListing(
                     item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) { EmptyState("No matching folders or files in this location") }
                 }
             }
-            SoftScrollIntersectionShadows(showTopFade, showBottomFade, Modifier.fillMaxSize(), edgeColor = VulkanSurfaceRaised)
+            SoftScrollIntersectionShadows(showTopFade, showBottomFade, Modifier.fillMaxSize(), edgeColor = VulkanBlack)
             ExpressiveScrollHints(gridState, Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 6.dp))
         } else {
             val listState = rememberLazyListState()
@@ -12606,7 +13967,7 @@ private fun SharedStorageBrowserListing(
             val showBottomFade by remember(listState) { derivedStateOf { listState.canScrollForward } }
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize().desktopVerticalPointerScroll(listState),
+                modifier = Modifier.fillMaxSize().desktopVerticalPointerScroll(listState).tvRemoteLazyListNavigation(listState).focusGroup(),
                 verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp),
                 contentPadding = PaddingValues(bottom = 8.dp)
             ) {
@@ -12620,8 +13981,9 @@ private fun SharedStorageBrowserListing(
                 }
                 if (filteredFolders.isEmpty() && (mode == SharedStorageBrowserMode.EXPORT || filteredFiles.isEmpty())) item { EmptyState("No matching folders or files in this location") }
             }
-            SoftScrollIntersectionShadows(showTopFade, showBottomFade, Modifier.fillMaxSize(), edgeColor = VulkanSurfaceRaised)
+            SoftScrollIntersectionShadows(showTopFade, showBottomFade, Modifier.fillMaxSize(), edgeColor = VulkanBlack)
             ExpressiveScrollHints(listState, Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 6.dp))
+        }
         }
     }
 }
@@ -12630,11 +13992,11 @@ private fun SharedStorageBrowserListing(
 private fun SharedStorageFolderRow(path: String, compact: Boolean, details: Boolean, enabled: Boolean, onOpen: () -> Unit) {
     val shape = MaterialTheme.shapes.large
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.animateContentSize(animationSpec = tween(220, easing = FastOutSlowInEasing)).fillMaxWidth().clip(shape).clickable(enabled = enabled, role = Role.Button, onClick = onOpen).then(tvBrowseModifier(shape)),
         shape = shape,
         color = VulkanSurfaceTonal,
         contentColor = VulkanTextPrimary,
-        border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant),
+        border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.38f)),
         tonalElevation = if (compact) 0.dp else 1.dp
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = if (compact) 8.dp else 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -12660,11 +14022,11 @@ private fun sharedStorageFileIcon(entry: SharedStorageFileEntry): Int = when (en
 private fun SharedStorageFileRow(entry: SharedStorageFileEntry, compact: Boolean, details: Boolean, enabled: Boolean, onSelect: () -> Unit) {
     val shape = MaterialTheme.shapes.large
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.animateContentSize(animationSpec = tween(220, easing = FastOutSlowInEasing)).fillMaxWidth().clip(shape).clickable(enabled = enabled, role = Role.Button, onClick = onSelect).then(tvBrowseModifier(shape)),
         shape = shape,
         color = VulkanSurfaceTonal,
         contentColor = VulkanTextPrimary,
-        border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant),
+        border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.38f)),
         tonalElevation = if (compact) 0.dp else 1.dp
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = if (compact) 8.dp else 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -12685,7 +14047,7 @@ private fun SharedStorageFileRow(entry: SharedStorageFileEntry, compact: Boolean
 private fun SharedStorageFolderGridCard(path: String, enabled: Boolean, dense: Boolean, large: Boolean, onOpen: () -> Unit) {
     val shape = MaterialTheme.shapes.large
     if (large) {
-        Surface(shape = shape, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant), modifier = Modifier.fillMaxWidth()) {
+        Surface(shape = shape, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.38f)), modifier = Modifier.animateContentSize(animationSpec = tween(220, easing = FastOutSlowInEasing)).fillMaxWidth().clip(shape).clickable(enabled = enabled, role = Role.Button, onClick = onOpen).then(tvBrowseModifier(shape))) {
             Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Surface(shape = RoundedCornerShape(18.dp), color = ComposeColor(0xFF2A2418), contentColor = ComposeColor(0xFFFFC857)) {
                     Icon(painterResource(R.drawable.ic_folder), contentDescription = null, modifier = Modifier.padding(10.dp).size(38.dp))
@@ -12698,7 +14060,7 @@ private fun SharedStorageFolderGridCard(path: String, enabled: Boolean, dense: B
             }
         }
     } else {
-        Surface(shape = shape, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant), modifier = Modifier.fillMaxWidth()) {
+        Surface(shape = shape, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.38f)), modifier = Modifier.animateContentSize(animationSpec = tween(220, easing = FastOutSlowInEasing)).fillMaxWidth().clip(shape).clickable(enabled = enabled, role = Role.Button, onClick = onOpen).then(tvBrowseModifier(shape))) {
             Column(Modifier.fillMaxWidth().padding(if (dense) 8.dp else 11.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(if (dense) 5.dp else 8.dp)) {
                 Surface(shape = RoundedCornerShape(if (dense) 12.dp else 16.dp), color = ComposeColor(0xFF2A2418), contentColor = ComposeColor(0xFFFFC857)) {
                     Icon(painterResource(R.drawable.ic_folder), contentDescription = null, modifier = Modifier.padding(if (dense) 7.dp else 9.dp).size(if (dense) 25.dp else 32.dp))
@@ -12714,7 +14076,7 @@ private fun SharedStorageFolderGridCard(path: String, enabled: Boolean, dense: B
 private fun SharedStorageFileGridCard(entry: SharedStorageFileEntry, enabled: Boolean, dense: Boolean, large: Boolean, onSelect: () -> Unit) {
     val shape = MaterialTheme.shapes.large
     if (large) {
-        Surface(shape = shape, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant), modifier = Modifier.fillMaxWidth()) {
+        Surface(shape = shape, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.38f)), modifier = Modifier.animateContentSize(animationSpec = tween(220, easing = FastOutSlowInEasing)).fillMaxWidth().clip(shape).clickable(enabled = enabled, role = Role.Button, onClick = onSelect).then(tvBrowseModifier(shape))) {
             Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Surface(shape = RoundedCornerShape(18.dp), color = VulkanAccentContainer, contentColor = VulkanAccentSoft) {
                     Icon(painterResource(sharedStorageFileIcon(entry)), contentDescription = null, modifier = Modifier.padding(10.dp).size(36.dp))
@@ -12727,7 +14089,7 @@ private fun SharedStorageFileGridCard(entry: SharedStorageFileEntry, enabled: Bo
             }
         }
     } else {
-        Surface(shape = shape, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanOutlineVariant), modifier = Modifier.fillMaxWidth()) {
+        Surface(shape = shape, color = VulkanSurfaceTonal, contentColor = VulkanTextPrimary, border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.38f)), modifier = Modifier.animateContentSize(animationSpec = tween(220, easing = FastOutSlowInEasing)).fillMaxWidth().clip(shape).clickable(enabled = enabled, role = Role.Button, onClick = onSelect).then(tvBrowseModifier(shape))) {
             Column(Modifier.fillMaxWidth().padding(if (dense) 8.dp else 11.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(if (dense) 5.dp else 8.dp)) {
                 Surface(shape = RoundedCornerShape(if (dense) 12.dp else 16.dp), color = VulkanAccentContainer, contentColor = VulkanAccentSoft) {
                     Icon(painterResource(sharedStorageFileIcon(entry)), contentDescription = null, modifier = Modifier.padding(if (dense) 7.dp else 9.dp).size(if (dense) 25.dp else 32.dp))
@@ -14351,7 +15713,7 @@ private fun UpdateTransferDialog(
                     Box(Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 220.dp).padding(12.dp)) {
                         LazyColumn(
                             state = logState,
-                            modifier = Modifier.fillMaxWidth().desktopVerticalPointerScroll(logState).focusGroup(),
+                            modifier = Modifier.fillMaxWidth().desktopVerticalPointerScroll(logState).tvRemoteLazyListNavigation(logState).focusable().focusGroup(),
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                             userScrollEnabled = true
                         ) {
@@ -14413,7 +15775,7 @@ private fun ReleaseNotesContent(markdown: String, modifier: Modifier = Modifier)
     Box(modifier.padding(14.dp)) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxWidth().desktopVerticalPointerScroll(listState).focusGroup(),
+            modifier = Modifier.fillMaxWidth().desktopVerticalPointerScroll(listState).tvRemoteLazyListNavigation(listState).focusGroup(),
             verticalArrangement = Arrangement.spacedBy(5.dp),
             userScrollEnabled = true
         ) {
@@ -14606,13 +15968,28 @@ private fun capabilitySectionIcon(title: String): Int = when {
     title.equals("Android", true) || title.equals("Android runtime", true) || title.equals("Operating system", true) -> R.drawable.ic_android
     title.equals("Updates", true) || title.equals("Update preferences", true) -> R.drawable.ic_download
     title.equals("Encyclopedia", true) -> R.drawable.ic_book
+    title.equals("How to read encyclopedia entries", true) -> R.drawable.ic_question
+    title.equals("Reference search", true) -> R.drawable.ic_search
     title.equals("Global Vulkan report search", true) -> R.drawable.ic_search
     title.equals("Analysis workspace", true) -> R.drawable.ic_analysis
+    title.equals("Collection integrity score", true) -> R.drawable.ic_shield
+    title.equals("Scoring method", true) -> R.drawable.ic_evidence
+    title.equals("What this score does not mean", true) -> R.drawable.ic_question
+    title.equals("Dependency graph explorer", true) || title.equals("Graph legend", true) || title.equals("Capability dependency graph", true) || title.equals("Visual registry-reference graph", true) -> R.drawable.ic_graph
+    title.equals("Graph overview", true) -> R.drawable.ic_quick_access_grid
+    title.equals("Interactive dependency map", true) -> R.drawable.ic_compass
+    title.equals("Vulkan active self-tests", true) || title.equals("Optional active tests", true) -> R.drawable.ic_test
+    title.equals("Test result summary", true) || title.equals("Self-test result", true) -> R.drawable.ic_self_test
+    title.equals("Result semantics", true) -> R.drawable.ic_question
+    title.equals("Capability requirement resolver", true) -> R.drawable.ic_registry
+    title.equals("Requirement evaluation summary", true) -> R.drawable.ic_check
+    title.equals("Vulkan Profiles and custom minimums", true) -> R.drawable.ic_profile
+    title.equals("Custom minimum builder", true) -> R.drawable.ic_add
+    title.equals("Current custom evaluation", true) -> R.drawable.ic_check
+    title.equals("Saved minimum profiles", true) -> R.drawable.ic_save
     title.equals("Local session history", true) -> R.drawable.ic_history
     title.equals("Watched evidence", true) -> R.drawable.ic_watch_add
     title.equals("A/B summary", true) || title.equals("Diff summary", true) || title.equals("Offline report compare", true) || title.equals("System driver ↔ Turnip A/B", true) -> R.drawable.ic_compare
-    title.equals("Capability dependency graph", true) || title.equals("Visual registry-reference graph", true) -> R.drawable.ic_graph
-    title.equals("Optional active tests", true) || title.equals("Self-test result", true) -> R.drawable.ic_test
     title.equals("Vulkan registry / query engine", true) || title.equals("Raw structured technical Report", true) -> R.drawable.ic_registry
     title.equals("Opening animation", true) -> R.drawable.ic_opening_animation_toggle
     title.equals("Export complete report", true) -> R.drawable.ic_surface
@@ -14652,9 +16029,6 @@ private fun preferExpandedTextLayout(): Boolean {
 
 @Composable
 private fun tvBrowseModifier(shape: Shape): Modifier {
-    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
-    val isTelevision = configuration.uiMode and Configuration.UI_MODE_TYPE_MASK == Configuration.UI_MODE_TYPE_TELEVISION
-    if (!isTelevision) return Modifier
     val requester = remember { BringIntoViewRequester() }
     var focused by remember { mutableStateOf(false) }
     LaunchedEffect(focused) { if (focused) requester.bringIntoView() }
@@ -15027,6 +16401,24 @@ private fun SectionHeaderIcon(title: String, sectionIcon: Int) {
                 )
             }
         }
+        title.equals("Encyclopedia", true) -> SectionVectorBadgeIcon(R.drawable.ic_book, "REF")
+        title.equals("Reference search", true) -> SectionVectorBadgeIcon(R.drawable.ic_book, overlayIcon = R.drawable.ic_search)
+        title.equals("How to read encyclopedia entries", true) -> SectionVectorBadgeIcon(R.drawable.ic_book, overlayIcon = R.drawable.ic_question)
+        title.equals("Capability requirement resolver", true) -> SectionVectorBadgeIcon(R.drawable.ic_registry, overlayIcon = R.drawable.ic_search)
+        title.equals("Requirement evaluation summary", true) -> SectionVectorBadgeIcon(R.drawable.ic_registry, overlayIcon = R.drawable.ic_check)
+        title.equals("Vulkan Profiles and custom minimums", true) -> SectionVectorBadgeIcon(R.drawable.ic_profile, "VP")
+        title.equals("Custom minimum builder", true) -> SectionVectorBadgeIcon(R.drawable.ic_profile, overlayIcon = R.drawable.ic_add)
+        title.equals("Saved minimum profiles", true) -> SectionVectorBadgeIcon(R.drawable.ic_profile, overlayIcon = R.drawable.ic_save)
+        title.equals("Current custom evaluation", true) -> SectionVectorBadgeIcon(R.drawable.ic_profile, overlayIcon = R.drawable.ic_check)
+        title.equals("Dependency graph explorer", true) -> SectionVectorBadgeIcon(R.drawable.ic_graph, overlayIcon = R.drawable.ic_search)
+        title.equals("Graph overview", true) -> SectionVectorBadgeIcon(R.drawable.ic_graph, overlayIcon = R.drawable.ic_quick_access_grid)
+        title.equals("Interactive dependency map", true) -> SectionVectorBadgeIcon(R.drawable.ic_graph, overlayIcon = R.drawable.ic_compass)
+        title.equals("Collection integrity score", true) -> SectionVectorBadgeIcon(R.drawable.ic_shield, overlayIcon = R.drawable.ic_check)
+        title.equals("Scoring method", true) -> SectionVectorBadgeIcon(R.drawable.ic_shield, overlayIcon = R.drawable.ic_evidence)
+        title.equals("What this score does not mean", true) -> SectionVectorBadgeIcon(R.drawable.ic_shield, overlayIcon = R.drawable.ic_question)
+        title.equals("Vulkan active self-tests", true) -> SectionVectorBadgeIcon(R.drawable.ic_test, "RUN")
+        title.equals("Test result summary", true) -> SectionVectorBadgeIcon(R.drawable.ic_self_test, "SUM")
+        title.equals("Result semantics", true) -> SectionVectorBadgeIcon(R.drawable.ic_test, overlayIcon = R.drawable.ic_question)
         title.equals("Vulkan registry / query engine", true) -> SectionVectorBadgeIcon(R.drawable.ic_registry, "REG")
         title.equals("About", true) -> AboutSectionIcon()
         title.equals("Android runtime", true) -> AndroidRuntimeSectionIcon()
@@ -15523,7 +16915,7 @@ private fun ExpressiveSingleFilterSelector(
                                     Box(Modifier.fillMaxSize().nestedScroll(boundaryScrollConnection)) {
                                         LazyColumn(
                                             state = targetListState,
-                                            modifier = Modifier.fillMaxSize().desktopVerticalPointerScroll(targetListState),
+                                            modifier = Modifier.fillMaxSize().desktopVerticalPointerScroll(targetListState).tvRemoteLazyListNavigation(targetListState).focusGroup(),
                                             verticalArrangement = Arrangement.spacedBy(5.dp),
                                             contentPadding = PaddingValues(vertical = 2.dp)
                                         ) {
@@ -15534,7 +16926,7 @@ private fun ExpressiveSingleFilterSelector(
                                                     shape = rowShape,
                                                     color = if (selected) VulkanAccentContainer else ComposeColor.Transparent,
                                                     contentColor = if (selected) VulkanTextPrimary else VulkanTextSecondary,
-                                                    modifier = Modifier.fillMaxWidth().clip(rowShape).clickable(role = Role.RadioButton) { onSelected(index) }
+                                                    modifier = Modifier.fillMaxWidth().clip(rowShape).clickable(role = Role.RadioButton) { onSelected(index) }.then(tvBrowseModifier(rowShape))
                                                 ) {
                                                     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                                         Surface(shape = RoundedCornerShape(999.dp), color = if (selected) VulkanAccentSoft else VulkanOutlineVariant, modifier = Modifier.size(10.dp)) {}
@@ -15781,7 +17173,7 @@ private fun ExpressiveMultiFilterBar(labels: List<String>, selectedLabels: Set<S
                         Box(Modifier.fillMaxWidth().heightIn(min = 56.dp, max = 420.dp).nestedScroll(boundaryScrollConnection)) {
                             LazyColumn(
                                 state = listState,
-                                modifier = Modifier.fillMaxWidth().desktopVerticalPointerScroll(listState),
+                                modifier = Modifier.fillMaxWidth().desktopVerticalPointerScroll(listState).tvRemoteLazyListNavigation(listState).focusGroup(),
                                 verticalArrangement = Arrangement.spacedBy(5.dp),
                                 contentPadding = PaddingValues(vertical = 2.dp)
                             ) {
@@ -15792,7 +17184,7 @@ private fun ExpressiveMultiFilterBar(labels: List<String>, selectedLabels: Set<S
                                         shape = rowShape,
                                         color = if (selected) VulkanAccentContainer else ComposeColor.Transparent,
                                         contentColor = if (selected) VulkanTextPrimary else VulkanTextSecondary,
-                                        modifier = Modifier.fillMaxWidth().clip(rowShape).clickable(role = Role.Checkbox) { onToggle(label) }
+                                        modifier = Modifier.fillMaxWidth().clip(rowShape).clickable(role = Role.Checkbox) { onToggle(label) }.then(tvBrowseModifier(rowShape))
                                     ) {
                                         Row(
                                             Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 12.dp, vertical = 8.dp),
@@ -15855,10 +17247,17 @@ private fun ExpressiveToggleRow(title: String, subtitle: String, checked: Boolea
 
 @Composable
 private fun ExpressiveMetric(label: String, value: String, modifier: Modifier = Modifier) {
-    Surface(shape = MaterialTheme.shapes.medium, color = VulkanSurfaceTonal, modifier = modifier) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(trademarkVulkanDisplayText(value), color = VulkanTextPrimary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-            Text(trademarkVulkanDisplayText(label), color = VulkanTextSecondary, style = MaterialTheme.typography.labelMedium)
+    val shape = MaterialTheme.shapes.large
+    Surface(
+        shape = shape,
+        color = VulkanAccentContainer,
+        contentColor = VulkanTextPrimary,
+        border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.34f)),
+        modifier = modifier.animateContentSize(animationSpec = tween(220, easing = FastOutSlowInEasing)).then(tvBrowseModifier(shape))
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 13.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(trademarkVulkanDisplayText(label), color = VulkanAccentSoft, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+            Text(trademarkVulkanDisplayText(value), color = VulkanTextPrimary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -15866,10 +17265,10 @@ private fun ExpressiveMetric(label: String, value: String, modifier: Modifier = 
 @Composable
 private fun ExpressiveMetricGrid(metrics: List<Pair<String, String>>, modifier: Modifier = Modifier) {
     if (metrics.isEmpty()) return
-    val expandedText = preferExpandedTextLayout()
+    val fontScale = LocalDensity.current.fontScale
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val columns = when {
-            expandedText || maxWidth < 360.dp -> 1
+            maxWidth < 300.dp || (fontScale >= 1.55f && maxWidth < 420.dp) -> 1
             maxWidth < 760.dp -> 2
             else -> 3
         }
@@ -15887,8 +17286,8 @@ private fun ExpressiveMetricGrid(metrics: List<Pair<String, String>>, modifier: 
 @Composable
 private fun ExpressiveStatus(state: String) {
     val positive = when (state.uppercase()) {
-        "PASS", "SATISFIED", "SUPPORTED", "AVAILABLE", "COMPATIBLE EVIDENCE", "NO REJECTION" -> true
-        "FAIL", "NOT SATISFIED", "UNSUPPORTED", "SAFETY REJECTED" -> false
+        "PASS", "SATISFIED", "SUPPORTED", "AVAILABLE", "COMPATIBLE EVIDENCE", "NO REJECTION", "CLEAR" -> true
+        "FAIL", "NOT SATISFIED", "UNSUPPORTED", "SAFETY REJECTED", "DEDUCTION" -> false
         else -> null
     }
     CapabilityStatusBadge(state, positive)
@@ -16372,6 +17771,58 @@ private fun ExpressiveVersionBlock(application: String, version: String, version
 }
 
 @Composable
+private fun DatabaseDriverModePill(driverMode: String, modifier: Modifier = Modifier) {
+    val isTurnip = driverMode.contains("turnip", ignoreCase = true)
+    val value = driverMode.ifBlank { "Unknown" }
+    Surface(color = VulkanSurfaceTonal, shape = MaterialTheme.shapes.medium, modifier = modifier) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text("Driver", color = ComposeColor(0xFF968D8F), style = MaterialTheme.typography.labelSmall)
+            Text(
+                trademarkVulkanDisplayText(value),
+                color = if (isTurnip) VulkanAccentSoft else VulkanTextPrimary,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+private data class DatabaseSubmittedDisplay(val date: String, val time: String, val zone: String)
+
+private fun databaseSubmittedDisplay(context: Context, raw: String): DatabaseSubmittedDisplay? = runCatching {
+    val instant = java.time.Instant.parse(raw.trim())
+    val date = java.util.Date.from(instant)
+    val timeZone = java.util.TimeZone.getDefault()
+    val dateFormat = android.text.format.DateFormat.getMediumDateFormat(context).apply { this.timeZone = timeZone }
+    val timeFormat = android.text.format.DateFormat.getTimeFormat(context).apply { this.timeZone = timeZone }
+    DatabaseSubmittedDisplay(
+        date = dateFormat.format(date),
+        time = timeFormat.format(date),
+        zone = timeZone.getDisplayName(timeZone.inDaylightTime(date), java.util.TimeZone.SHORT)
+    )
+}.getOrNull()
+
+@Composable
+private fun DatabaseSubmittedAt(raw: String) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val display = remember(raw, context) { databaseSubmittedDisplay(context, raw) }
+    if (display == null) {
+        CapabilityKeyValue("Submitted", raw.ifBlank { "Unknown" })
+    } else {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Submitted", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ExpressiveInfoPill("Date", display.date, Modifier.weight(1f))
+                ExpressiveInfoPill("Time", display.time, Modifier.weight(1f))
+            }
+            Text("Device local time · ${display.zone}", color = VulkanTextMuted, style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+@Composable
 private fun ExpressiveInfoPill(label: String, value: String, modifier: Modifier = Modifier) {
     Surface(color = VulkanSurfaceTonal, shape = MaterialTheme.shapes.medium, modifier = modifier) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -16384,12 +17835,16 @@ private fun ExpressiveInfoPill(label: String, value: String, modifier: Modifier 
 @Composable
 private fun MetricCard(title: String, value: String, modifier: Modifier) {
     val shape = MaterialTheme.shapes.large
-    Surface(color = ComposeColor(0xFF181516), shape = shape, modifier = modifier.then(tvBrowseModifier(shape))) {
-        Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            Surface(shape = RoundedCornerShape(999.dp), color = ComposeColor(0xFF2A2022)) {
-                Text(trademarkVulkanDisplayText(title), color = ComposeColor(0xFFE98A8C), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp))
-            }
-            Text(trademarkVulkanDisplayText(value), color = ComposeColor(0xFFF7F2F3), fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 3, overflow = TextOverflow.Ellipsis)
+    Surface(
+        color = VulkanAccentContainer,
+        contentColor = VulkanTextPrimary,
+        shape = shape,
+        border = androidx.compose.foundation.BorderStroke(1.dp, VulkanAccentSoft.copy(alpha = 0.34f)),
+        modifier = modifier.animateContentSize(animationSpec = tween(220, easing = FastOutSlowInEasing)).then(tvBrowseModifier(shape))
+    ) {
+        Column(Modifier.padding(horizontal = 15.dp, vertical = 13.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(trademarkVulkanDisplayText(title), color = VulkanAccentSoft, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+            Text(trademarkVulkanDisplayText(value), color = VulkanTextPrimary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 3, overflow = TextOverflow.Ellipsis)
         }
     }
 }

@@ -6,7 +6,7 @@
 
 Database: https://efishell0.github.io/VulkanScope_database/
 
-**Current version: 3.0.2**
+**Current version: 3.0.12**
 
 This app supports **Obtainium**; the project/release URL can be used for update tracking.
 
@@ -75,20 +75,20 @@ A capability that was not queried or could not be determined is not silently con
 # Screenshots
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/overview-6.jpg" width="200">
-  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/properties-6.jpg" width="200">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/overview-7.jpg" width="200">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/properties-7.jpg" width="200">
   <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/vulkan-6.jpg" width="200">
 </p>
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/surface-6.jpg" width="200">
   <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/display-6.jpg" width="200">
-  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/extensions-6.jpg" width="200">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/extensions-7.jpg" width="200">
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/androidstudio-landscape-new-2.png" width="500">
-  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/database_new-7.png" width="500">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/androidstudio-landscape-new-3.png" width="500">
+  <img src="https://raw.githubusercontent.com/EFIShell0/VulkanScope/main/screenshots/database_new-8.png" width="500">
 </p>
 
 **NOTE: The first landscape screenshot was captured in Android Studio. Virtualized environments (emulators/hypervisors) such as BlueStacks, MuMuPlayer, LDPlayer, and QEMU are not supported.**

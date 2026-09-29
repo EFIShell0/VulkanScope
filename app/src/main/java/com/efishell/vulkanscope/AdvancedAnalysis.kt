@@ -195,6 +195,11 @@ internal fun evidenceProvenance(key: String, value: String): EvidenceProvenance 
     }
 }
 
+internal fun formatAnalysisElapsedTime(elapsedMs: Long): String {
+    val seconds = elapsedMs.coerceAtLeast(0L).toDouble() / 1000.0
+    return String.format(java.util.Locale.ROOT, "%.3f s (%d ms)", seconds, elapsedMs.coerceAtLeast(0L))
+}
+
 internal fun queryDiagnostics(entries: Map<String, String>, timingsMs: Map<String, Long> = emptyMap()): List<QueryDiagnosticRow> {
     val rows = entries.filterKeys { key ->
         key.startsWith("query/") || key.startsWith("safety/") || key.startsWith("physicalDeviceEnumeration/") || key.startsWith("instanceGroup/") || key.contains("Vulkan Query Status", true)
@@ -221,7 +226,7 @@ internal fun queryDiagnostics(entries: Map<String, String>, timingsMs: Map<Strin
             group.startsWith("service/") -> "Isolated probe-process phase measured"
             else -> "Collection timing measured"
         }
-        QueryDiagnosticRow("timeline/${index.toString().padStart(3, '0')}/$group", "COMPLETED", description, "$elapsed ms")
+        QueryDiagnosticRow("timeline/${index.toString().padStart(3, '0')}/$group", "COMPLETED", description, formatAnalysisElapsedTime(elapsed))
     }
     return (timelineRows + rows).sortedWith(compareBy<QueryDiagnosticRow> { it.key.substringBefore('/') }.thenBy { it.key })
 }
