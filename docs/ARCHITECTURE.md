@@ -1,6 +1,6 @@
 # Architecture and source responsibilities
 
-VulkanScope retains a single Android Activity for lifecycle and permissions, but splits the Compose UI, Vulkan collector, analysis logic, report export and registry data by responsibility.
+VulkanScope retains a single Android Activity for lifecycle and permissions, but splits the Compose UI, Vulkan® collector, analysis logic, report export and registry data by responsibility.
 
 | Source | Responsibility |
 | --- | --- |
@@ -16,13 +16,13 @@ VulkanScope retains a single Android Activity for lifecycle and permissions, but
 | `AnalysisEntry.kt`, `AnalysisDomain.kt`, `AnalysisScreens.kt`, `AdvancedAnalysis.kt` | Analysis state, comparisons, minimums, search and self-test presentation |
 | `CapabilityEvidenceScore.kt` | Independent five-component score model (not a benchmark) |
 | `ReportExportPipeline.kt`, `UiReports.kt` | Complete report serialization, local exports, Database client and status UI |
-| `UiSettings.kt`, `UiProfiles.kt` | Settings and Vulkan profile presentation |
-| `VulkanProbeService.kt`, `app/src/main/cpp/vulkanscope.cpp` | Isolated runtime/native Vulkan interrogation and safety boundaries |
+| `UiSettings.kt`, `UiProfiles.kt` | Settings and Vulkan® profile presentation |
+| `VulkanProbeService.kt`, `app/src/main/cpp/vulkanscope.cpp` | Isolated runtime/native Vulkan® interrogation and safety boundaries |
 | `registry/`, `VulkanSymbolIndex.kt`, `VulkanExtensionReference.kt` | Pinned registry and generated symbol/capability catalogs |
 
 ## Design boundaries
 
-- Runtime Vulkan evidence is obtained from actual queries; registry metadata alone is never a support result.
+- Runtime Vulkan® evidence is obtained from actual queries; registry metadata alone is never a support result.
 - UI files must not absorb HTTP submission, export serialization or score calculation helpers.
 - The pager descriptor is captured during lazy-list DSL creation so item disposal cannot remove its pinned identity. Its index reflects the same transformed row layout used by the real list.
 - In landscape, Settings and Surface use `SectionDestinationGrid`, while regular list cards are arranged as ordered left/right pairs.

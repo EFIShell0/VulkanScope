@@ -9,7 +9,7 @@ VulkanScope uses restrained, dark Material 3 Expressive surfaces with subtle bor
 - **Action buttons:** enabled actions have the same dark filled treatment as *Open VulkanScope Database*, with red accents reserved for icons/affordances. True unavailable, locked and disabled states use near-black and do not dispatch.
 - **Submission status:** icon-free, state-specific informational card, separate from the upload action control.
 - **Markdown:** legible white/near-white text in updates, licenses, documentation and legal notices.
-- **Branding:** the About **Trademarks and artwork** heading has no decorative TM/Khronos icon. Actual trademark and logo ownership notices remain in text.
+- **Branding:** the About **Trademarks and artwork** heading has no decorative TM/Khronos® icon. Actual trademark and logo ownership notices remain in text.
 
 ## Navigation and pager
 

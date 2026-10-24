@@ -6,7 +6,7 @@ The VulkanScope 4.0.15 source bundle includes the pinned, byte-locked Khronos Vu
 
 | Item | Locked count |
 | --- | ---: |
-| Registered Vulkan extensions | 479 |
+| Registered Vulkan® extensions | 479 |
 | Command symbols | 842 |
 | Token symbols | 6,274 |
 | API type symbols | 2,467 |
@@ -22,7 +22,7 @@ Two registry-queryable providers are not yet validated in the native collector: 
 ```powershell
 python -B tools\verify_cmake_registry_lock.py
 python -B tools\verify_release_source.py
-python tools\generate_extension_reference.py --registry registry\upstream\vk.xml --output registry\generated\extension_reference.json --kotlin-output app\src\main\java\com\efishell\vulkanscope\VulkanExtensionReference.kt --baseline "Vulkan 1.4.366"
+python tools\generate_extension_reference.py --registry registry\upstream\vk.xml --output registry\generated\extension_reference.json --kotlin-output app\src\main\java\com\efishell\vulkanscope\VulkanExtensionReference.kt --baseline "Vulkan® 1.4.366"
 ```
 
 Only regenerate native coverage after implementing and reviewing the matching Vulkan-Headers 1.4.366 structures and verifying them on appropriate devices. Do not mark pending providers validated in metadata without doing so.

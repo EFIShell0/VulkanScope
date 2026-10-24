@@ -6,7 +6,7 @@ Under **Settings → Reports & Database → Export complete report**, TXT, self-
 
 - Export is always initiated by the user through the in-app shared-storage browser.
 - The app generates a temporary snapshot in its private storage (up to 64 MiB), validates the output path and copies the chosen artifact safely.
-- The full report preserves raw numeric values, canonical Vulkan tokens and Unknown/Unavailable/Not applicable distinctions. No capability omission filter is offered.
+- The full report preserves raw numeric values, canonical Vulkan® tokens and Unknown/Unavailable/Not applicable distinctions. No capability omission filter is offered.
 - Analysis still allows structured inspection of `technicalReport`; the duplicate complete-report JSON export action was removed from Analysis.
 
 ## Database submission
