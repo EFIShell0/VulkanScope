@@ -5,12 +5,12 @@ import sys
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
-ap = argparse.ArgumentParser(description='Audit VulkanScope physical-device pNext coverage and optionally compare against a local legacy reference 4.12 checkout.')
+ap = argparse.ArgumentParser(description='Audit VulkanScope physical-device pNext coverage and optionally compare against a local reference source checkout.')
 ap.add_argument('--registry', required=True)
 ap.add_argument('--header', required=True)
 ap.add_argument('--vulkanscope-root', required=True)
 ap.add_argument('--reference-root')
-ap.add_argument('--mode', choices=['canonical','source'], default='canonical', help='canonical audit or local legacy reference source audit')
+ap.add_argument('--mode', choices=['canonical','source'], default='canonical', help='canonical audit or local reference source audit')
 ap.add_argument('--out', required=True)
 args = ap.parse_args()
 
@@ -44,7 +44,7 @@ for n in re.findall(r'VkPhysicalDevice\w+', catalog):
 
 if args.reference_root and args.mode == 'source':
     import subprocess
-    tool = vsroot / 'tools' / 'compare_reference_4_12.py'
+    tool = vsroot / 'tools' / 'compare_reference_source.py'
     result = subprocess.run([sys.executable, str(tool), '--reference-root', str(args.reference_root), '--header', str(args.header), '--registry', str(args.registry), '--out', str(out)], check=False)
     raise SystemExit(result.returncode)
 
@@ -75,7 +75,7 @@ missing=sorted(set(canonical)-set(pnext_hits))
 validated_missing=sorted(set(canonical)&set(validated)-set(pnext_hits))
 
 report={
-    'canonicalHeader':'Vulkan 1.4.362',
+    'canonicalHeader':'Vulkan 1.4.366',
     'canonicalPNextCandidates':len(canonical),
     'generatedPNextTypes':len(pnext_hits),
     'fullCoverageCount':len(full),

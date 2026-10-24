@@ -1,6 +1,6 @@
 {
   "schema": 2,
-  "baseline": "Vulkan 1.4.364",
+  "baseline": "Vulkan 1.4.366",
   "source": "Khronos vk.xml",
   "entries": [
     {
@@ -680,6 +680,28 @@
       ],
       "queryGroup": "",
       "specUrl": "https://registry.khronos.org/vulkan/specs/latest/man/html/VK_ANDROID_external_memory_android_hardware_buffer.html"
+    },
+    {
+      "name": "VK_ARM_cooperative_matrix_layouts",
+      "authorTag": "ARM",
+      "author": "ARM Limited",
+      "specVersion": "1",
+      "type": "device",
+      "platform": "",
+      "promotedTo": "",
+      "depends": "",
+      "requires": "",
+      "deprecatedBy": "",
+      "obsoletedBy": "",
+      "provisional": false,
+      "commands": [],
+      "enums": [
+        "VK_ARM_COOPERATIVE_MATRIX_LAYOUTS_EXTENSION_NAME",
+        "VK_ARM_COOPERATIVE_MATRIX_LAYOUTS_SPEC_VERSION",
+        "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_LAYOUTS_FEATURES_ARM"
+      ],
+      "queryGroup": "",
+      "specUrl": "https://registry.khronos.org/vulkan/specs/latest/man/html/VK_ARM_cooperative_matrix_layouts.html"
     },
     {
       "name": "VK_ARM_data_graph",
@@ -5682,6 +5704,30 @@
       ],
       "queryGroup": "",
       "specUrl": "https://registry.khronos.org/vulkan/specs/latest/man/html/VK_GOOGLE_display_timing.html"
+    },
+    {
+      "name": "VK_GOOGLE_hdr_smpte_st_209450_metadata",
+      "authorTag": "GOOGLE",
+      "author": "Google LLC",
+      "specVersion": "1",
+      "type": "device",
+      "platform": "",
+      "promotedTo": "",
+      "depends": "(VK_KHR_get_physical_device_properties2,VK_VERSION_1_1)+VK_KHR_get_surface_capabilities2+VK_KHR_swapchain+VK_EXT_hdr_metadata",
+      "requires": "",
+      "deprecatedBy": "",
+      "obsoletedBy": "",
+      "provisional": false,
+      "commands": [],
+      "enums": [
+        "VK_GOOGLE_HDR_SMPTE_ST_209450_METADATA_EXTENSION_NAME",
+        "VK_GOOGLE_HDR_SMPTE_ST_209450_METADATA_SPEC_VERSION",
+        "VK_STRUCTURE_TYPE_HDR_SMPTE_ST_209450_GOOGLE",
+        "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HDR_SMPTE_ST_209450_FEATURES_GOOGLE",
+        "VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_HDR_SMPTE_ST_209450_GOOGLE"
+      ],
+      "queryGroup": "",
+      "specUrl": "https://registry.khronos.org/vulkan/specs/latest/man/html/VK_GOOGLE_hdr_smpte_st_209450_metadata.html"
     },
     {
       "name": "VK_GOOGLE_hlsl_functionality1",

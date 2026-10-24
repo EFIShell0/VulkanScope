@@ -16,7 +16,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
-      - run: python tools/quality_gate.py --strict-upstream --fetch-locked-upstream
+      - run: python -B tools/quality_gate.py
 
   android-release:
     runs-on: ubuntu-latest
@@ -31,3 +31,4 @@ jobs:
           packages: 'platform-tools platforms;android-37 ndk;29.0.14206865 cmake;3.22.1'
       - run: chmod +x gradlew
       - run: ./gradlew --no-daemon clean lintRelease testReleaseUnitTest assembleRelease
+      - run: python -B tools/verify_release_apks.py
