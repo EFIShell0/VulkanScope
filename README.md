@@ -1,4 +1,4 @@
-<p><strong><span style="color:#FFFFFF">⚠ VulkanScope is not an official Khronos Group project.</span></strong></p>
+<p><strong><span style="color:#FFFFFF">⚠ VulkanScope is not an official Khronos® Group project.</span></strong></p>
 
 # VulkanScope
 
@@ -160,9 +160,9 @@ Extension detail views can also show:
 
 - runtime enumeration evidence,
 - dedicated VulkanScope query-handler evidence,
-- embedded Khronos registry dependency/reference metadata,
+- embedded Khronos® registry dependency/reference metadata,
 - bounded dependency traversal and graph visualization,
-- links to the authoritative Khronos extension reference where applicable.
+- links to the authoritative Khronos® extension reference where applicable.
 
 Registry metadata is presented separately from runtime support. A registry dependency or known query handler is not treated as proof that the active device exposes an extension.
 
@@ -451,7 +451,7 @@ Custom minimum profiles support `VulkanScopeMinimumProfile1` JSON import/export.
 
 ### Extension dependency analysis
 
-VulkanScope includes a generated Khronos registry extension-reference catalog for offline dependency inspection. Dependency traversal is cycle-safe and bounded, and the visual graph is deliberately limited for legibility. Registry relationships are shown separately from actual runtime extension enumeration and query results.
+VulkanScope includes a generated Khronos® registry extension-reference catalog for offline dependency inspection. Dependency traversal is cycle-safe and bounded, and the visual graph is deliberately limited for legibility. Registry relationships are shown separately from actual runtime extension enumeration and query results.
 
 ### Raw structured technical report
 
